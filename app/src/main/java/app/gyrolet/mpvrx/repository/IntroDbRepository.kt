@@ -802,11 +802,22 @@ class IntroDbRepository(
       )
     }
 
-    if (request.provider == IntroSegmentProvider.SKIP_DB) {
-      return IntroDbLookupOutcome.Unresolved(title = normalizedTitle, provider = request.provider)
-    }
-
     request.tmdbId?.let { tmdbId ->
+      if (request.provider == IntroSegmentProvider.SKIP_DB) {
+        resolveImdbIdFromTmdb(tmdbId, mediaType)?.let { imdbId ->
+          return fetchSegmentsForResolvedId(
+            request = request,
+            lookupId = imdbId,
+            imdbId = imdbId,
+            mediaType = mediaType,
+            season = season,
+            episode = episode,
+            source = IntroDbResolutionSource.EXPLICIT_TMDB,
+          )
+        }
+        return IntroDbLookupOutcome.Unresolved(title = normalizedTitle, provider = request.provider)
+      }
+
       return fetchSegmentsForResolvedId(
         request = request,
         lookupId = "tmdb:$tmdbId",
@@ -821,6 +832,21 @@ class IntroDbRepository(
 
     val match = searchTmdb(normalizedTitle, parsedYear, mediaType)
     if (match != null) {
+      if (request.provider == IntroSegmentProvider.SKIP_DB) {
+        resolveImdbIdFromTmdb(match.id, mediaType)?.let { imdbId ->
+          return fetchSegmentsForResolvedId(
+            request = request,
+            lookupId = imdbId,
+            imdbId = imdbId,
+            mediaType = mediaType,
+            season = season,
+            episode = episode,
+            source = IntroDbResolutionSource.TMDB_SEARCH,
+          )
+        }
+        return IntroDbLookupOutcome.Unresolved(title = normalizedTitle, provider = request.provider)
+      }
+
       return fetchSegmentsForResolvedId(
         request = request,
         lookupId = "tmdb:${match.id}",
