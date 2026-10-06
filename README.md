@@ -2,7 +2,25 @@
   <img src="fastlane/metadata/android/en-US/images/icon.png" width="250" height="250" alt="mpvRx app icon" />
 </p>
 
-<h1 align="center">mpvRx</h1>
+<h1 align="center">mpvRx-skip</h1>
+
+<p align="center">
+  <strong>A personal fork of mpvRx with improved automatic anime intro/outro skipping.</strong>
+</p>
+
+> ## About this fork
+>
+> **mpvRx-skip** is a personal fork of [mpvRx](https://github.com/Riteshp2001/mpvRx) focused on improving automatic anime skip detection.
+>
+> ### SkipDB improvements
+>
+> - Automatic intro/outro skipping using **SkipDB**.
+> - Automatically resolves **TMDB IDs to IMDb IDs** when needed.
+> - No need to rename media files just to provide an IMDb ID.
+> - Uses **Wikidata** to resolve the IMDb ID from the TMDB ID.
+>
+> The rest of the player remains based on the upstream **mpvRx** project.
+
 
 <p align="center">
   <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22app.gyrolet.mpvrx%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FRiteshp2001%2FmpvRx%22%2C%22author%22%3A%22Riteshp2001%22%2C%22name%22%3A%22mpvRx%22%2C%22preferredApkIndex%22%3A0%2C%22additionalSettings%22%3A%22%7B%5C%22includePrereleases%5C%22%3Afalse%2C%5C%22fallbackToOlderReleases%5C%22%3Atrue%2C%5C%22filterReleaseTitlesByRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22filterReleaseNotesByRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22verifyLatestTag%5C%22%3Afalse%2C%5C%22sortMethodChoice%5C%22%3A%5C%22date%5C%22%2C%5C%22useLatestAssetDateAsReleaseDate%5C%22%3Afalse%2C%5C%22releaseTitleAsVersion%5C%22%3Afalse%2C%5C%22trackOnly%5C%22%3Afalse%2C%5C%22versionExtractionRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22matchGroupToUse%5C%22%3A%5C%22%5C%22%2C%5C%22versionDetection%5C%22%3Atrue%2C%5C%22releaseDateAsVersion%5C%22%3Afalse%2C%5C%22useVersionCodeAsOSVersion%5C%22%3Afalse%2C%5C%22apkFilterRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22invertAPKFilter%5C%22%3Afalse%2C%5C%22autoApkFilterByArch%5C%22%3Atrue%2C%5C%22minimumUpdateAgeDays%5C%22%3A%5C%22%5C%22%2C%5C%22appName%5C%22%3A%5C%22%5C%22%2C%5C%22appAuthor%5C%22%3A%5C%22%5C%22%2C%5C%22shizukuPretendToBeGooglePlay%5C%22%3Afalse%2C%5C%22allowInsecure%5C%22%3Afalse%2C%5C%22exemptFromBackgroundUpdates%5C%22%3Afalse%2C%5C%22skipUpdateNotifications%5C%22%3Afalse%2C%5C%22about%5C%22%3A%5C%22%5C%22%2C%5C%22refreshBeforeDownload%5C%22%3Afalse%2C%5C%22includeZips%5C%22%3Afalse%2C%5C%22zippedApkFilterRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22includeTarballs%5C%22%3Afalse%2C%5C%22tarballedApkFilterRegEx%5C%22%3A%5C%22%5C%22%7D%22%2C%22overrideSource%22%3Anull%7D">
@@ -22,8 +40,8 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Platform-Android-brightgreen.svg" />
   <img src="https://img.shields.io/badge/License-AGPL_v3-blue.svg" />
-  <img src="https://img.shields.io/github/v/release/Riteshp2001/mpvRx.svg?logo=github&label=Release&cacheSeconds=3600" />
-  <img src="https://img.shields.io/github/downloads/Riteshp2001/mpvRx/total?logo=github&cacheSeconds=3600" />
+  <img src="https://img.shields.io/github/v/release/sarvottam99/Mpvrx-skip.svg?logo=github&label=Release&cacheSeconds=3600" />
+  <img src="https://img.shields.io/github/downloads/sarvottam99/Mpvrx-skip/total?logo=github&cacheSeconds=3600" />
 </p>
 
 ---
@@ -323,7 +341,7 @@ mpvRx pushes the mpv-android experience further with deep customization, thermal
 | **Stats Page 6** | Live system monitor: FPS, dropped frames, codecs, network sparkline, battery |
 | **Video Compressor** | Built-in FFmpeg-based compression with presets |
 | **12 Video Filter Presets** | Vivid, Cinematic, Dramatic, Ghibli Style, Neon Pop, Deep Black, and more |
-| **Custom Skip Segments** | Intro/outro/recap/credits/preview detection from IntroDB, TIDB v3, AniSkip v2, Anime Skip, and SkipDB (requires an IMDb ID). Hybrid uses one validated provider result; duration-aware caches keep release versions separate. |
+| **Custom Skip Segments** | Intro/outro/recap/credits/preview detection from IntroDB, TIDB v3, AniSkip v2, Anime Skip, and SkipDB. SkipDB can automatically resolve IMDb IDs from TMDB IDs when needed. Hybrid uses one validated provider result; duration-aware caches keep release versions separate. |
 | **A-B Loop** | In-player looping with visual markers on seekbar |
 | **Frame Navigation** | Frame-by-frame forward/backward with frame number display |
 | **Sleep Timer** | Built-in with quick presets (15/30/45/60 min) |
@@ -364,7 +382,7 @@ _Just a Pro tip if your battery consumption stays within 200 mAh and belwo 0.9W 
 ---
 
 <div align="center">
-  <a href="https://github.com/Riteshp2001/mpvRx/releases">
+  <a href="https://github.com/sarvottam99/Mpvrx-skip/releases">
     <img src="https://img.shields.io/badge/Download-Stable_Release-blue?style=for-the-badge&logo=github" alt="Stable Release">
   </a>
   <!-- <a href="https://riteshp2001.github.io/mpvRx/">
@@ -376,7 +394,7 @@ _Just a Pro tip if your battery consumption stays within 200 mAh and belwo 0.9W 
   <i>Note: Previews may be unstable and are intended for testing purposes only.</i>
 </div> -->
 
-For help, reproducible bug reports, or feature suggestions, start with the [support guide](SUPPORT.md) and [existing issues](https://github.com/Riteshp2001/mpvRx/issues).
+For help, reproducible bug reports, or feature suggestions, start with the [support guide](SUPPORT.md) and [existing issues](https://github.com/sarvottam99/Mpvrx-skip/issues).
 
 ---
 
@@ -497,7 +515,7 @@ Thank you to everyone who helps build and improve mpvRx.
 
 ## Community
 
-[Get help](SUPPORT.md) · [Report a bug](https://github.com/Riteshp2001/mpvRx/issues/new?template=bug_report.md) · [Suggest a feature](https://github.com/Riteshp2001/mpvRx/issues/new?template=feature_request.md) · [Code of conduct](CODE_OF_CONDUCT.md)
+[Get help](SUPPORT.md) · [Report a bug](https://github.com/sarvottam99/Mpvrx-skip/issues/new?template=bug_report.md) · [Suggest a feature](https://github.com/sarvottam99/Mpvrx-skip/issues/new?template=feature_request.md) · [Code of conduct](CODE_OF_CONDUCT.md)
 
 ---
 
