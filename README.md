@@ -1,6 +1,6 @@
-<p align="center">
-  <img src="fastlane/metadata/android/en-US/images/icon.png" width="250" height="250" alt="mpvRx app icon" />
-</p>
+<div align="center">
+  <img src="fastlane/metadata/android/en-US/images/icon.png" width="160" alt="mpvRx-skip app icon" />
+</div>
 
 <h1 align="center">mpvRx-skip</h1>
 
@@ -9,17 +9,17 @@
 </p>
 
 > ## About this fork
->
-> **mpvRx-skip** is a personal fork of [mpvRx](https://github.com/Riteshp2001/mpvRx) focused on improving automatic anime skip detection.
->
-> ### SkipDB improvements
->
-> - Automatic intro/outro skipping using **SkipDB**.
-> - Automatically resolves **TMDB IDs to IMDb IDs** when needed.
-> - No need to rename media files just to provide an IMDb ID.
-> - Uses **Wikidata** to resolve the IMDb ID from the TMDB ID.
->
-> The rest of the player remains based on the upstream **mpvRx** project.
+
+**mpvRx-skip** is a personal fork of [mpvRx](https://github.com/Riteshp2001/mpvRx) focused on improving automatic anime skip detection.
+
+### SkipDB improvements
+
+- Automatic intro/outro skipping using **SkipDB**.
+- Automatically resolves **TMDB IDs to IMDb IDs** when needed.
+- No need to rename media files just to provide an IMDb ID.
+- Uses **Wikidata** to resolve the IMDb ID from the TMDB ID.
+
+The rest of the player remains based on the upstream **mpvRx** project.
 
 
 <details>
