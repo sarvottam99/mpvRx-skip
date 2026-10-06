@@ -5,12 +5,12 @@
 <h1 align="center">mpvRx-skip</h1>
 
 <p align="center">
-  <strong>A personal fork of mpvRx with improved automatic anime intro/outro skipping.</strong>
+  <strong>A personal fork of mpvRx with improved automatic intro/outro skipping.</strong>
 </p>
 
 > ## About this fork
 
-**mpvRx-skip** is a personal fork of [mpvRx](https://github.com/Riteshp2001/mpvRx) focused on improving automatic anime skip detection.
+**mpvRx-skip** is a personal fork of [mpvRx](https://github.com/Riteshp2001/mpvRx) focused on improving automatic intro/outro skip detection.
 
 ### SkipDB improvements
 
