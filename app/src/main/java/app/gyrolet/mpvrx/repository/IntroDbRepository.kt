@@ -1352,6 +1352,58 @@ class IntroDbRepository(
       else -> "${season}th"
     }
 
+  private suspend fun resolveImdbIdFromTmdb(tmdbId: Int, mediaType: String): String? =
+    withContext(Dispatchers.IO) {
+      if (tmdbId <= 0) return@withContext null
+      runCatching {
+        val tmdbProperty = if (mediaType.equals("tv", ignoreCase = true)) "P4983" else "P4947"
+        val sparql =
+          "SELECT ?imdb WHERE { ?item wdt:$tmdbProperty \"$tmdbId\". ?item wdt:P345 ?imdb. } LIMIT 1"
+        val url =
+          WIKIDATA_SPARQL_URL.toHttpUrl().newBuilder()
+            .addQueryParameter("format", "json")
+            .addQueryParameter("query", sparql)
+            .build()
+        val request =
+          Request
+            .Builder()
+            .url(url)
+            .header("User-Agent", WIKIDATA_USER_AGENT)
+            .header("Accept", "application/sparql-results+json, application/json")
+            .get()
+            .build()
+        client.newCall(request).awaitResponse().use { response ->
+          if (!response.isSuccessful) {
+            Log.w(TAG, "TMDB→IMDb lookup failed with HTTP ${response.code} for TMDB $tmdbId")
+            return@use null
+          }
+          val body = response.body.string()
+          if (body.isBlank()) return@use null
+          val bindings =
+            json.parseToJsonElement(body)
+              .jsonObject["results"]
+              ?.jsonObject
+              ?.get("bindings")
+              as? JsonArray
+              ?: return@use null
+          bindings.firstNotNullOfOrNull { bindingElement ->
+            val binding = bindingElement as? JsonObject ?: return@firstNotNullOfOrNull null
+            val imdb =
+              binding["imdb"]
+                ?.jsonObject
+                ?.get("value")
+                ?.jsonPrimitive
+                ?.content
+                ?.trim()
+                ?.lowercase()
+            imdb?.takeIf { imdbIdRegex.matches(it) }
+          }
+        }
+      }.onFailure { error ->
+        Log.w(TAG, "TMDB→IMDb lookup failed for TMDB $tmdbId", error)
+      }.getOrNull()
+    }
+
   private suspend fun searchTmdb(
     title: String,
     year: String?,
@@ -1444,6 +1496,8 @@ class IntroDbRepository(
     private const val MAX_ANISKIP_SEARCH_RESULTS = 10
     private const val ANISKIP_MATCH_THRESHOLD = 60
     private const val TMDB_SEARCH_URL = "https://sub.wyzie.io/api/tmdb/search"
+    private const val WIKIDATA_SPARQL_URL = "https://query.wikidata.org/sparql"
+    private const val WIKIDATA_USER_AGENT = "mpvRx/2.6.0 (https://github.com/Riteshp2001/mpvRx)"
     private const val ANIME_SKIP_GRAPHQL_URL = "https://api.anime-skip.com/graphql"
     private const val ANIME_SKIP_DURATION_TOLERANCE_SECONDS = 2.0
     private const val ANIME_SKIP_CLIENT_ID = "ZGfO0sMF3eCwLYf8yMSCJjlynwNGRXWE"
