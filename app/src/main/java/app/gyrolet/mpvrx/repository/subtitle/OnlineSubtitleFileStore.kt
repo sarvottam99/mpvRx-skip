@@ -52,7 +52,14 @@ class OnlineSubtitleFileStore(
         ?: SubtitleArchiveExtractor.extensionFromName(subtitle.url)?.takeIf { it in STANDARD_SUBTITLE_EXTENSIONS }
         ?: "srt"
 
-    val payload = extracted?.bytes ?: bytes
+    val rawPayload = extracted?.bytes ?: bytes
+    val payload =
+      if (subtitle.provider == SubtitleProvider.WYZIE) {
+        stripWyziePromo(rawPayload, extension)
+      } else {
+        rawPayload
+      }
+
     check(payload.isNotEmpty()) { "Downloaded subtitle is empty" }
     if (SubtitleArchiveExtractor.looksLikeHtml(payload)) {
       throw IllegalStateException("Downloaded file is HTML, not a subtitle")
@@ -90,7 +97,66 @@ class OnlineSubtitleFileStore(
     FileOutputStream(file).use { it.write(payload) }
     return Uri.fromFile(file)
   }
+  private fun stripWyziePromo(
+    bytes: ByteArray,
+    extension: String,
+  ): ByteArray {
+    val text =
+      runCatching { bytes.toString(Charsets.UTF_8) }
+        .getOrNull()
+        ?: return bytes
 
+    if (!containsWyziePromo(text)) return bytes
+
+    val cleaned =
+      when (extension.lowercase(Locale.ROOT)) {
+        "srt", "vtt" -> {
+          text
+            .split(Regex("""\r?\n\r?\n+"""))
+            .filterNot(::containsWyziePromo)
+            .joinToString("\n\n")
+            .trimEnd() + "\n"
+        }
+
+        "ass", "ssa" -> {
+          text
+            .lineSequence()
+            .filterNot { line ->
+              line.startsWith("Dialogue:", ignoreCase = true) &&
+                containsWyziePromo(line)
+            }
+            .joinToString("\n")
+            .trimEnd() + "\n"
+        }
+
+        "sub" -> {
+          text
+            .lineSequence()
+            .filterNot(::containsWyziePromo)
+            .joinToString("\n")
+            .trimEnd() + "\n"
+        }
+
+        else -> return bytes
+      }
+
+    return cleaned.toByteArray(Charsets.UTF_8)
+  }
+
+  private fun containsWyziePromo(text: String): Boolean {
+    val normalized =
+      text
+        .lowercase(Locale.ROOT)
+        .replace(Regex("""<[^>]*>"""), " ")
+        .replace(Regex("""\s+"""), " ")
+        .trim()
+
+    return normalized.contains("store.wyzie.io") ||
+      (
+        normalized.contains("you're on the free plan") &&
+          normalized.contains("ad-free subs")
+      )
+  }
   fun delete(uri: Uri): Boolean {
     val file =
       if (uri.scheme == "content") {
