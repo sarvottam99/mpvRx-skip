@@ -779,6 +779,24 @@ object SearchablePreferences {
           screen = FoldersPreferencesScreen,
         ),
       )
+      add(
+        SearchablePreference(
+          titleRes = R.string.pref_rar_extractor_title,
+          summaryRes = R.string.pref_rar_extractor_summary,
+          keywords = listOf(
+            "rar",
+            "archive",
+            "extract",
+            "unrar",
+            "multipart",
+            "multi part",
+            "scene release",
+            "compressed",
+          ),
+          category = "Storage",
+          screen = RecursiveRarExtractorScreen,
+        ),
+      )
       // Decoder preferences
       add(
         SearchablePreference(
