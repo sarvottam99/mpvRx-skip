@@ -780,6 +780,29 @@
   <string name="pref_section_gestures_controls">Gestures &amp; Controls</string>
   <string name="pref_section_subtitles">Subtitles</string>
   <string name="pref_section_storage">Storage</string>
+  <string name="pref_rar_extractor_title">Recursive RAR Extractor</string>
+  <string name="pref_rar_extractor_summary">Automatically find and extract RAR archives inside subfolders, including multi-part archives — for example, typical scene releases.</string>
+
+  <string name="rar_extractor_folder_label">Selected folder</string>
+  <string name="rar_extractor_folder_not_selected">No folder selected</string>
+  <string name="rar_extractor_select_folder">Select Folder</string>
+  <string name="rar_extractor_extract">Extract</string>
+
+  <string name="rar_extractor_searching">Searching for RAR archives…</string>
+  <string name="rar_extractor_complete">Finished</string>
+
+  <string name="rar_extractor_results_title">Results</string>
+  <string name="rar_extractor_no_archives">No RAR archives were found in this folder or its subfolders.</string>
+  <string name="rar_extractor_results">Archives found: %1$d
+Successful: %2$d
+Failed: %3$d
+Files extracted: %4$d</string>
+
+  <string name="rar_extractor_warnings_title">Warnings</string>
+  <string name="rar_extractor_errors_title">Errors</string>
+
+  <string name="rar_extractor_folder_access_failed">Could not keep access to the selected folder: %1$s</string>
+  <string name="rar_extractor_run_failed">Extraction could not be completed: %1$s</string>
   <string name="pref_section_storage_summary">Media paths, hidden folders</string>
   <string name="pref_section_ai">AI</string>
   <string name="pref_section_ai_title">AI Integration</string>
