@@ -10,7 +10,7 @@
 
 > ## About this fork
 
-**mpvRx-skip** is a personal fork of [mpvRx](https://github.com/Riteshp2001/mpvRx) focused on improving automatic anime skip detection.
+**mpvRx-skip** is a personal fork of [mpvRx](https://github.com/Riteshp2001/mpvRx) focused on improving automatic intro/outro skip detection.
 
 ### SkipDB improvements
 
@@ -18,6 +18,10 @@
 - Automatically resolves **TMDB IDs to IMDb IDs** when needed.
 - No need to rename media files just to provide an IMDb ID.
 - Uses **Wikidata** to resolve the IMDb ID from the TMDB ID.
+
+### Recursive RAR Extractor
+
+- Recursive RAR Extractor under Storage section in Settings. It is for easy extraction of scene releases with multiple subfolders and multi-part rar archives.
 
 The rest of the player remains based on the upstream **mpvRx** project.
 
