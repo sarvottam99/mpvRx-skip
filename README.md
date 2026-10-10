@@ -5,7 +5,7 @@
 <h1 align="center">mpvRx-skip</h1>
 
 <p align="center">
-  <strong>A personal fork of [mpvRx](https://github.com/Riteshp2001/mpvRx) with improved automatic intro/outro skipping.</strong>
+  <strong>A personal fork of <a href=https://github.com/Riteshp2001/mpvRx>mpvRx</a> with improved automatic intro/outro skipping.</strong>
 </p>
 
 ### SkipDB improvements
