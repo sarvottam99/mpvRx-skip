@@ -5,7 +5,7 @@
 <h1 align="center">mpvRx-skip</h1>
 
 <p align="center">
-  <strong>A personal fork of mpvRx with improved automatic anime intro/outro skipping.</strong>
+  <strong>A personal fork of mpvRx with improved automatic intro/outro skipping.</strong>
 </p>
 
 > ## About this fork
