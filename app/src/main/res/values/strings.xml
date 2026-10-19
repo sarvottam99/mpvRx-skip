@@ -2792,6 +2792,10 @@
   <string name="rar_extractor_searching">Searching for RAR archives…</string>
   <string name="rar_extractor_complete">Finished</string>
   <string name="rar_extractor_results_title">Results</string>
+  <string name="rar_extractor_results">Archives found: %1$d
+Successful: %2$d
+Failed: %3$d
+Files extracted: %4$d</string>
   <string name="rar_extractor_no_archives">No RAR archives were found in this folder or its subfolders.</string>
   <string name="rar_extractor_warnings_title">Warnings</string>
   <string name="rar_extractor_errors_title">Errors</string>
