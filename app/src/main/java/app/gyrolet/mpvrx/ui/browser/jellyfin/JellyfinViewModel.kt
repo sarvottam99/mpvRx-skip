@@ -288,10 +288,6 @@ class JellyfinViewModel(
     }
   }
 
-  fun loadLibraries(server: JellyfinServer) {
-    loadHomeDashboard(server)
-  }
-
   fun loadHomeDashboard(server: JellyfinServer) {
     loadDashboardJob?.cancel()
     loadItemsJob?.cancel()
@@ -650,10 +646,6 @@ class JellyfinViewModel(
     }
   }
 
-  fun ensureMusicLibraryOpened() {
-    ensureMusicDataLoaded()
-  }
-
   fun setGenreFilter(genre: String?) {
     if (_uiState.value.selectedGenreFilter == genre) return
     _uiState.update { it.copy(selectedGenreFilter = genre) }
@@ -967,10 +959,6 @@ class JellyfinViewModel(
         }
       }
     }
-  }
-
-  fun navigateToRoot() {
-    navigateBack()
   }
 
   /** Concrete item types to request recursively so a library lists media, not folders. */
@@ -2211,26 +2199,6 @@ class JellyfinViewModel(
     return jellyfinRepository.getStreamUrl(server, item)
   }
 
-  fun createJellyfinPlaylist(name: String, itemIds: List<String> = emptyList()) {
-    val server = _uiState.value.activeServer ?: return
-    viewModelScope.launch {
-      val res = jellyfinRepository.createPlaylist(server, name, itemIds)
-      if (res.isSuccess) {
-        val library = _uiState.value.openLibrary
-        if (library != null) {
-          loadMusicTabItems(server, library, JellyfinMusicTab.PLAYLISTS)
-        }
-      }
-    }
-  }
-
-  fun addToJellyfinPlaylist(playlistId: String, itemIds: List<String>) {
-    val server = _uiState.value.activeServer ?: return
-    viewModelScope.launch {
-      jellyfinRepository.addToPlaylist(server, playlistId, itemIds)
-    }
-  }
-
   companion object {
     fun isMusicLibrary(item: JellyfinItem): Boolean {
       val col = item.collectionType?.lowercase()?.trim() ?: ""
@@ -2247,4 +2215,3 @@ class JellyfinViewModel(
       }
   }
 }
-

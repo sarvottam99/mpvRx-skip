@@ -1170,7 +1170,7 @@ class IntroDbRepository(
           PROVIDER_LOOKUP_TIMEOUT_MS - TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - searchStartedAt)
         val results = withTimeoutOrNull(remainingMillis.coerceAtLeast(0L)) { searchJikanAnime(query) }
         if (results == null) {
-          searchFailure = IllegalStateException("AniSkip title search timed out")
+          Log.d(TAG, "AniSkip title search timed out; using any partial matches")
           break
         }
         results.forEach { result ->

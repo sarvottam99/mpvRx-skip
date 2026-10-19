@@ -10,7 +10,7 @@
 package app.gyrolet.mpvrx.ui.browser.cards
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,8 +18,11 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -42,6 +45,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -63,8 +67,11 @@ import app.gyrolet.mpvrx.ui.icons.Icons
 import app.gyrolet.mpvrx.ui.player.controls.components.tvFocusHighlight
 import app.gyrolet.mpvrx.ui.player.controls.components.tvContextMenu
 import app.gyrolet.mpvrx.ui.theme.AppShapeScale
+import app.gyrolet.mpvrx.ui.theme.rememberConnectedShape
+import app.gyrolet.mpvrx.ui.theme.ConnectedLayout
 import app.gyrolet.mpvrx.ui.theme.onWallpaper
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.koin.compose.koinInject
 import kotlin.math.pow
@@ -149,6 +156,8 @@ fun FolderCard(
   newVideoCount: Int = 0,
   customChipContent: @Composable (() -> Unit)? = null,
   isGridMode: Boolean = false,
+  gridRowMinHeight: Dp = 0.dp,
+  onGridContentHeightChanged: ((Int) -> Unit)? = null,
   isPinned: Boolean = false,
   onPinClick: (() -> Unit)? = null,
   thumbnail: ImageBitmap? = null,
@@ -159,6 +168,9 @@ fun FolderCard(
   placeholderIconSize: Dp? = null,
   viewPreferences: BrowserPageViewPreferences? = null,
   uiConfig: FolderCardUiConfig? = null,
+  allowThumbnailGeneration: Boolean = true,
+  deferThumbnailLoading: Boolean = false,
+  selectionNeighbors: MediaSelectionNeighbors = MediaSelectionNeighbors(),
 ) {
   val resolvedUiConfig = uiConfig ?: rememberFolderCardUiConfig(viewPreferences)
   val unlimitedNameLines = resolvedUiConfig.unlimitedNameLines
@@ -177,6 +189,10 @@ fun FolderCard(
   val thumbnailRepository = koinInject<ThumbnailRepository>()
   var thumbnailSize by remember { mutableStateOf(IntSize.Zero) }
   var folderThumbnail by remember(folder.bucketId) { mutableStateOf<android.graphics.Bitmap?>(null) }
+  var folderPreviewFrames by remember(folder.bucketId) { mutableStateOf<List<android.graphics.Bitmap?>>(emptyList()) }
+  // The available tile width, rather than device class alone, determines whether
+  // four video previews remain readable at the current grid column count.
+  val showPreviewCollage = with(LocalDensity.current) { thumbnailSize.width >= 148.dp.roundToPx() }
 
   LaunchedEffect(
     folder.bucketId,
@@ -185,27 +201,52 @@ fun FolderCard(
     thumbnailQuality,
     isGridMode,
     thumbnailSize,
+    showPreviewCollage,
+    allowThumbnailGeneration,
+    deferThumbnailLoading,
   ) {
-    if (folder.path.isNotBlank() && isGridMode && showFolderThumbnails && thumbnailSize.width > 0 && thumbnailSize.height > 0) {
+    if (!deferThumbnailLoading && folder.path.isNotBlank() && isGridMode && showFolderThumbnails && thumbnailSize.width > 0 && thumbnailSize.height > 0) {
+      delay(350L)
       withContext(Dispatchers.IO) {
+        // On a fresh install there is nothing to reuse. Avoid querying every folder
+        // from the Home grid just to discover that the thumbnail cache is empty.
+        if (!allowThumbnailGeneration && !thumbnailRepository.hasLocalCachedThumbnails()) {
+          return@withContext
+        }
         val videos =
           app.gyrolet.mpvrx.repository.MediaFileRepository
             .getVideosInFolder(context, folder.bucketId)
         if (videos.isNotEmpty()) {
-          val bmp =
-            thumbnailRepository.getFolderThumbnail(folder.bucketId, videos, thumbnailSize.width, thumbnailSize.height)
+          // On narrow cells keep one full cover instead of an unreadable 4-tile preview.
+          val preview = videos.take(if (showPreviewCollage) 4 else 1)
+          val columns = if (preview.size > 1) 2 else 1
+          val cellWidth = (thumbnailSize.width / columns).coerceAtLeast(1)
+          val cellHeight = (thumbnailSize.height / columns).coerceAtLeast(1)
+          val bitmaps = preview.map { video ->
+            if (allowThumbnailGeneration) {
+              thumbnailRepository.getThumbnail(video, cellWidth, cellHeight)
+            } else {
+              thumbnailRepository.getCachedThumbnail(video, cellWidth, cellHeight)
+            }
+          }
           withContext(Dispatchers.Main) {
-            folderThumbnail = bmp
+            folderPreviewFrames = bitmaps
+            folderThumbnail = bitmaps.firstOrNull()
+          }
+        } else {
+          withContext(Dispatchers.Main) {
+            folderPreviewFrames = emptyList()
+            folderThumbnail = null
           }
         }
       }
-    } else {
+    } else if (!showFolderThumbnails) {
       folderThumbnail = null
+      folderPreviewFrames = emptyList()
     }
   }
 
   val maxLines = if (unlimitedNameLines) Int.MAX_VALUE else 2
-  val selectionInset = 2.dp
   val selectionContainerColor = animatedSelectionColor(isSelected)
   val showSelectionBadge = isSelected || selectionContainerColor.alpha > 0.001f
 
@@ -234,34 +275,44 @@ fun FolderCard(
     }
   }
 
-  val cardShape = AppShapeScale.large
+  val cardShape = rememberMediaSelectionShape(isSelected, isGridMode, selectionNeighbors)
+  // Derive row height from actual measured labels and chips instead of a fixed footer.
 
+  // Scoped document-tree folders can be swiped for playback, playlists and watched state,
+  // but Delete must not target a directory in the Play Store flavor.
+  val scopedFolder = app.gyrolet.mpvrx.BuildConfig.SCOPED_STORAGE_ONLY
   VideoSwipeSurface(
     identity = folder.path,
-    leftAction = swipeLeft,
-    rightAction = swipeRight,
+    leftAction = if (scopedFolder && swipeLeft == VideoSwipeAction.Delete) VideoSwipeAction.None else swipeLeft,
+    rightAction = if (scopedFolder && swipeRight == VideoSwipeAction.Delete) VideoSwipeAction.None else swipeRight,
     isWatched = null,
-    enabled = !isGridMode && !isSelected && folder.path.startsWith('/'),
+    enabled = !isGridMode && !isSelected &&
+      (folder.path.startsWith('/') ||
+        (app.gyrolet.mpvrx.BuildConfig.SCOPED_STORAGE_ONLY &&
+          app.gyrolet.mpvrx.utils.media.ScopedHiddenFolderScanner.isScopedFolder(folder.bucketId))),
     onAction = onSwipeAction?.let { action -> { swipe -> action(folder, swipe) } },
     modifier =
       modifier
         .fillMaxWidth()
+        .then(if (isGridMode && gridRowMinHeight > 0.dp) Modifier.heightIn(min = gridRowMinHeight) else Modifier)
+        .tvFocusHighlight(cardShape, focusedScale = 1.03f)
         .clip(cardShape)
-        .semantics { selected = isSelected }
+                .semantics { selected = isSelected }
         .tvContextMenu(onLongClick)
-        .combinedClickable(
+        .mediaCardClickable(
           onClick = onClick,
           onLongClick = onLongClick,
         ),
     shape = cardShape,
     colors = CardDefaults.cardColors(containerColor = Color.Transparent),
   ) {
-    Box(modifier = Modifier.fillMaxWidth()) {
+    // Size the actual Card content, not just the swipe wrapper's outer box; otherwise
+    // the selected tonal background stops above a taller neighbor in the same row.
+    Box(modifier = if (isGridMode) Modifier.fillMaxWidth().heightIn(min = gridRowMinHeight) else Modifier.fillMaxWidth()) {
       Box(
         modifier =
           Modifier
             .matchParentSize()
-            .padding(selectionInset)
             .clip(cardShape)
             .background(selectionContainerColor),
       )
@@ -274,7 +325,8 @@ fun FolderCard(
           modifier =
             Modifier
               .fillMaxWidth()
-              .padding(horizontal = 4.dp, vertical = 6.dp),
+              .padding(horizontal = 4.dp, vertical = 6.dp)
+              .onSizeChanged { size -> onGridContentHeightChanged?.invoke(size.height) },
           horizontalAlignment = horizontalAlignment,
         ) {
           val aspect = 20f / 17f
@@ -286,7 +338,7 @@ fun FolderCard(
                 .aspectRatio(aspect)
                 .onSizeChanged { thumbnailSize = it }
                 .tvFocusHighlight(AppShapeScale.medium, focusedScale = 1.03f)
-                .combinedClickable(
+                .mediaCardClickable(
                   onClick = onThumbClick,
                   onLongClick = onLongClick,
                 ),
@@ -294,7 +346,10 @@ fun FolderCard(
           ) {
             val folderImageBitmap = remember(folderThumbnail) { folderThumbnail?.asImageBitmap() }
             val resolvedThumbnail = thumbnail ?: folderImageBitmap.takeIf { showFolderThumbnails }
-            if (resolvedThumbnail != null) {
+            if (thumbnail == null && showFolderThumbnails && folderPreviewFrames.size > 1 &&
+              folderPreviewFrames.any { it != null }) {
+              FolderPreviewMosaic(folderPreviewFrames, Modifier.matchParentSize().clip(AppShapeScale.medium))
+            } else if (resolvedThumbnail != null) {
               androidx.compose.foundation.Image(
                 bitmap = resolvedThumbnail,
                 contentDescription = null,
@@ -318,7 +373,7 @@ fun FolderCard(
                   Modifier
                     .align(Alignment.TopEnd)
                     .padding(6.dp)
-                      .cardOverlay(containerColor = Color(0xFFD32F2F))
+                    .cardOverlay(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
                     .padding(horizontal = 6.dp, vertical = 2.dp),
               ) {
                 Text(
@@ -327,7 +382,7 @@ fun FolderCard(
                     MaterialTheme.typography.labelSmall.copy(
                       fontWeight = FontWeight.Bold,
                     ),
-                  color = Color.White,
+                  color = MaterialTheme.colorScheme.onTertiaryContainer,
                 )
               }
             }
@@ -412,7 +467,7 @@ fun FolderCard(
           modifier =
             Modifier
               .fillMaxWidth()
-              .padding(horizontal = 8.dp, vertical = 6.dp),
+              .padding(horizontal = 8.dp, vertical = 2.dp),
           verticalAlignment = Alignment.CenterVertically,
         ) {
           Box(
@@ -420,7 +475,7 @@ fun FolderCard(
               Modifier
                 .size(72.dp)
                 .tvFocusHighlight(AppShapeScale.medium, focusedScale = 1.03f)
-                .combinedClickable(
+                .mediaCardClickable(
                   onClick = onThumbClick,
                   onLongClick = onLongClick,
                 ),
@@ -451,7 +506,7 @@ fun FolderCard(
                   Modifier
                     .align(Alignment.TopEnd)
                     .padding(4.dp)
-                      .cardOverlay(containerColor = Color(0xFFD32F2F))
+                    .cardOverlay(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
                     .padding(horizontal = 6.dp, vertical = 2.dp),
               ) {
                 Text(
@@ -460,7 +515,7 @@ fun FolderCard(
                     MaterialTheme.typography.labelSmall.copy(
                       fontWeight = FontWeight.Bold,
                     ),
-                  color = Color.White,
+                  color = MaterialTheme.colorScheme.onTertiaryContainer,
                 )
               }
             }
@@ -624,3 +679,56 @@ private val FOLDER_DATE_FORMATTER: java.time.format.DateTimeFormatter =
 
 private fun formatDate(timestampSeconds: Long): String =
   FOLDER_DATE_FORMATTER.format(java.time.Instant.ofEpochSecond(timestampSeconds))
+
+
+// The collage uses at most four images and responds to the actual display cell width.
+// Two frames divide the cover horizontally; three/four use connected 2x2 blocks.
+@Composable
+private fun FolderPreviewMosaic(
+  frames: List<android.graphics.Bitmap?>,
+  modifier: Modifier = Modifier,
+) {
+  val visible = frames.take(4)
+  if (visible.isEmpty()) return
+  val columns = if (visible.size == 1) 1 else 2
+  val rows = (visible.size + columns - 1) / columns
+  Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    repeat(rows) { row ->
+      Row(
+        modifier = Modifier.fillMaxWidth().weight(1f),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+      ) {
+        val first = row * columns
+        val last = minOf(first + columns, visible.size)
+        for (index in first until last) {
+          val bitmap = visible[index]
+          Box(
+            modifier = Modifier
+              .weight(1f)
+              .fillMaxHeight()
+              .clip(rememberConnectedShape(index, visible.size, ConnectedLayout.Grid, columns))
+              .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+            contentAlignment = Alignment.Center,
+          ) {
+            if (bitmap != null) {
+              val image = remember(bitmap) { bitmap.asImageBitmap() }
+              androidx.compose.foundation.Image(
+                bitmap = image,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+              )
+            } else {
+              Icon(
+                Icons.RoundedFilled.Folder,
+                contentDescription = null,
+                modifier = Modifier.size(24.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+              )
+            }
+          }
+        }
+      }
+    }
+  }
+}

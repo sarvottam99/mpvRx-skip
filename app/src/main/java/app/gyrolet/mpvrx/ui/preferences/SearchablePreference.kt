@@ -93,11 +93,46 @@ object SearchablePreferences {
         SearchablePreference(
           titleRes = R.string.pref_appearance_liquid_glass_title,
           summaryRes = R.string.pref_appearance_liquid_glass_summary,
-          keywords = listOf("liquid glass", "glass", "blur", "translucent", "mini player", "navigation"),
+          keywords = listOf("liquid glass", "glass", "blur", "translucent", "navigation", "seekbar", "switch"),
           category = "Appearance",
-          screen = AppearancePreferencesScreen,
+          screen = LiquidGlassPreferencesScreen,
         ),
       )
+      add(
+        SearchablePreference(
+          titleRes = R.string.pref_liquid_glass_in_hdr_title,
+          summaryRes = R.string.pref_liquid_glass_in_hdr_summary,
+          keywords = listOf("hdr", "liquid glass", "textureview", "surfaceview", "player controls", "sdr"),
+          category = "Appearance",
+          screen = LiquidGlassPreferencesScreen,
+        ),
+      )
+      listOf(
+        R.string.pref_liquid_glass_opacity to listOf("opacity", "transparency", "backdrop"),
+        R.string.pref_liquid_glass_frost to listOf("frost", "blur", "frosted"),
+        R.string.pref_liquid_glass_refraction_height to listOf("refraction", "lens", "edge", "width"),
+        R.string.pref_liquid_glass_refraction_amount to listOf("refraction", "lens", "strength"),
+        R.string.pref_liquid_glass_depth to listOf("depth", "lens"),
+        R.string.pref_liquid_glass_chromatic to listOf("chromatic", "aberration", "dispersion", "rainbow"),
+        R.string.pref_liquid_glass_vibrancy to listOf("vibrancy", "color"),
+        R.string.player_sheets_filters_Saturation to listOf("saturation", "color"),
+        R.string.player_sheets_filters_brightness to listOf("brightness", "color"),
+        R.string.player_sheets_filters_contrast to listOf("contrast", "color"),
+        R.string.pref_liquid_glass_highlight_style to listOf("highlight", "style", "ambient", "plain"),
+        R.string.pref_liquid_glass_highlight_strength to listOf("highlight", "strength"),
+        R.string.pref_liquid_glass_highlight_width to listOf("highlight", "width", "rim"),
+        R.string.pref_liquid_glass_highlight_blur to listOf("highlight", "blur", "softness"),
+      ).forEach { (titleRes, keywords) ->
+        add(
+          SearchablePreference(
+            titleRes = titleRes,
+            keywords = listOf("liquid glass", "kyant") + keywords,
+            category = "Appearance",
+            screen = LiquidGlassPreferencesScreen,
+            targetRes = titleRes,
+          ),
+        )
+      }
       add(
         SearchablePreference(
           titleRes = R.string.pref_appearance_app_font_title,
@@ -1196,15 +1231,17 @@ object SearchablePreferences {
           screen = AdvancedPreferencesScreen,
         ),
       )
-      add(
-        SearchablePreference(
-          titleRes = R.string.ui_yt_dlp_manager,
-          summaryRes = R.string.ui_install_and_update_yt_dlp_for_streaming_support,
-          keywords = listOf("yt-dlp", "online", "streaming", "extractor", "network", "download"),
-          category = "Network",
-          screen = NetworkConfigurationPreferencesScreen,
-        ),
-      )
+      if (app.gyrolet.mpvrx.BuildConfig.ENABLE_YTDLP) {
+        add(
+          SearchablePreference(
+            titleRes = R.string.ui_yt_dlp_manager,
+            summaryRes = R.string.ui_install_and_update_yt_dlp_for_streaming_support,
+            keywords = listOf("yt-dlp", "online", "streaming", "extractor", "network", "download"),
+            category = "Network",
+            screen = NetworkConfigurationPreferencesScreen,
+          ),
+        )
+      }
       add(
         SearchablePreference(
           titleRes = R.string.pref_advanced_enable_recently_played_title,
@@ -1427,7 +1464,6 @@ object SearchablePreferences {
         anchorItemIndex = 3,
         SearchEntrySpec(R.string.pref_tree_flatten_depth_title, listOf("tree", "folder", "path", "flatten", "compression")),
         SearchEntrySpec(R.string.ui_dual_pane_view, listOf("tablet", "two pane", "split", "folder")),
-        SearchEntrySpec(R.string.pref_appearance_watched_threshold_title, listOf("watched", "progress", "threshold", "percent")),
         SearchEntrySpec(R.string.ui_delete_folder_all_contents, listOf("delete", "folder", "all files", "media only")),
       )
       addSearchEntries(
@@ -1445,8 +1481,8 @@ object SearchablePreferences {
         screen = AppearancePreferencesScreen,
         anchorItemIndex = 7,
         SearchEntrySpec(R.string.pref_nav_music_title, listOf("music", "audio", "tab", "navigation")),
-        SearchEntrySpec(R.string.pref_nav_recents_title, listOf("recent", "history", "tab", "navigation")),
-        SearchEntrySpec(R.string.pref_nav_playlists_title, listOf("playlist", "tab", "navigation")),
+        SearchEntrySpec(R.string.pref_nav_profile_title, listOf("profile", "you", "library", "tab", "navigation")),
+        SearchEntrySpec(R.string.navbar_glow_title, listOf("glass", "glow", "navbar", "rim", "highlight", "liquid glass")),
         SearchEntrySpec(R.string.pref_nav_network_title, listOf("network", "stream", "tab", "navigation")),
         SearchEntrySpec(R.string.pref_nav_jellyfin_title, listOf("jellyfin", "server", "tab", "navigation")),
         SearchEntrySpec(R.string.pref_quick_play_fab_title, listOf("quick play", "fab", "floating button", "random")),
@@ -1679,14 +1715,16 @@ object SearchablePreferences {
         SearchEntrySpec(R.string.pref_custom_buttons_title, listOf("custom", "buttons", "lua", "player", "script"), R.string.pref_custom_lua_title),
       )
 
-      addSearchEntries(
-        category = "Network",
-        screen = YtdlpSettingsScreen,
-        anchorItemIndex = 0,
-        SearchEntrySpec(R.string.ui_download_media_subtitles, listOf("yt-dlp", "subtitle", "download", "manual")),
-        SearchEntrySpec(R.string.ui_include_auto_generated_subtitles, listOf("yt-dlp", "subtitle", "automatic", "captions", "youtube")),
-        SearchEntrySpec(R.string.ytdlp_playlist_behavior, listOf("yt-dlp", "playlist", "video", "all entries")),
-      )
+      if (app.gyrolet.mpvrx.BuildConfig.ENABLE_YTDLP) {
+        addSearchEntries(
+          category = "Network",
+          screen = NetworkConfigurationPreferencesScreen,
+          anchorItemIndex = 0,
+          SearchEntrySpec(R.string.ui_download_media_subtitles, listOf("yt-dlp", "subtitle", "download", "manual")),
+          SearchEntrySpec(R.string.ui_include_auto_generated_subtitles, listOf("yt-dlp", "subtitle", "automatic", "captions", "youtube")),
+          SearchEntrySpec(R.string.ytdlp_playlist_behavior, listOf("yt-dlp", "playlist", "video", "all entries")),
+        )
+      }
 
       addSearchEntries(
         category = "AI",
@@ -1763,7 +1801,7 @@ object SearchablePreferences {
         keywords =
           listOf(
             "theme dark light system dynamic amoled font names labels thumbnails frame quality position",
-            "navigation home music recents playlists network quick play fab auto scroll watched threshold",
+            "navigation home music profile network jellyfin quick play fab auto scroll",
             "grid columns list folder cards video cards chips path extension duration resolution framerate subtitle",
           ),
         category = "Appearance",
@@ -1889,17 +1927,24 @@ object SearchablePreferences {
       ),
     )
 
-  fun positionOnScreen(preference: SearchablePreference): Pair<Int, Int> {
-    val screenPreferences = staticPreferences.filter { it.screen == preference.screen }
-    if (screenPreferences.isEmpty()) return 0 to 1
-    val ordinal = screenPreferences.indexOf(preference).coerceAtLeast(0)
-    return ordinal to screenPreferences.size
-  }
-
   private data class SearchField(
     val value: String,
     val weight: Int,
   )
+
+  private val playStoreHiddenTitles =
+    setOf(
+      R.string.pref_enable_p2p_streaming_title,
+      R.string.pref_lyrics_auto_translate,
+      R.string.pref_lyrics_target_language,
+      R.string.pref_lyrics_display_mode,
+      R.string.pref_paxsenix_api_key,
+    )
+
+  // Play builds omit AI, P2P and lyrics translation, so their settings must not surface.
+  private fun SearchablePreference.isAvailable(): Boolean =
+    !app.gyrolet.mpvrx.BuildConfig.IS_PLAY_STORE_BUILD ||
+      (screen != AiIntegrationScreen && titleRes?.let(playStoreHiddenTitles::contains) != true)
 
   fun search(
     query: String,
@@ -1913,7 +1958,7 @@ object SearchablePreferences {
     val directResults =
       staticPreferences
         .mapIndexedNotNull { index, preference ->
-          preference.match(normalizedQuery, getStringRes, index)
+          preference.takeIf { it.isAvailable() }?.match(normalizedQuery, getStringRes, index)
         }.sortedWith(
           compareByDescending<SettingsSearchResult> { it.score }
             .thenBy { it.preference.category }
@@ -1925,7 +1970,7 @@ object SearchablePreferences {
 
     return screenFallbackPreferences
       .mapIndexedNotNull { index, preference ->
-        preference.match(normalizedQuery, getStringRes, staticPreferences.size + index)
+        preference.takeIf { it.isAvailable() }?.match(normalizedQuery, getStringRes, staticPreferences.size + index)
       }.sortedByDescending(SettingsSearchResult::score)
   }
 

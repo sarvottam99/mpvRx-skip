@@ -9,11 +9,10 @@
 
 package app.gyrolet.mpvrx.ui.player.controls
 
-import app.gyrolet.mpvrx.ui.player.PlayerArtworkDestination
-import app.gyrolet.mpvrx.ui.player.playerArtworkAnchor
+import app.gyrolet.mpvrx.ui.player.PlayerSheetDestination
+import app.gyrolet.mpvrx.ui.player.playerSheetAnchor
 import app.gyrolet.mpvrx.ui.player.swipeDownToMiniPlayer
 import app.gyrolet.mpvrx.ui.player.PlaybackSession
-
 import android.Manifest
 import android.content.pm.PackageManager
 import android.content.res.Configuration
@@ -21,14 +20,12 @@ import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.util.LruCache
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.Crossfade
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -42,9 +39,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkHorizontally
-import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
@@ -57,7 +52,6 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -79,9 +73,6 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.wrapContentSize
-import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -129,6 +120,8 @@ import app.gyrolet.mpvrx.ui.browser.dialogs.AddToPlaylistDialog
 import app.gyrolet.mpvrx.ui.browser.dialogs.toPlaylistCandidates
 import app.gyrolet.mpvrx.ui.player.resolveUri
 import app.gyrolet.mpvrx.ui.player.controls.components.MiniAudioVisualizer
+import app.gyrolet.mpvrx.ui.player.controls.components.stableNumericWidth
+import app.gyrolet.mpvrx.ui.player.controls.components.withTabularDigits
 import app.gyrolet.mpvrx.ui.player.controls.components.rememberSmoothedPositionMs
 import app.gyrolet.mpvrx.ui.player.controls.components.AnimatedLyricWord
 import app.gyrolet.mpvrx.ui.player.controls.components.hasRtlDirection
@@ -161,7 +154,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.pluralStringResource
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
@@ -173,7 +165,6 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.offset
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntOffset
 import androidx.core.content.ContextCompat
@@ -183,15 +174,20 @@ import kotlinx.coroutines.flow.collect
 import kotlin.math.roundToInt
 import app.gyrolet.mpvrx.R
 import app.gyrolet.mpvrx.domain.thumbnail.EmbeddedArtworkResolver
+import app.gyrolet.mpvrx.ui.player.EmbeddedMotionArtwork
+import app.gyrolet.mpvrx.ui.player.MotionArtworkImage
+import app.gyrolet.mpvrx.ui.player.rememberMotionArtworkDrawable
 import app.gyrolet.mpvrx.presentation.components.RemoteImage
 import app.gyrolet.mpvrx.preferences.AppearancePreferences
 import app.gyrolet.mpvrx.preferences.AudioPreferences
 import app.gyrolet.mpvrx.preferences.AudioVisualizerStyle
-import app.gyrolet.mpvrx.preferences.GesturePreferences
 import app.gyrolet.mpvrx.preferences.LyricsTranslationDisplayMode
 import app.gyrolet.mpvrx.preferences.PlayerPreferences
 import app.gyrolet.mpvrx.preferences.preference.collectAsState
 import app.gyrolet.mpvrx.ui.icons.Icon
+import app.gyrolet.mpvrx.ui.icons.AnimatedIcon
+import app.gyrolet.mpvrx.ui.theme.AppMotion
+import app.gyrolet.mpvrx.ui.theme.appPressFeedback
 import app.gyrolet.mpvrx.ui.icons.Icons
 import app.gyrolet.mpvrx.ui.player.Panels
 import app.gyrolet.mpvrx.ui.player.PlayerActivity
@@ -213,7 +209,6 @@ import app.gyrolet.mpvrx.ui.player.visualizer.rememberAudioVisualizerFeatures
 import app.gyrolet.mpvrx.ui.theme.fontFamilyForText
 import app.gyrolet.mpvrx.ui.utils.isMpvOptionOwnedByConfig
 import app.gyrolet.mpvrx.ui.utils.rememberAppHaptics
-
 import app.gyrolet.mpvrx.utils.media.fileExtension
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
@@ -229,6 +224,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 private data class AudioPresentationMetadata(
   val artwork: Bitmap?,
   val artist: String?,
+  val motionArtwork: ByteArray? = null,
 )
 
 /**
@@ -252,7 +248,7 @@ private object AudioPresentationMetadataCache {
       ): Int =
         maxOf(
           METADATA_ONLY_WEIGHT_KB,
-          (value.artwork?.byteCount ?: 0) / 1024,
+          ((value.artwork?.byteCount ?: 0) + (value.motionArtwork?.size ?: 0)) / 1024,
         )
     }
 
@@ -312,14 +308,16 @@ private object AudioPresentationMetadataCache {
               }
             }
 
+            val pictureBytes = if (explicitArtwork == null) retriever?.embeddedPicture else null
             AudioPresentationMetadata(
-              artwork = explicitArtwork ?: retriever?.let { EmbeddedArtworkResolver.decodeEmbeddedArtwork(cleanPath ?: pathOrUri, it) },
+              artwork = explicitArtwork ?: retriever?.let { EmbeddedArtworkResolver.decodeEmbeddedArtwork(cleanPath ?: pathOrUri, it, pictureBytes) },
               artist = retriever?.let {
                 it.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
                   ?: it.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST)
                   ?: it.extractMetadata(MediaMetadataRetriever.METADATA_KEY_AUTHOR)
                   ?: it.extractMetadata(MediaMetadataRetriever.METADATA_KEY_COMPOSER)
               },
+              motionArtwork = EmbeddedMotionArtwork.animatedBytes(pictureBytes),
             )
           } catch (_: Exception) {
             val fallbackArtwork = explicitArtwork ?: if (cleanPath != null && !isNetworkStream) {
@@ -584,6 +582,8 @@ private fun CoverArtCardImage(
   bitmap: Bitmap?,
   artworkUrl: String? = null,
   contentScale: ContentScale = ContentScale.Crop,
+  motionArtwork: ByteArray? = null,
+  isPlaying: Boolean = false,
 ) {
   val context = LocalContext.current
   val client = org.koin.compose.koinInject<okhttp3.OkHttpClient>()
@@ -608,8 +608,16 @@ private fun CoverArtCardImage(
 
   val finalBitmap = bitmap ?: remoteBitmap
   val imageBitmap = remember(finalBitmap) { finalBitmap?.asImageBitmap() }
+  val animatedDrawable = rememberMotionArtworkDrawable(motionArtwork)
 
-  if (imageBitmap != null) {
+  if (animatedDrawable != null) {
+    MotionArtworkImage(
+      drawable = animatedDrawable,
+      isPlaying = isPlaying,
+      fit = contentScale == ContentScale.Fit,
+      modifier = Modifier.fillMaxSize(),
+    )
+  } else if (imageBitmap != null) {
     Image(
       bitmap = imageBitmap,
       contentDescription = null,
@@ -631,11 +639,6 @@ private fun CoverArtCardImage(
   }
 }
 
-private enum class CoverSwipeDirection {
-  NEXT,
-  PREV,
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AudioPlayerControls(
@@ -646,6 +649,16 @@ fun AudioPlayerControls(
   onOpenPanel: (Panels) -> Unit,
   modifier: Modifier = Modifier,
 ) {
+  // The queue can move on while the app is in the background; catch the lyrics up on return.
+  val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+  androidx.compose.runtime.DisposableEffect(lifecycleOwner, viewModel) {
+    val observer =
+      androidx.lifecycle.LifecycleEventObserver { _, event ->
+        if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) viewModel.syncLyricsWithPlayback()
+      }
+    lifecycleOwner.lifecycle.addObserver(observer)
+    onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+  }
   val speedConfigOwned = isMpvOptionOwnedByConfig("speed")
   val audioFiltersConfigOwned = isMpvOptionOwnedByConfig("af")
   val paused by PlaybackSession.propBoolean["pause"].collectAsState()
@@ -1225,7 +1238,13 @@ fun AudioPlayerControls(
   Box(
     modifier =
       modifier
+        .playerSheetAnchor(
+          destination = PlayerSheetDestination.FULL,
+          mediaId = currentItem?.stableId,
+          backgroundColor = MaterialTheme.colorScheme.surface,
+        )
         .swipeDownToMiniPlayer(
+          mediaId = currentItem?.stableId,
           enabled = !isSheetOpen && !showInPlaceLyrics && !isLyricsFullscreen,
           onMinimize = viewModel::minimizeToMiniPlayer,
         )
@@ -1560,12 +1579,6 @@ fun AudioPlayerControls(
                 modifier = Modifier
                   .aspectRatio(1f)
                   .offset { IntOffset(currentOffset.roundToInt(), 0) }
-                  .playerArtworkAnchor(
-                    PlayerArtworkDestination.FULL,
-                    currentItem?.stableId,
-                    albumArtBitmap,
-                    32.dp,
-                  )
                   .clip(coverShape),
                 shape = coverShape,
                 color = Color.Transparent,
@@ -1574,6 +1587,8 @@ fun AudioPlayerControls(
                   bitmap = activeCoverOverride ?: albumArtBitmap,
                   artworkUrl = currentArtworkUri,
                   contentScale = if (isAudiobook) ContentScale.Fit else ContentScale.Crop,
+                  motionArtwork = currentAudioPresentation?.motionArtwork?.takeIf { activeCoverOverride == null },
+                  isPlaying = isPlaying,
                 )
               }
             }
@@ -1684,10 +1699,12 @@ fun AudioPlayerControls(
                   tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (speedConfigOwned) 0.38f else 1f),
                   modifier = Modifier.size(16.dp),
                 )
+                val speedText = String.format("%.2fx", playbackSpeed ?: 1f)
                 Text(
-                  text = String.format("%.2fx", playbackSpeed ?: 1f),
-                  style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                  text = speedText,
+                  style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold).withTabularDigits(),
                   color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (speedConfigOwned) 0.38f else 1f),
+                  modifier = Modifier.stableNumericWidth(speedText),
                 )
               }
             }
@@ -1838,11 +1855,14 @@ fun AudioPlayerControls(
               },
               modifier = Modifier.size(40.dp),
             ) {
-              Icon(
+              AnimatedIcon(
                 imageVector = if (isCurrentTrackFavorite) Icons.RoundedFilled.Favorite else Icons.RoundedFilled.FavoriteBorder,
-                contentDescription = if (isCurrentTrackFavorite) "Remove from Favorites" else "Add to Favorites",
+                contentDescription = stringResource(
+                  if (isCurrentTrackFavorite) R.string.generic_remove_from_favorites else R.string.notification_add_to_favorites,
+                ),
                 tint = if (isCurrentTrackFavorite) Color.White else MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.size(28.dp),
+                reduceMotion = AppMotion.playerReducedMotion(),
               )
             }
 
@@ -1925,12 +1945,17 @@ fun AudioPlayerControls(
                 color = MaterialTheme.colorScheme.primary,
               )
               Spacer(Modifier.width(8.dp))
+              val loadingLine =
+                app.gyrolet.mpvrx.ui.player.controls.components.rememberPlaceholderLine(
+                  app.gyrolet.mpvrx.ui.player.controls.components.LyricsPlaceholders.LOADING,
+                  app.gyrolet.mpvrx.ui.player.controls.components.PLACEHOLDER_ROTATE_MS,
+                )
               Text(
-                text = stringResource(R.string.lyrics_loading_label),
+                text = loadingLine,
                 style = MaterialTheme.typography.titleMedium.copy(
                   fontSize = 18.sp,
                   fontWeight = FontWeight.Bold,
-                  fontFamily = fontFamilyForText(stringResource(R.string.lyrics_loading_label)),
+                  fontFamily = fontFamilyForText(loadingLine),
                 ),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -1951,12 +1976,19 @@ fun AudioPlayerControls(
                   modifier = Modifier.size(18.dp),
                 )
                 Spacer(Modifier.width(6.dp))
+                // Before the first line it is the intro, which deserves more than a label.
+                val gapLabel =
+                  if (activeIndex <= 0) {
+                    app.gyrolet.mpvrx.ui.player.controls.components.rememberPlaceholderLine(app.gyrolet.mpvrx.ui.player.controls.components.LyricsPlaceholders.INTRO)
+                  } else {
+                    stringResource(R.string.instrumental)
+                  }
                 Text(
-                  text = stringResource(R.string.instrumental),
+                  text = gapLabel,
                   style = MaterialTheme.typography.titleMedium.copy(
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Medium,
-                    fontFamily = fontFamilyForText(stringResource(R.string.instrumental)),
+                    fontFamily = fontFamilyForText(gapLabel),
                   ),
                   color = MaterialTheme.colorScheme.onSurfaceVariant,
                   maxLines = 1,
@@ -1973,7 +2005,7 @@ fun AudioPlayerControls(
               }
 
               AnimatedContent(
-                targetState = Triple(currentLine, syncedLines?.getOrNull(activeIndex + 1)?.time, displayText),
+                targetState = Triple(currentLine, syncedLines.getOrNull(activeIndex + 1)?.time, displayText),
                 transitionSpec = {
                   (fadeIn(animationSpec = tween(300, easing = FastOutSlowInEasing)) +
                     slideInVertically(animationSpec = tween(300, easing = FastOutSlowInEasing)) { height -> (height * 0.4f).toInt() })
@@ -2120,12 +2152,18 @@ fun AudioPlayerControls(
                 modifier = Modifier.size(18.dp),
               )
               Spacer(Modifier.width(6.dp))
+              val emptyLine =
+                if (isAudiobook) {
+                  stringResource(R.string.audiobook_no_text)
+                } else {
+                  app.gyrolet.mpvrx.ui.player.controls.components.rememberPlaceholderLine(app.gyrolet.mpvrx.ui.player.controls.components.LyricsPlaceholders.EMPTY)
+                }
               Text(
-                text = if (isAudiobook) stringResource(R.string.audiobook_no_text) else stringResource(R.string.player_lyrics_title),
+                text = emptyLine,
                 style = MaterialTheme.typography.titleMedium.copy(
                   fontSize = 18.sp,
                   fontWeight = FontWeight.Normal,
-                  fontFamily = fontFamilyForText(stringResource(R.string.player_lyrics_title)),
+                  fontFamily = fontFamilyForText(emptyLine),
                 ),
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 maxLines = 1,
@@ -2235,11 +2273,12 @@ fun AudioPlayerControls(
           shadowElevation = 8.dp,
         ) {
           Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-            Icon(
+            AnimatedIcon(
               imageVector = if (isPlaying) Icons.RoundedFilled.Pause else Icons.RoundedFilled.PlayArrow,
-              contentDescription = null,
+              contentDescription = stringResource(if (isPlaying) R.string.audiobook_pause else R.string.ui_play),
               tint = MaterialTheme.colorScheme.onPrimary,
               modifier = Modifier.size(if (isPortrait) 44.dp else 36.dp),
+              reduceMotion = AppMotion.playerReducedMotion(),
             )
           }
         }
@@ -2287,15 +2326,17 @@ fun AudioPlayerControls(
           enabled = playlistModeEnabled,
           modifier = Modifier.size(40.dp),
         ) {
-          Icon(if (shuffleEnabled) Icons.RoundedFilled.ShuffleOn else Icons.RoundedFilled.Shuffle, null,
-            tint = if (shuffleEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+          AnimatedIcon(if (shuffleEnabled) Icons.RoundedFilled.ShuffleOn else Icons.RoundedFilled.Shuffle, null,
+            tint = if (shuffleEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            reduceMotion = AppMotion.playerReducedMotion())
         }
         ReactiveIconButton(onClick = { viewModel.cycleRepeatMode(); actionHaptics.confirm() }, modifier = Modifier.size(40.dp)) {
-          Icon(when (repeatMode) {
+          AnimatedIcon(when (repeatMode) {
             RepeatMode.OFF -> Icons.RoundedFilled.Repeat
             RepeatMode.ONE -> Icons.RoundedFilled.RepeatOne
             RepeatMode.ALL -> Icons.RoundedFilled.RepeatOn
-          }, null, tint = if (repeatMode != RepeatMode.OFF) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+          }, null, tint = if (repeatMode != RepeatMode.OFF) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            reduceMotion = AppMotion.playerReducedMotion())
         }
       }
     }
@@ -2594,7 +2635,7 @@ fun AudioPlayerControls(
             )
             .padding(end = controlsSidePadding)
             .clip(RoundedCornerShape(24.dp)),
-          color = MaterialTheme.colorScheme.surfaceContainerLow,
+          color = Color.Transparent,
           shape = RoundedCornerShape(24.dp),
         ) {
           DualPaneSidePanel(
@@ -2725,6 +2766,7 @@ private fun DualPaneSidePanel(
           )
         },
         colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+          containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.4f),
           selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
           selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
         ),
@@ -2734,6 +2776,7 @@ private fun DualPaneSidePanel(
         onClick = { onTabSelected(1) },
         label = { Text(stringResource(R.string.player_lyrics_title), fontWeight = FontWeight.Bold) },
         colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+          containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.4f),
           selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
           selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
         ),
@@ -2836,7 +2879,7 @@ private fun UpNextPlaylistContent(
             val bgColor = if (isSelected) {
               MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
             } else {
-              MaterialTheme.colorScheme.surfaceContainer
+              MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.4f)
             }
             Surface(
               modifier = Modifier
@@ -3008,7 +3051,7 @@ private fun UpNextPlaylistItemRow(
   val bgColor = if (isPlaying) {
     MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
   } else {
-    MaterialTheme.colorScheme.surfaceContainer
+    MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.4f)
   }
 
   val itemCoverArt =
@@ -3192,26 +3235,14 @@ private fun ReactiveIconButton(
   content: @Composable () -> Unit,
 ) {
   val interactionSource = remember { MutableInteractionSource() }
-  val isPressed by interactionSource.collectIsPressedAsState()
   val reducedMotion = app.gyrolet.mpvrx.ui.theme.AppMotion.playerReducedMotion()
-
-  val scale by animateFloatAsState(
-    targetValue = if (isPressed && enabled && !reducedMotion) 0.96f else 1f,
-    animationSpec =
-      if (reducedMotion) androidx.compose.animation.core.snap() else
-        app.gyrolet.mpvrx.ui.theme.AppMotion.Spatial.ExpressiveFast,
-    label = "reactive_icon_button_scale",
-  )
 
   if (onLongClick != null) {
     Box(
       modifier =
         modifier
           .tvFocusHighlight(CircleShape, enabled = enabled, focusedScale = 1.08f)
-          .graphicsLayer {
-            scaleX = scale
-            scaleY = scale
-          }
+          .appPressFeedback(interactionSource, enabled, pressedScale = 0.96f, reduceMotion = reducedMotion)
           .clip(CircleShape)
           .combinedClickable(
             interactionSource = interactionSource,
@@ -3234,10 +3265,7 @@ private fun ReactiveIconButton(
       modifier =
         modifier
           .tvFocusHighlight(CircleShape, enabled = enabled, focusedScale = 1.08f)
-          .graphicsLayer {
-            scaleX = scale
-            scaleY = scale
-          },
+          .appPressFeedback(interactionSource, enabled, pressedScale = 0.96f, reduceMotion = reducedMotion),
     ) {
       content()
     }
@@ -3255,16 +3283,7 @@ private fun ReactiveSurfaceButton(
   content: @Composable () -> Unit,
 ) {
   val interactionSource = remember { MutableInteractionSource() }
-  val isPressed by interactionSource.collectIsPressedAsState()
   val reducedMotion = app.gyrolet.mpvrx.ui.theme.AppMotion.playerReducedMotion()
-
-  val scale by animateFloatAsState(
-    targetValue = if (isPressed && enabled && !reducedMotion) 0.95f else 1f,
-    animationSpec =
-      if (reducedMotion) androidx.compose.animation.core.snap() else
-        app.gyrolet.mpvrx.ui.theme.AppMotion.Spatial.ExpressiveFast,
-    label = "reactive_surface_button_scale",
-  )
 
   Surface(
     onClick = onClick,
@@ -3276,10 +3295,7 @@ private fun ReactiveSurfaceButton(
     modifier =
       modifier
         .tvFocusHighlight(shape, enabled = enabled, focusedScale = 1.06f)
-        .graphicsLayer {
-          scaleX = scale
-          scaleY = scale
-        },
+        .appPressFeedback(interactionSource, enabled, pressedScale = 0.95f, reduceMotion = reducedMotion),
   ) {
     content()
   }

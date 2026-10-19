@@ -23,12 +23,17 @@ import app.gyrolet.mpvrx.repository.MediaFileRepository
 import app.gyrolet.mpvrx.ui.browser.base.BaseBrowserViewModel
 import app.gyrolet.mpvrx.ui.player.PlaybackIdentity
 import app.gyrolet.mpvrx.utils.media.MediaLibraryEvents
+import app.gyrolet.mpvrx.utils.media.ScopedHiddenFolderScanner
+import app.gyrolet.mpvrx.utils.media.VisibleDirectoryWatcher
 import app.gyrolet.mpvrx.utils.media.MetadataRetrieval
 import app.gyrolet.mpvrx.utils.media.PlaybackStateEvents
 import app.gyrolet.mpvrx.utils.media.PlaybackStateOps
 import app.gyrolet.mpvrx.utils.storage.FolderViewScanner
+import app.gyrolet.mpvrx.utils.storage.VideoScanUtils
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -43,6 +48,8 @@ import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import java.io.File
 
+private const val SCOPED_PROBE_BATCH = 6
+
 @Immutable
 data class VideoWithPlaybackInfo(
   val video: Video,
@@ -52,13 +59,25 @@ data class VideoWithPlaybackInfo(
   val isWatched: Boolean = false, // true once the configured watched threshold is reached
 )
 
+// Match PlayerActivity: MediaStore items with a real path use local identity; SAF documents
+// retain their URI identity. Legacy alternatives remain readable after earlier queue launches.
 internal fun videoPlaybackIdentifiers(video: Video): Set<String> =
-  linkedSetOf(
-    PlaybackIdentity.forLocalPath(video.path),
-    PlaybackIdentity.forUri(video.uri.toString()),
-    PlaybackIdentity.forUri(video.path),
-    PlaybackIdentity.forUri("file://${video.path}"),
-  )
+  if (app.gyrolet.mpvrx.BuildConfig.SCOPED_STORAGE_ONLY && video.uri.scheme == "content" &&
+    (video.uri.authority != android.provider.MediaStore.AUTHORITY || !video.path.startsWith('/'))
+  ) {
+    linkedSetOf(
+      PlaybackIdentity.forUri(video.uri.toString()),
+      PlaybackIdentity.forUri(video.path),
+      PlaybackIdentity.forLocalPath(video.path),
+    )
+  } else {
+    linkedSetOf(
+      PlaybackIdentity.forLocalPath(video.path),
+      PlaybackIdentity.forUri(video.uri.toString()),
+      PlaybackIdentity.forUri(video.path),
+      PlaybackIdentity.forUri("file://${video.path}"),
+    )
+  }
 
 internal fun buildVideoWithPlaybackInfo(
   video: Video,
@@ -67,7 +86,23 @@ internal fun buildVideoWithPlaybackInfo(
   newLabelDays: Int,
   watchedThreshold: Int,
 ): VideoWithPlaybackInfo {
-  val durationSeconds = video.duration / 1000L
+  // MediaStore cannot see .nomedia files, and a SAF provider may not report their
+  // duration. The player can still supply total seconds through saved position + remaining.
+  val recordedDuration =
+    if (app.gyrolet.mpvrx.BuildConfig.SCOPED_STORAGE_ONLY && video.uri.scheme == "content") {
+      playbackState?.let { (it.lastPosition.toLong() + it.timeRemaining.toLong()).takeIf { total -> total > 0L } }
+    } else null
+  val durationSeconds = (video.duration / 1000L).takeIf { it > 0L } ?: recordedDuration ?: 0L
+  // Until the background probe finishes, the duration the player recorded is the best label.
+  val displayVideo =
+    if (video.duration <= 0L && durationSeconds > 0L) {
+      video.copy(
+        duration = durationSeconds * 1000L,
+        durationFormatted = VideoScanUtils.formatDuration(durationSeconds * 1000L),
+      )
+    } else {
+      video
+    }
   val progressValue =
     if (playbackState != null && durationSeconds > 0L) {
       val watchedSeconds = durationSeconds - playbackState.timeRemaining.toLong()
@@ -83,7 +118,7 @@ internal fun buildVideoWithPlaybackInfo(
   val isWithinNewLabelWindow = newLabelDays == 0 || videoAgeMillis <= newLabelWindowMillis
 
   return VideoWithPlaybackInfo(
-    video = video,
+    video = displayVideo,
     timeRemaining = playbackState?.timeRemaining?.toLong(),
     progressPercentage = progressValue?.takeIf { it in 0.01f..0.99f },
     isOldAndUnplayed = !isWatched && (playbackState?.newLabelOverride ?: isWithinNewLabelWindow),
@@ -145,14 +180,42 @@ class VideoListViewModel(
   private var playbackIndexByIdentifier: Map<String, Int> = emptyMap()
 
   private val tag = "VideoListViewModel"
+  private var scopedMetadataJob: Job? = null
+  private val liveFolderWatcher = VisibleDirectoryWatcher { MediaLibraryEvents.notifyChanged() }
+
+  fun startWatching() {
+    if (!ZipArchiveMedia.isBrowserPath(bucketId) && !ScopedHiddenFolderScanner.isScopedFolder(bucketId)) {
+      liveFolderWatcher.watch(bucketId)
+    }
+  }
+
+  fun stopWatching() = liveFolderWatcher.stop()
+
+  override fun onCleared() {
+    liveFolderWatcher.stop()
+    super.onCleared()
+  }
+
+  private val cacheKey = "$bucketId|audio=$includeAudio"
 
   init {
-    loadVideos()
+    // Show the last known contents instantly; loadVideos() revalidates in the background.
+    viewModelScope.launch(Dispatchers.IO) {
+      val cached = VideoListCache.load(getApplication(), cacheKey)
+      if (!cached.isNullOrEmpty() && _videos.value.isEmpty()) {
+        previousVideoCount = cached.size
+        _videos.value = cached
+        loadPlaybackInfo(cached)
+        _isLoading.value = false
+      }
+      loadVideos()
+    }
 
     // Listen for global media library changes and refresh this list when they occur
     viewModelScope.launch(Dispatchers.IO) {
       MediaLibraryEvents.changes.collectLatest {
-        loadVideos()
+        // A newly copied file may not be indexed in MediaStore yet.
+        loadVideos(forceFileSystemCheck = true)
       }
     }
 
@@ -178,12 +241,14 @@ class VideoListViewModel(
     FolderViewScanner.clearCache()
 
     // Trigger media scan before loading to ensure MediaStore is up-to-date
-    if (!ZipArchiveMedia.isBrowserPath(bucketId)) triggerMediaScan()
+    if (!ZipArchiveMedia.isBrowserPath(bucketId) && !ScopedHiddenFolderScanner.isScopedFolder(bucketId)) triggerMediaScan()
 
     loadVideos(forceFileSystemCheck = true)
   }
 
   private fun loadVideos(forceFileSystemCheck: Boolean = false) {
+    // Provider probing must never compete with listing; it restarts once the new list is shown.
+    scopedMetadataJob?.cancel()
     viewModelScope.launch(Dispatchers.IO) {
       try {
         // First attempt to load videos (basic info from MediaStore)
@@ -197,10 +262,20 @@ class VideoListViewModel(
         if (includeAudio) {
           videoList = videoList.filter { it.isAudio }
         }
+        val scopedFolder = ScopedHiddenFolderScanner.isScopedFolder(bucketId)
+        // Play Store and indexed hidden folders are shown as listed, then probed once the list is visible.
+        val deferredMetadata = scopedFolder || MediaFileRepository.isIndexedHiddenFolder(bucketId)
+        if (deferredMetadata) {
+          videoList = withKnownScopedMetadata(videoList, _videos.value)
+        }
+        if (scopedFolder) {
+          videoList = MetadataRetrieval.restoreCachedContentMetadata(videoList, metadataCache)
+        }
 
         // ZIP entries need basic metadata even when optional metadata chips are disabled.
         val archiveFolder = ZipArchiveMedia.isBrowserPath(bucketId)
-        if (archiveFolder || MetadataRetrieval.isVideoMetadataNeeded(browserPreferences)) {
+        if (!deferredMetadata &&
+          (archiveFolder || MetadataRetrieval.isVideoMetadataNeeded(browserPreferences))) {
           Log.d(tag, "Enriching ${videoList.size} videos with metadata")
           videoList =
             MetadataRetrieval.enrichVideosIfNeeded(
@@ -225,7 +300,7 @@ class VideoListViewModel(
         // Update previous count
         previousVideoCount = videoList.size
 
-        if (videoList.isEmpty() && !archiveFolder) {
+        if (videoList.isEmpty() && !archiveFolder && !ScopedHiddenFolderScanner.isScopedFolder(bucketId)) {
           Log.d(tag, "No videos found for bucket $bucketId - attempting media rescan")
           triggerMediaScan()
           delay(1000)
@@ -241,7 +316,7 @@ class VideoListViewModel(
           }
 
           // Enrich retry list if needed
-          if (MetadataRetrieval.isVideoMetadataNeeded(browserPreferences)) {
+          if (!deferredMetadata && MetadataRetrieval.isVideoMetadataNeeded(browserPreferences)) {
             retryVideoList =
               MetadataRetrieval.enrichVideosIfNeeded(
                 context = getApplication(),
@@ -261,9 +336,15 @@ class VideoListViewModel(
 
           _videos.value = retryVideoList
           loadPlaybackInfo(retryVideoList)
+          VideoListCache.save(getApplication(), cacheKey, retryVideoList)
+          if (deferredMetadata) probeDeferredMetadataInBackground(retryVideoList)
         } else {
-          _videos.value = videoList
-          loadPlaybackInfo(videoList)
+          if (_videos.value != videoList) {
+            _videos.value = videoList
+            loadPlaybackInfo(videoList)
+          }
+          VideoListCache.save(getApplication(), cacheKey, videoList)
+          if (deferredMetadata) probeDeferredMetadataInBackground(videoList)
         }
       } catch (e: Exception) {
         Log.e(tag, "Error loading videos for bucket $bucketId", e)
@@ -280,6 +361,77 @@ class VideoListViewModel(
    */
   fun setVideosWereDeletedOrMoved() {
     _videosWereDeletedOrMoved.value = true
+  }
+
+  /** Keeps metadata already probed for unchanged SAF documents, so a rescan does not blank durations. */
+  private fun withKnownScopedMetadata(fresh: List<Video>, known: List<Video>): List<Video> {
+    val knownByPath = known.filter { it.duration > 0L }.associateBy { it.path }
+    if (knownByPath.isEmpty()) return fresh
+    return fresh.map { video ->
+      val previous = knownByPath[video.path]
+      if (video.duration <= 0L && previous != null && isSameDocumentVersion(previous, video)) {
+        video.copy(
+          duration = previous.duration,
+          durationFormatted = VideoScanUtils.formatDuration(previous.duration),
+          width = previous.width,
+          height = previous.height,
+          fps = previous.fps,
+          resolution = previous.resolution,
+          hasEmbeddedSubtitles = previous.hasEmbeddedSubtitles,
+          subtitleCodec = previous.subtitleCodec,
+          videoCodec = previous.videoCodec,
+          videoCodecMimeType = previous.videoCodecMimeType,
+        )
+      } else {
+        video
+      }
+    }
+  }
+
+  private fun isSameDocumentVersion(first: Video, second: Video): Boolean =
+    first.size == second.size && first.dateModified == second.dateModified
+
+  /**
+   * Play Store documents and standard hidden files carry no metadata in the listing, so each file is
+   * probed here. This runs only after the list is already visible, one file at a time, publishing in
+   * small batches.
+   */
+  private fun probeDeferredMetadataInBackground(videos: List<Video>) {
+    scopedMetadataJob?.cancel()
+    if (!MetadataRetrieval.isVideoMetadataNeeded(browserPreferences)) {
+      return
+    }
+    val pending = videos.filter { MetadataRetrieval.needsVideoMetadata(it, browserPreferences) }
+    if (pending.isEmpty()) return
+    scopedMetadataJob =
+      viewModelScope.launch(Dispatchers.IO) {
+        val probed = HashMap<String, Video>()
+        pending.forEachIndexed { index, video ->
+          ensureActive()
+          val includeCodec =
+            browserPreferences.showCodecSupportIndicator.get() && !video.isAudio && video.videoCodec.isBlank()
+          val metadata =
+            if (video.uri.scheme == "content") {
+              metadataCache.getOrExtractContentMetadata(video, includeCodec)
+            } else {
+              metadataCache.getOrExtractMetadata(File(video.path), video.uri, video.displayName, includeCodec)
+            }
+          metadata?.let { probed[video.path] = MetadataRetrieval.withMetadata(video, it) }
+          if (probed.isNotEmpty() && ((index + 1) % SCOPED_PROBE_BATCH == 0 || index == pending.lastIndex)) {
+            val current = _videos.value
+            val updated =
+              current.map { item ->
+                probed[item.path]?.takeIf { isSameDocumentVersion(it, item) } ?: item
+              }
+            probed.clear()
+            if (updated != current) {
+              _videos.value = updated
+              loadPlaybackInfo(updated)
+            }
+          }
+        }
+        VideoListCache.save(getApplication(), cacheKey, _videos.value)
+      }
   }
 
   private suspend fun loadPlaybackInfo(videos: List<Video>) {
@@ -367,7 +519,7 @@ class VideoListViewModel(
   }
 
   private fun triggerMediaScan() {
-    if (ZipArchiveMedia.isBrowserPath(bucketId)) return
+    if (ZipArchiveMedia.isBrowserPath(bucketId) || ScopedHiddenFolderScanner.isScopedFolder(bucketId)) return
     try {
       // Trigger a targeted media scan for the specific folder
       val folder = File(bucketId)

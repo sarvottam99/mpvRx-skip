@@ -58,7 +58,6 @@ import app.gyrolet.mpvrx.ui.icons.Icons
 import app.gyrolet.mpvrx.ui.theme.AppMotion
 import app.gyrolet.mpvrx.ui.utils.rememberAppHaptics
 import app.gyrolet.mpvrx.utils.device.DeviceFormFactor
-import kotlinx.coroutines.flow.collect
 import org.koin.compose.koinInject
 import kotlin.math.abs
 
@@ -128,7 +127,10 @@ internal fun VideoSwipeSurface(
   colors: CardColors,
   content: @Composable ColumnScope.() -> Unit,
 ) {
-  if (!enabled || onAction == null || (leftAction == VideoSwipeAction.None && rightAction == VideoSwipeAction.None)) {
+  // Keep the same composition subtree while selection temporarily disables swiping. Switching
+  // between a plain Card and the swipe wrapper disposes thumbnail state and causes visible list
+  // flicker (album art briefly falls back to the placeholder icon) on long-press selection.
+  if (leftAction == VideoSwipeAction.None && rightAction == VideoSwipeAction.None) {
     Card(modifier = modifier, shape = shape, colors = colors, content = content)
     return
   }

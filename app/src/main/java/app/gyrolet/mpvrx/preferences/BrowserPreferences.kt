@@ -13,11 +13,6 @@ import app.gyrolet.mpvrx.preferences.preference.Preference
 import app.gyrolet.mpvrx.preferences.preference.PreferenceStore
 import app.gyrolet.mpvrx.preferences.preference.getEnum
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
-
 import app.gyrolet.mpvrx.ui.browser.music.MusicSortField
 import app.gyrolet.mpvrx.ui.browser.music.MusicSortOrder
 import app.gyrolet.mpvrx.ui.browser.music.MusicViewMode
@@ -460,26 +455,4 @@ enum class ThumbnailQuality(
   Balanced(720, "Balanced (720p)"),
   High(1080, "High (1080p)"),
   Ultra(1440, "Ultra (1440p)"),
-}
-
-internal class CoercedPreference(
-  private val delegate: Preference<Int>,
-  private val maxVal: Int,
-) : Preference<Int> {
-  override fun key(): String = delegate.key()
-
-  override fun get(): Int = delegate.get().coerceIn(1, maxVal)
-
-  override fun set(value: Int) = delegate.set(value.coerceIn(1, maxVal))
-
-  override fun isSet(): Boolean = delegate.isSet()
-
-  override fun delete() = delegate.delete()
-
-  override fun defaultValue(): Int = delegate.defaultValue().coerceIn(1, maxVal)
-
-  override fun changes(): Flow<Int> = delegate.changes().map { it.coerceIn(1, maxVal) }
-
-  override fun stateIn(scope: kotlinx.coroutines.CoroutineScope): StateFlow<Int> =
-    changes().stateIn(scope, SharingStarted.Eagerly, get())
 }

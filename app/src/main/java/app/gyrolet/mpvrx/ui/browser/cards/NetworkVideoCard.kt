@@ -12,12 +12,13 @@ package app.gyrolet.mpvrx.ui.browser.cards
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -38,6 +39,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
@@ -73,6 +76,7 @@ fun NetworkVideoCard(
   onLongClick: (() -> Unit)? = null,
   isSelected: Boolean = false,
   isGridMode: Boolean = false,
+  selectionNeighbors: MediaSelectionNeighbors = MediaSelectionNeighbors(),
   /** Corner label naming the media type; null hides it (shown only when images are mixed in). */
   mediaType: NetworkMediaType? = null,
 ) {
@@ -153,32 +157,32 @@ fun NetworkVideoCard(
   }
 
   val displayName = if (showExtensionField) file.name else file.name.substringBeforeLast('.', file.name)
+  val cardShape = rememberMediaSelectionShape(isSelected, isGridMode, selectionNeighbors)
+  val selectionColor = animatedSelectionColor(isSelected)
+  val gridFooterHeight = with(LocalDensity.current) {
+    MaterialTheme.typography.titleMedium.lineHeight.toDp() * 2 + MaterialTheme.typography.labelSmall.lineHeight.toDp() * 2 + 64.dp
+  }
 
   Card(
     modifier =
       modifier
         .fillMaxWidth()
-        .tvFocusHighlight(AppShapeScale.large, focusedScale = 1.03f)
-        .clip(AppShapeScale.large)
+        .then(if (isGridMode) Modifier.mediaGridTileHeight(16f / 10f, gridFooterHeight) else Modifier)
+        .tvFocusHighlight(cardShape, focusedScale = 1.03f)
+        .clip(cardShape)
+                .semantics { selected = isSelected }
         .tvContextMenu(onLongClick)
-        .combinedClickable(
+        .mediaCardClickable(
           onClick = onClick,
           onLongClick = onLongClick,
         ),
-    shape = AppShapeScale.large,
+    shape = cardShape,
     colors = CardDefaults.cardColors(containerColor = Color.Transparent),
   ) {
-    Box(modifier = Modifier.fillMaxWidth()) {
-      if (isSelected) {
-        Box(
-          modifier =
-            Modifier
-              .matchParentSize()
-              .padding(2.dp)
-              .clip(AppShapeScale.large)
-              .background(MaterialTheme.colorScheme.tertiary.copy(alpha = 0.3f)),
-        )
-      }
+    Box(modifier = if (isGridMode) Modifier.fillMaxSize() else Modifier.fillMaxWidth()) {
+      Box(
+        modifier = Modifier.matchParentSize().clip(cardShape).background(selectionColor),
+      )
 
       if (isGridMode) {
         Column(
@@ -275,7 +279,7 @@ fun NetworkVideoCard(
           modifier =
             Modifier
               .fillMaxWidth()
-              .padding(horizontal = 8.dp, vertical = 6.dp),
+              .padding(horizontal = 8.dp, vertical = 2.dp),
           verticalAlignment = Alignment.CenterVertically,
         ) {
         // Match the normal video list thumbnail footprint.
@@ -286,7 +290,7 @@ fun NetworkVideoCard(
               .aspectRatio(16f / 9f)
               .clip(AppShapeScale.medium)
               .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-              .combinedClickable(
+              .mediaCardClickable(
                 onClick = onClick,
                 onLongClick = onLongClick,
               ),
@@ -369,6 +373,7 @@ fun NetworkVideoCard(
           }
         }
       }
+      SelectionIndicator(isSelected, Modifier.align(Alignment.TopEnd).padding(6.dp))
     }
   }
 }

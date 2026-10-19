@@ -77,6 +77,7 @@ import app.gyrolet.mpvrx.ui.icons.Icons
 import app.gyrolet.mpvrx.ui.theme.wallpaperAwareBackgroundColor
 import app.gyrolet.mpvrx.ui.utils.LocalBackStack
 import app.gyrolet.mpvrx.ui.utils.navigateTo
+import app.gyrolet.mpvrx.ui.utils.popSafely
 import kotlinx.serialization.Serializable
 import org.koin.compose.koinInject
 
@@ -94,6 +95,7 @@ object SnapshotScreen : Screen {
   override fun Content() {
     val context = LocalContext.current
     val backStack = LocalBackStack.current
+    val isMainTabPage = app.gyrolet.mpvrx.ui.browser.LocalIsMainTabPage.current
     val browserPreferences = koinInject<BrowserPreferences>()
     val viewModel: SnapshotLibraryViewModel =
       viewModel(factory = SnapshotLibraryViewModel.factory(context.applicationContext as Application))
@@ -358,6 +360,7 @@ object SnapshotScreen : Screen {
               selectedCount = 0,
               totalCount = library.folders.size + library.rootCaptures.size,
               onCancelSelection = { },
+              onBackClick = if (isMainTabPage) null else ({ backStack.popSafely() }),
               onSortClick = { showSortDialog = true },
               onSearchClick = { isSearching = true },
               onSettingsClick = {

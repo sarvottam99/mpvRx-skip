@@ -36,7 +36,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.DropdownMenu
+import app.gyrolet.mpvrx.presentation.components.AppDropdownMenu as DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -60,16 +60,22 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import androidx.documentfile.provider.DocumentFile
+import app.gyrolet.mpvrx.R
 import app.gyrolet.mpvrx.preferences.AdvancedPreferences
 import app.gyrolet.mpvrx.preferences.preference.collectAsState
 import app.gyrolet.mpvrx.ui.icons.Icon
 import app.gyrolet.mpvrx.ui.icons.Icons
 import app.gyrolet.mpvrx.utils.clipboard.SafeClipboard
+import app.gyrolet.mpvrx.utils.media.findChildIgnoreCase
+import app.gyrolet.mpvrx.utils.media.listTreeFilesSafely
+import app.gyrolet.mpvrx.utils.media.openPersistedTreeDocument
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -85,8 +91,6 @@ private const val DEBUG_LOG_FILE_PREFIX = "mpvrx-debug-"
 private const val DEBUG_LOG_KEEP = 5
 private const val SHARE_DIR_NAME = "shared_logs"
 
-// `filesDir` is what the player passes to mpv as its --config-dir, so this is the
-// mpv configuration folder users already browse to edit mpv.conf.
 private const val CONFIG_LOG_DIR_NAME = "logs"
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -181,9 +185,9 @@ internal fun DebugLogsScreen(onNavigateBack: () -> Unit) {
     }
   }
 
-  fun visibleText(includeDeviceInfo: Boolean = false): String =
+  fun allCapturedText(includeDeviceInfo: Boolean = false): String =
     buildDebugLogText(
-      entries = filteredEntries,
+      entries = liveEntries,
       includeDeviceInfo = includeDeviceInfo,
       maxBytes = logSizeMb.coerceIn(1, 10) * 1024 * 1024,
     )
@@ -260,28 +264,44 @@ internal fun DebugLogsScreen(onNavigateBack: () -> Unit) {
               onDismissRequest = { menuExpanded = false },
             ) {
               DropdownMenuItem(
-                text = { Text("Share visible logs") },
+                text = { Text("Share Logs File") },
                 leadingIcon = { Icon(Icons.RoundedFilled.Share, contentDescription = null) },
-                enabled = filteredEntries.isNotEmpty(),
+                enabled = liveEntries.isNotEmpty(),
                 onClick = {
                   menuExpanded = false
-                  shareDebugLogs(context, visibleText(includeDeviceInfo = true))
+                  val text = allCapturedText(includeDeviceInfo = true)
+                  scope.launch {
+                    val file =
+                      withContext(Dispatchers.IO) {
+                        createDebugLogsShareFile(context, text)
+                      }
+                    if (file != null) {
+                      shareDebugLogsFile(context, file, chooserTitle = "Share logs file")
+                    } else {
+                      Toast.makeText(context, "Could not prepare logs file", Toast.LENGTH_LONG).show()
+                    }
+                  }
                 },
               )
               DropdownMenuItem(
-                text = { Text("Save logs to config folder") },
+                text = { Text(stringResource(R.string.debug_logs_save_to_config)) },
                 leadingIcon = { Icon(Icons.RoundedFilled.Download, contentDescription = null) },
-                enabled = filteredEntries.isNotEmpty(),
+                enabled = liveEntries.isNotEmpty(),
                 onClick = {
                   menuExpanded = false
-                  val text = visibleText(includeDeviceInfo = true)
+                  val text = allCapturedText(includeDeviceInfo = true)
                   scope.launch {
-                    val saved = withContext(Dispatchers.IO) { saveDebugLogsToConfigDir(context, text) }
+                    val configUri = preferences.mpvConfStorageUri.get()
+                    if (configUri.isBlank()) {
+                      Toast.makeText(context, R.string.debug_logs_config_required, Toast.LENGTH_LONG).show()
+                      return@launch
+                    }
+                    val saved = withContext(Dispatchers.IO) { saveDebugLogsToConfigDir(context, configUri, text) }
                     val message =
                       if (saved != null) {
-                        "Logs saved to ${saved.parent}/${saved.name}"
+                        context.getString(R.string.debug_logs_config_saved, "$CONFIG_LOG_DIR_NAME/${saved.name}")
                       } else {
-                        "Could not save logs to the config folder"
+                        context.getString(R.string.debug_logs_config_save_failed)
                       }
                     withContext(Dispatchers.Main) {
                       Toast.makeText(context, message, Toast.LENGTH_LONG).show()
@@ -290,15 +310,15 @@ internal fun DebugLogsScreen(onNavigateBack: () -> Unit) {
                 },
               )
               DropdownMenuItem(
-                text = { Text("Copy visible logs") },
+                text = { Text("Copy All Logs") },
                 leadingIcon = { Icon(Icons.RoundedFilled.ContentCopy, contentDescription = null) },
-                enabled = filteredEntries.isNotEmpty(),
+                enabled = liveEntries.isNotEmpty(),
                 onClick = {
                   menuExpanded = false
                   SafeClipboard.copyPlainText(
                     context = context,
                     label = "mpvrx_debug_logs",
-                    text = visibleText(),
+                    text = allCapturedText(),
                   )
                 },
               )
@@ -655,44 +675,33 @@ private fun buildDebugLogText(
   return (prefix + DebugLogReader.trimTextToByteBudget(logs, logBudget)).trimEnd()
 }
 
-private fun shareDebugLogs(
+private fun createDebugLogsShareFile(
   context: Context,
   text: String,
-) {
-  if (text.isBlank()) return
-  val byteCount = text.toByteArray(Charsets.UTF_8).size
-  if (byteCount > 256 * 1024) {
-    shareDebugLogsAsFile(context, text, chooserTitle = "Share debug logs")
-    return
-  }
+): File? {
+  if (text.isBlank()) return null
 
-  context.startActivity(
-    Intent.createChooser(
-      Intent(Intent.ACTION_SEND).apply {
-        type = "text/plain"
-        putExtra(Intent.EXTRA_TEXT, text)
-      },
-      "Share debug logs",
-    ),
-  )
+  return runCatching {
+    val shareDirectory = File(context.cacheDir, SHARE_DIR_NAME).apply { mkdirs() }
+    val file = File(shareDirectory, "$DEBUG_LOG_FILE_PREFIX${System.currentTimeMillis()}.txt")
+    file.writeText(text)
+
+    shareDirectory
+      .listFiles { candidate -> candidate.isFile && candidate.name.startsWith(DEBUG_LOG_FILE_PREFIX) }
+      ?.sortedByDescending(File::lastModified)
+      ?.drop(DEBUG_LOG_KEEP)
+      ?.forEach { candidate -> candidate.delete() }
+
+    file
+  }.getOrNull()
 }
 
-private fun shareDebugLogsAsFile(
+private fun shareDebugLogsFile(
   context: Context,
-  text: String,
-  chooserTitle: String = "Share debug logs",
+  file: File,
+  chooserTitle: String = "Share logs file",
 ) {
-  if (text.isBlank()) return
-
-  val shareDirectory = File(context.cacheDir, SHARE_DIR_NAME).apply { mkdirs() }
-  val file = File(shareDirectory, "$DEBUG_LOG_FILE_PREFIX${System.currentTimeMillis()}.txt")
-  file.writeText(text)
-
-  shareDirectory
-    .listFiles { candidate -> candidate.isFile && candidate.name.startsWith(DEBUG_LOG_FILE_PREFIX) }
-    ?.sortedByDescending(File::lastModified)
-    ?.drop(DEBUG_LOG_KEEP)
-    ?.forEach { candidate -> candidate.delete() }
+  if (!file.isFile) return
 
   val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
   context.startActivity(
@@ -709,30 +718,40 @@ private fun shareDebugLogsAsFile(
 }
 
 /**
- * Writes the log text to a `logs` subfolder of the mpv configuration folder.
- *
- * The player hands `filesDir` to mpv as its `--config-dir`, so saving here keeps every
- * dump next to `mpv.conf` and the rest of the user editable configuration instead of
- * inside the cache directory, which the system is free to delete at any time.
+ * Writes the log text to a `logs` subfolder of the user-selected configuration folder.
  * Returns the written file, or null when the text was blank or could not be written.
  */
 private fun saveDebugLogsToConfigDir(
   context: Context,
+  configUri: String,
   text: String,
-): File? {
+): DocumentFile? {
   if (text.isBlank()) return null
 
   return runCatching {
-    val logDirectory = File(context.filesDir, CONFIG_LOG_DIR_NAME).apply { mkdirs() }
-    val file = File(logDirectory, "$DEBUG_LOG_FILE_PREFIX${System.currentTimeMillis()}.txt")
-    file.writeText(text)
+    val root = openPersistedTreeDocument(context, configUri, requireWrite = true)
+      ?: error("Configuration folder is not writable")
+    val logDirectory = root.findChildIgnoreCase(CONFIG_LOG_DIR_NAME) ?: root.createDirectory(CONFIG_LOG_DIR_NAME)
+      ?: error("Could not create configuration logs folder")
+    check(logDirectory.isDirectory && logDirectory.canWrite()) { "Configuration logs folder is not writable" }
+    val file = logDirectory.createFile("text/plain", "$DEBUG_LOG_FILE_PREFIX${System.currentTimeMillis()}.txt")
+      ?: error("Could not create debug log file")
+    try {
+      val output = context.contentResolver.openOutputStream(file.uri, "wt")
+        ?: error("Could not open debug log file")
+      output.bufferedWriter(Charsets.UTF_8).use { it.write(text) }
+    } catch (error: Exception) {
+      runCatching { file.delete() }
+      throw error
+    }
 
-    logDirectory
-      .listFiles { candidate -> candidate.isFile && candidate.name.startsWith(DEBUG_LOG_FILE_PREFIX) }
-      ?.sortedByDescending(File::lastModified)
-      ?.drop(DEBUG_LOG_KEEP)
-      ?.forEach { candidate -> candidate.delete() }
+    listTreeFilesSafely(logDirectory)
+      .filter { candidate -> candidate.isFile && candidate.name?.startsWith(DEBUG_LOG_FILE_PREFIX) == true }
+      .sortedByDescending { it.name }
+      .drop(DEBUG_LOG_KEEP)
+      .forEach { candidate -> runCatching { candidate.delete() } }
 
     file
-  }.getOrNull()
+  }.onFailure { error -> Log.w(DEBUG_LOG_TAG, "Could not save debug logs to selected configuration folder", error) }
+    .getOrNull()
 }

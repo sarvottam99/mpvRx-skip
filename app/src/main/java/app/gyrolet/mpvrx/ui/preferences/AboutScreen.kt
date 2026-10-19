@@ -26,37 +26,28 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import app.gyrolet.mpvrx.ui.components.IconSwitch
-import app.gyrolet.mpvrx.ui.components.themedSegmentedButtonColors
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -82,14 +73,15 @@ import app.gyrolet.mpvrx.R
 import app.gyrolet.mpvrx.domain.update.AppUpdateChannel
 import app.gyrolet.mpvrx.presentation.Screen
 import app.gyrolet.mpvrx.presentation.crash.CrashActivity.Companion.collectDeviceInfo
+import app.gyrolet.mpvrx.ui.components.IconSwitch
+import app.gyrolet.mpvrx.ui.components.themedSegmentedButtonColors
 import app.gyrolet.mpvrx.ui.icons.Icon
 import app.gyrolet.mpvrx.ui.icons.Icons
+import app.gyrolet.mpvrx.ui.update.UpdateViewModel
 import app.gyrolet.mpvrx.ui.utils.LocalBackStack
 import app.gyrolet.mpvrx.ui.utils.navigateTo
-import app.gyrolet.mpvrx.ui.utils.LocalShowSettingsBackArrow
 import app.gyrolet.mpvrx.ui.utils.popSafely
 import app.gyrolet.mpvrx.utils.clipboard.SafeClipboard
-import app.gyrolet.mpvrx.ui.update.UpdateViewModel
 import java.util.Locale
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.serialization.Serializable
@@ -110,6 +102,7 @@ object AboutScreen : Screen {
         ?: BuildConfig.VERSION_NAME
     val buildType = BuildConfig.BUILD_TYPE
     val githubRepoUrl = stringResource(R.string.github_repo_url)
+    val privacyPolicyUrl = stringResource(R.string.privacy_policy_url)
     val settingsScrollState = rememberScrollState()
     val settingsHighlight =
       rememberSettingsSearchHighlight(AboutScreen, settingsScrollState, MaterialTheme.colorScheme.primary)
@@ -145,27 +138,10 @@ object AboutScreen : Screen {
 
     Scaffold(
       topBar = {
-        TopAppBar(
-          title = {
-            Text(
-              modifier = Modifier.settingsSearchTarget(R.string.pref_about_title),
-              text = stringResource(id = R.string.pref_about_title),
-              style = MaterialTheme.typography.headlineSmall,
-              fontWeight = FontWeight.ExtraBold,
-              color = MaterialTheme.colorScheme.primary,
-            )
-          },
-          navigationIcon = {
-            if (LocalShowSettingsBackArrow.current) {
-              IconButton(onClick = { backstack.popSafely() }) {
-                Icon(
-                  imageVector = Icons.RoundedFilled.ArrowBack,
-                  contentDescription = null,
-                  tint = MaterialTheme.colorScheme.secondary,
-                )
-              }
-            }
-          },
+        SettingsTopAppBar(
+          title = stringResource(id = R.string.pref_about_title),
+          onBack = { backstack.popSafely() },
+          titleModifier = Modifier.settingsSearchTarget(R.string.pref_about_title),
         )
       },
     ) { paddingValues ->
@@ -225,8 +201,13 @@ object AboutScreen : Screen {
                     modifier = Modifier.matchParentSize(),
                     factory = { ctx ->
                       ImageView(ctx).apply {
-                        setImageResource(R.mipmap.ic_launcher)
+                        scaleType = ImageView.ScaleType.FIT_CENTER
+                        setImageResource(LauncherIconManager.current(ctx).preview)
                       }
+                    },
+                    update = { view ->
+                      val selectedPreview = LauncherIconManager.current(view.context).preview
+                      view.setImageResource(selectedPreview)
                     },
                   )
                 }
@@ -336,6 +317,24 @@ object AboutScreen : Screen {
                 }
               }
 
+              Spacer(modifier = Modifier.height(12.dp))
+
+              OutlinedButton(
+                onClick = {
+                  context.startActivity(Intent(Intent.ACTION_VIEW, privacyPolicyUrl.toUri()))
+                },
+                modifier = Modifier.fillMaxWidth().height(50.dp),
+                shape = RoundedCornerShape(12.dp),
+              ) {
+                Icon(Icons.RoundedFilled.Security, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                  text = stringResource(R.string.ui_privacy_policy),
+                  style = MaterialTheme.typography.titleMedium,
+                  fontWeight = FontWeight.SemiBold,
+                )
+              }
+
               Spacer(modifier = Modifier.height(20.dp))
 
               Column(
@@ -383,8 +382,8 @@ object AboutScreen : Screen {
         Spacer(Modifier.height(8.dp))
 
         // Support / Donation Section
-        PreferenceSectionHeader(title = stringResource(R.string.pref_section_support))
-        PreferenceCard {
+        if (!BuildConfig.IS_PLAY_STORE_BUILD) PreferenceSectionHeader(position = PreferenceSectionPosition.First, title = stringResource(R.string.pref_section_support))
+        if (!BuildConfig.IS_PLAY_STORE_BUILD) PreferenceCard {
           Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
               Icon(
@@ -508,11 +507,11 @@ object AboutScreen : Screen {
           }
         }
 
-        Spacer(Modifier.height(8.dp))
+        if (!BuildConfig.IS_PLAY_STORE_BUILD) Spacer(Modifier.height(8.dp))
 
         // Updates Section (only show if update feature is enabled)
         if (BuildConfig.ENABLE_UPDATE_FEATURE && updateViewModel != null) {
-          PreferenceSectionHeader(title = stringResource(R.string.pref_section_updates))
+          PreferenceSectionHeader(position = PreferenceSectionPosition.Middle, title = stringResource(R.string.pref_section_updates))
           PreferenceCard {
             val isAutoUpdateEnabled by updateViewModel.isAutoUpdateEnabled.collectAsState()
             val updateChannel by updateViewModel.updateChannel.collectAsState()
@@ -624,7 +623,7 @@ object AboutScreen : Screen {
         }
 
         // System Stats Section
-        PreferenceSectionHeader(title = stringResource(R.string.pref_section_system))
+        PreferenceSectionHeader(position = PreferenceSectionPosition.Last, title = stringResource(R.string.pref_section_system))
 
         val systemStats = remember { collectSystemStats(context) }
         PreferenceCard {
@@ -740,110 +739,7 @@ private fun collectSystemStats(context: Context): List<Pair<String, String>> {
   )
 }
 
-@Suppress("DEPRECATION")
-@Serializable
-object LibrariesScreen : Screen {
-  @OptIn(ExperimentalMaterial3Api::class)
-  @Composable
-  override fun Content() {
-    val context = LocalContext.current
-    val backstack = LocalBackStack.current
-    Scaffold(
-      topBar = {
-        TopAppBar(
-          title = {
-            Text(
-              text = stringResource(id = R.string.pref_about_oss_libraries),
-              style = MaterialTheme.typography.headlineSmall,
-              fontWeight = FontWeight.ExtraBold,
-              color = MaterialTheme.colorScheme.primary,
-            )
-          },
-          navigationIcon = {
-            IconButton(onClick = { backstack.popSafely() }) {
-              Icon(
-                imageVector = Icons.RoundedFilled.ArrowBack,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-              )
-            }
-          },
-        )
-      },
-    ) { paddingValues ->
-      LazyColumn(
-        modifier =
-          Modifier
-            .fillMaxSize()
-            .padding(paddingValues),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-      ) {
-        item(key = "libraries-introduction") {
-          Text(
-            text =
-              androidx.compose.ui.res.stringResource(
-                app.gyrolet.mpvrx.R.string.ui_core_open_source_dependencies_used_by_mpvrx,
-              ),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-        }
-
-        items(
-          items = OPEN_SOURCE_LIBRARIES,
-          key = OpenSourceLibrary::artifact,
-        ) { library ->
-          Card(
-            modifier =
-              Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(18.dp))
-                .clickable {
-                  context.startActivity(
-                    Intent(Intent.ACTION_VIEW, library.url.toUri()),
-                  )
-                },
-            colors =
-              CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-              ),
-            shape = RoundedCornerShape(18.dp),
-          ) {
-            Column(
-              modifier = Modifier.padding(16.dp),
-              verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-              Text(
-                text = library.name,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-              )
-              Text(
-                text = library.artifact,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
-              )
-              Text(
-                text = stringResource(library.descriptionRes),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-              )
-              Text(
-                text = library.license,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.secondary,
-              )
-            }
-          }
-        }
-      }
-    }
-  }
-}
-
-private data class OpenSourceLibrary(
+internal data class OpenSourceLibrary(
   val name: String,
   val artifact: String,
   @StringRes val descriptionRes: Int,
@@ -851,7 +747,7 @@ private data class OpenSourceLibrary(
   val url: String,
 )
 
-private val OPEN_SOURCE_LIBRARIES =
+internal val OPEN_SOURCE_LIBRARIES =
   listOf(
     OpenSourceLibrary(
       name = "Jetpack Compose",
@@ -873,13 +769,6 @@ private val OPEN_SOURCE_LIBRARIES =
       descriptionRes = R.string.oss_material_3_description,
       license = "Apache-2.0",
       url = "https://developer.android.com/jetpack/androidx/releases/compose-material3",
-    ),
-    OpenSourceLibrary(
-      name = "CrashX",
-      artifact = "io.github.tutorialsandroid:crashx",
-      descriptionRes = R.string.oss_crashx_description,
-      license = "Apache-2.0",
-      url = "https://github.com/TutorialsAndroid/crashx",
     ),
     OpenSourceLibrary(
       name = "Kmp-Vibrate",
@@ -987,13 +876,6 @@ private val OPEN_SOURCE_LIBRARIES =
       url = "https://github.com/zhanghai/ComposePreference",
     ),
     OpenSourceLibrary(
-      name = "LazyColumnScrollbar",
-      artifact = "com.github.nanihadesuka:LazyColumnScrollbar",
-      descriptionRes = R.string.oss_lazycolumnscrollbar_description,
-      license = "Apache-2.0",
-      url = "https://github.com/Nanihadesuka/LazyColumnScrollbar",
-    ),
-    OpenSourceLibrary(
       name = "Reorderable",
       artifact = "sh.calvin.reorderable:reorderable",
       descriptionRes = R.string.oss_reorderable_description,
@@ -1069,13 +951,6 @@ private val OPEN_SOURCE_LIBRARIES =
       descriptionRes = R.string.oss_androidx_palette_description,
       license = "Apache-2.0",
       url = "https://developer.android.com/jetpack/androidx/releases/palette",
-    ),
-    OpenSourceLibrary(
-      name = "AndroidX Preference",
-      artifact = "androidx.preference:preference-ktx",
-      descriptionRes = R.string.oss_androidx_preference_description,
-      license = "Apache-2.0",
-      url = "https://developer.android.com/jetpack/androidx/releases/preference",
     ),
     OpenSourceLibrary(
       name = "AndroidX Profile Installer",

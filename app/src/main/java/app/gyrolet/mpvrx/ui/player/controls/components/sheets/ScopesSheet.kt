@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -44,7 +43,6 @@ import app.gyrolet.mpvrx.presentation.components.PlayerSheet
 import app.gyrolet.mpvrx.presentation.components.PlayerSheetAction
 import app.gyrolet.mpvrx.ui.components.IconSwitch
 import app.gyrolet.mpvrx.ui.components.themedSegmentedButtonColors
-import app.gyrolet.mpvrx.ui.icons.Icon
 import app.gyrolet.mpvrx.ui.icons.Icons
 import app.gyrolet.mpvrx.ui.player.PlayerViewModel
 import app.gyrolet.mpvrx.ui.player.TrackNode
@@ -142,6 +140,11 @@ fun ScopesSheet(
                   viewModel.setMediaScopesOverlayVisible(true)
                 },
                 label = { Text(getTrackTitle(track), maxLines = 1) },
+                colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+          containerColor = playerSheetSelectionColor(false),
+          selectedContainerColor = playerSheetSelectionColor(true),
+          selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        ),
               )
             }
           }
@@ -236,6 +239,11 @@ private fun ScopeOptionRow(
         selected = selected == value,
         onClick = { onSelect(value) },
         label = { Text(valueLabel(value)) },
+        colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+          containerColor = playerSheetSelectionColor(false),
+          selectedContainerColor = playerSheetSelectionColor(true),
+          selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        ),
       )
     }
   }

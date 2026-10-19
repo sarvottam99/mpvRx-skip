@@ -34,6 +34,8 @@ data class WatchStatsSnapshot(
 data class WatchMediaStats(
   val title: String,
   val artworkUri: String? = null,
+  /** Original playable identity used to regenerate local/video thumbnails. */
+  val sourceUri: String? = null,
   val seconds: Long = 0,
   val sessions: Long = 0,
   val isAudio: Boolean = false,
@@ -46,6 +48,8 @@ class WatchStatsRepository(context: Context) {
   private val mutex = Mutex()
   private val _resetVersion = MutableStateFlow(0L)
   val resetVersion = _resetVersion.asStateFlow()
+  private val _revision = MutableStateFlow(0L)
+  val revision = _revision.asStateFlow()
 
   suspend fun recordSession(item: PlaybackItem) = update { current ->
     val key = item.stableId.ifBlank { item.originalUri }
@@ -84,6 +88,7 @@ class WatchStatsRepository(context: Context) {
   suspend fun clear() = mutex.withLock {
     withContext(Dispatchers.IO) { file.delete() }
     _resetVersion.value++
+    _revision.value++
   }
 
   private suspend fun update(transform: (WatchStatsSnapshot) -> WatchStatsSnapshot) = mutex.withLock {
@@ -93,6 +98,7 @@ class WatchStatsRepository(context: Context) {
       try {
         output.write(json.encodeToString(updated).toByteArray(Charsets.UTF_8))
         file.finishWrite(output)
+        _revision.value++
       } catch (cancelled: CancellationException) {
         file.failWrite(output)
         throw cancelled
@@ -117,6 +123,7 @@ class WatchStatsRepository(context: Context) {
     WatchMediaStats(
       title = item.title?.takeIf(String::isNotBlank) ?: existing?.title ?: item.originalUri.substringAfterLast('/'),
       artworkUri = item.artworkUri ?: existing?.artworkUri,
+      sourceUri = item.originalUri.takeIf(String::isNotBlank) ?: existing?.sourceUri,
       seconds = existing?.seconds ?: 0,
       sessions = existing?.sessions ?: 0,
       isAudio = item.declaredMediaKind() == DeclaredPlaybackMediaKind.AUDIO,

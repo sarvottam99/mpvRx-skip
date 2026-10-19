@@ -38,7 +38,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.alpha
@@ -51,13 +51,14 @@ import app.gyrolet.mpvrx.preferences.SubtitlesPreferences
 import app.gyrolet.mpvrx.preferences.preference.Preference
 import app.gyrolet.mpvrx.preferences.preference.deleteAndGet
 import app.gyrolet.mpvrx.presentation.components.ExpandableCard
-import app.gyrolet.mpvrx.presentation.components.TintedSliderItem
+import app.gyrolet.mpvrx.ui.components.ExpressiveColorPicker
 import app.gyrolet.mpvrx.ui.icons.Icon
 import app.gyrolet.mpvrx.ui.icons.Icons
 import app.gyrolet.mpvrx.ui.player.PlayerViewModel
 import app.gyrolet.mpvrx.ui.player.applySubtitleLayout
 import app.gyrolet.mpvrx.ui.player.controls.CARDS_MAX_WIDTH
 import app.gyrolet.mpvrx.ui.player.controls.panelCardsColors
+import app.gyrolet.mpvrx.ui.theme.AppConnectedShapeTokens
 import app.gyrolet.mpvrx.ui.theme.spacing
 import app.gyrolet.mpvrx.ui.utils.currentMpvConfigOverrideOptions
 import org.koin.compose.koinInject
@@ -66,6 +67,7 @@ import org.koin.compose.koinInject
 fun SubtitleSettingsColorsCard(
   viewModel: PlayerViewModel,
   modifier: Modifier = Modifier,
+  shape: Shape = MaterialTheme.shapes.large,
 ) {
   val preferences = koinInject<SubtitlesPreferences>()
   val configOwnedOptions = currentMpvConfigOverrideOptions()
@@ -83,8 +85,9 @@ fun SubtitleSettingsColorsCard(
     },
     modifier = modifier.widthIn(max = CARDS_MAX_WIDTH),
     colors = panelCardsColors(),
+    shape = shape,
   ) {
-    Column {
+    Column(verticalArrangement = Arrangement.spacedBy(AppConnectedShapeTokens.spacing)) {
       AssOverrideWarningBanner(viewModel = viewModel, preferences = preferences)
 
       var currentColorType by remember { mutableStateOf(SubColorType.Text) }
@@ -97,6 +100,7 @@ fun SubtitleSettingsColorsCard(
           currentColorType.property,
         )
       val colorEditingEnabled = currentColorOptions.none(configOwnedOptions::contains)
+      PanelConnectedTile(index = 0, itemCount = 5) {
       Row(
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
@@ -139,9 +143,12 @@ fun SubtitleSettingsColorsCard(
           }
         }
       }
-      SubtitlesColorPicker(
+      }
+      ExpressiveColorPicker(
         currentColor,
+        attachedToHeader = true,
         enabled = colorEditingEnabled,
+        wheelMaxSize = 200.dp,
         onColorChange = {
           currentColor = it
           currentColorType.preference(preferences).set(it)
@@ -205,56 +212,6 @@ fun resetColors(
 
 val getCurrentMPVColor: (SubColorType) -> Int = {
   PlaybackSession.getPropertyString(it.property)?.uppercase()?.toColorInt() ?: 0xFFFFFFFF.toInt()
-}
-
-@Composable
-fun SubtitlesColorPicker(
-  color: Int,
-  onColorChange: (Int) -> Unit,
-  modifier: Modifier = Modifier,
-  enabled: Boolean = true,
-) {
-  Column(modifier) {
-    TintedSliderItem(
-      stringResource(R.string.player_sheets_sub_color_red),
-      color.red,
-      color.red.toString(),
-      onChange = { onColorChange(color.copyAsArgb(red = it)) },
-      max = 255,
-      tint = Color.Red,
-      enabled = enabled,
-    )
-
-    TintedSliderItem(
-      stringResource(R.string.player_sheets_sub_color_green),
-      color.green,
-      color.green.toString(),
-      onChange = { onColorChange(color.copyAsArgb(green = it)) },
-      max = 255,
-      tint = Color.Green,
-      enabled = enabled,
-    )
-
-    TintedSliderItem(
-      stringResource(R.string.player_sheets_sub_color_blue),
-      color.blue,
-      color.blue.toString(),
-      onChange = { onColorChange(color.copyAsArgb(blue = it)) },
-      max = 255,
-      tint = Color.Blue,
-      enabled = enabled,
-    )
-
-    TintedSliderItem(
-      stringResource(R.string.player_sheets_sub_color_alpha),
-      color.alpha,
-      color.alpha.toString(),
-      onChange = { onColorChange(color.copyAsArgb(alpha = it)) },
-      max = 255,
-      tint = Color.White,
-      enabled = enabled,
-    )
-  }
 }
 
 @Composable

@@ -25,6 +25,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.res.stringResource
 import app.gyrolet.mpvrx.R
 import app.gyrolet.mpvrx.preferences.DecoderPreferences
@@ -38,13 +39,17 @@ import app.gyrolet.mpvrx.ui.player.VideoFilters
 import app.gyrolet.mpvrx.ui.player.controls.CARDS_MAX_WIDTH
 import app.gyrolet.mpvrx.ui.player.controls.panelCardsColors
 import app.gyrolet.mpvrx.ui.theme.spacing
+import app.gyrolet.mpvrx.ui.theme.AppConnectedShapeTokens
 import app.gyrolet.mpvrx.ui.utils.currentMpvConfigOverrideOptions
 import me.zhanghai.compose.preference.FooterPreference
 import me.zhanghai.compose.preference.ProvidePreferenceLocals
 import org.koin.compose.koinInject
 
 @Composable
-fun VideoSettingsFiltersCard(modifier: Modifier = Modifier) {
+fun VideoSettingsFiltersCard(
+  modifier: Modifier = Modifier,
+  shape: Shape = MaterialTheme.shapes.large,
+) {
   val decoderPreferences = koinInject<DecoderPreferences>()
   val configOwnedOptions = currentMpvConfigOverrideOptions()
   val hasOwnedFilter = VideoFilters.entries.any { it.mpvProperty in configOwnedOptions }
@@ -63,9 +68,10 @@ fun VideoSettingsFiltersCard(modifier: Modifier = Modifier) {
     },
     colors = panelCardsColors(),
     modifier = modifier.widthIn(max = CARDS_MAX_WIDTH),
+    shape = shape,
   ) {
     ProvidePreferenceLocals {
-      Column {
+      Column(verticalArrangement = Arrangement.spacedBy(AppConnectedShapeTokens.spacing)) {
         TextButton(
           enabled = !hasOwnedFilter,
           onClick = {
@@ -77,20 +83,22 @@ fun VideoSettingsFiltersCard(modifier: Modifier = Modifier) {
           Text(text = stringResource(id = R.string.generic_reset))
         }
 
-        VideoFilters.entries.forEach { filter ->
+        VideoFilters.entries.forEachIndexed { index, filter ->
           val value by filter.preference(decoderPreferences).collectAsState()
-          SliderItem(
-            label = stringResource(filter.titleRes),
-            value = value,
-            valueText = value.toString(),
-            onChange = {
-              filter.preference(decoderPreferences).set(it)
-              PlaybackSession.setPropertyInt(filter.mpvProperty, it)
-            },
-            max = filter.max,
-            min = filter.min,
-            enabled = filter.mpvProperty !in configOwnedOptions,
-          )
+          PanelConnectedTile(index = index, itemCount = VideoFilters.entries.size) {
+            SliderItem(
+              label = stringResource(filter.titleRes),
+              value = value,
+              valueText = value.toString(),
+              onChange = {
+                filter.preference(decoderPreferences).set(it)
+                PlaybackSession.setPropertyInt(filter.mpvProperty, it)
+              },
+              max = filter.max,
+              min = filter.min,
+              enabled = filter.mpvProperty !in configOwnedOptions,
+            )
+          }
         }
 
         if (!decoderPreferences.gpuNext.get()) {

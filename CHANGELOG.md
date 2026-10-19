@@ -2,11 +2,269 @@
 
 These notes are written in plain English and focus on what changed for real use.
 
-## Unreleased
+## 3.0.0 — Expressive
+
+**Release date:** October 18, 2026
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Riteshp2001/mpvRx/403294620e0c38b7ec965a493ff6b97efcbb4198/website/public/images/icon.png" width="160" height="160" alt="mpvRx solid purple app icon" />
+</p>
+
+<p align="center"><strong>A fresh face. More color. Your player.</strong><br />A revamped mpvRx icon · Material 3 Expressive · Liquid Glass · Profile Hub</p>
+
+**A new chapter deserves a new face.** mpvRx 3.0.0 arrives with a revamped app icon and a refreshed interface to match. Open the player to discover connected Material 3 Expressive layouts, more control over color, and a new home for your playlists, snapshots, and watch statistics.
+
+### 💜 Meet the new mpvRx icon
+
+**A bold purple play mark. Softer curves. A fresh identity for 3.0.0.**
+
+The revamped icon brings the player’s identity into focus: a rounded, ribbon-like play symbol with a distinctive detached tip, finished in solid purple. It gives mpvRx a recognizable new face on your home screen and introduces the expressive look waiting inside the app.
+
+This is the visual centerpiece of **mpvRx 3.0.0 — Expressive**. The Classic logo remains available in App icon settings if you prefer the familiar look.
+
+### ✨ More to explore
+
+- **Expressive from screen to screen:** Connected shapes, full-tile selection, rounded controls, and refreshed navigation, settings, dialogs, and player panels.
+- **Color picking you can see:** An HSV color wheel with an independent brightness slider, a touch-controlled color field, hue strip, RGB sliders, selected-color preview, and quick swatches. Subtitle colors also include opacity adjustment; theme colors and custom shortcut backgrounds share the same picker.
+- **Liquid Glass controls (experimental):** Refractive styling for player controls and sliders on Android 12 and newer, with a dedicated settings page and an optional HDR mode.
+- **Less waiting, more watching:** Saved library and folder listings appear immediately, with media changes refreshed in the background.
+- **Your new Profile hub:** Recents, Playlists, Snapshots, and watch statistics together, with an editable avatar.
+- **Six ways to set the mood:** Ambilight, Cinema, Echo, and Mirror join Glow and YouTube ambient modes, with quality presets and adjustment controls.
+- **Hands-on subtitles:** Long-press and drag to reposition, pinch to resize, and adjust primary and secondary tracks independently.
+- **Lyrics, reworked:** A new lrc.red provider, automatic provider matching, backing vocals and duets, and faster access to embedded lyrics.
+- **Another way to install:** A Google Play build joins the release lineup with user-selected media folders, a universal APK, and an app bundle.
+- **Under the hood:** mpvlib 1.1.3 across the release builds.
+
+### 🚀 Three things to try first
+
+1. **Explore the new look.** Take the revamped icon and connected layouts for a spin, then try the new picker in custom theme colors.
+2. **Set the scene.** Explore ambient lighting and tune the player’s Liquid Glass controls.
+3. **Make yourself at home.** Visit Profile for playlists, snapshots, recent media, and watch statistics.
+
+---
+
+### A New Look
+
+#### Material 3 Expressive
+
+- **App-wide redesign:** Navigation, media lists and grids, Music, settings, overlays, MediaInfo, Downloads, and Navidrome screens follow Material 3 Expressive shapes, typography, and motion.
+- **Connected settings:** Preference rows join into connected groups with section markers, and settings groups use flat tonal surfaces instead of background cards.
+- **Expressive dialogs and menus:** Confirmation dialogs, playlist forms, the sleep timer, dropdowns, and popups share one expressive style, and menus open anchored to the control that opened them.
+- **Full-tile selection:** Selecting media fills the whole tile with connected shapes in grid and list layouts, including Songs, Albums, Artists, and Playlists in Music.
+- **Player sheets:** Audio, subtitle, quality, chapter, playlist, speed, aspect, stats, and post-processing sheets share consistent selected and unselected states. The controls drawer keeps three columns on every screen size, and draggable panels have proper headers.
+- **Material Symbols:** Hand-drawn icons were replaced with Material Symbols, search fields use the expressive style, and browser titles use variable display type.
+- **Interface scale:** The default app interface scale is now 0.95 for a slightly denser layout.
+
+#### Liquid Glass
+
+- **Experimental feature:** Available on Android 12 and newer. HDR glass is separately optional; rendering and performance can vary by device.
+
+- **Real refraction:** Liquid Glass bends light with lens curvature and physics-based highlights, and falls back to standard Material controls when turned off.
+- **Live video behind the glass:** Player controls, sheets, and panels refract the playing video in real time, even while zoomed or panned. HDR video is supported, and the glass waits for a rendered HDR frame before sampling it.
+- **More glass surfaces:** The seekbar (with a liquid thumb), brightness and volume sliders, subtitle color sliders, the selection bar, player update pills, the cast button, and music sheets all use glass.
+- **Dedicated settings page:** A Liquid Glass page under Appearance offers opacity, blur, refraction, and chromatic aberration controls with a live preview.
+- **Frosted navigation:** A progressive blur sits behind the floating navigation bar.
+
+#### Navigation and Motion
+
+- **Floating navigation:** The bottom bar gained spring-driven motion, rubber-band gestures, and collapse-on-scroll, including on tablets. A new Navigation category in Appearance settings controls it.
+- **Smoother transitions:** Tab switches, screen changes, and the jump from Home to Settings animate smoothly, without a flash at app launch.
+
+#### Icons and Splash Screen
+
+- **Revamped mpvRx icon:** A rounded play mark with a detached tip and a solid purple finish introduces the new visual identity of 3.0.0. The Classic logo remains available.
+
+- **Icon builder:** Combine supported backgrounds and logos with a live preview, connected selection tiles, and a swipe carousel. Wallpaper colors are available on Android 12 and newer; your previous icon carries over.
+- **Custom background tile:** Pick a solid color and logo, compare the requested color with the closest supported native launcher icon, then confirm the icon change. An optional home-screen shortcut preserves the exact chosen color on supported launchers.
+- **Matching preset splash:** On Android 13 and newer, a built-in icon selection sets the splash theme for the next cold start. Older Android versions retain the default splash; custom shortcuts do not replace it.
+
+#### A Shared Color Picker
+
+- **Pick visually or precisely:** Use the HSV wheel to choose hue and saturation with a separate brightness slider, drag across the saturation/brightness field, move the hue strip, or switch to RGB sliders. A live swatch and hex readout show the selected color, with quick colors close at hand.
+- **Right where you need it:** Subtitle colors stay embedded beneath the Text, Border, and Shadow controls. Custom theme colors and the new shortcut-background editor use the same component.
+- **Subtitle transparency:** Adjust opacity over a checkerboard preview. Theme and shortcut backgrounds use solid colors.
+- **Connected design:** The picker’s sections use the app’s Material 3 Expressive connected shapes and theme colors.
+
+### Animated Backgrounds
+
+- **More ways to personalize:** Animated backgrounds include snow, rain, sakura, fireflies, bubbles, geometry, bokeh, ripples, space particles, constellations, aurora, and seasonal themes.
+- **Connected preview:** The background picker uses centered connected tiles, the shared icon switch, and a scrollable preview.
+- **Smoother animation:** Particle budgets adapt to screen area, with frame-pacing improvements and less repeated shader and curve work.
+
+### Profile, Playlists, and Library
+
+#### Profile Hub
+
+- **Everything personal in one place:** Recents, Playlists, and Snapshots moved from separate navigation tabs into a new Profile screen.
+- **Your profile:** Set an avatar with cropping and browse media shelves under a redesigned header.
+- **Watch statistics:** A bento grid shows animated media shares, today's watch time, and watched-threshold controls, and updates live.
+
+#### Playlists
+
+- **Video and audio pages:** Playlists are split by type, with Favorites pinned to the top and sort and layout controls in the top bar.
+- **Better covers:** Playlists show stacked artwork, use local song artwork, and can be deleted from Profile.
+- **Cleaner history:** Playlists never appear as recently played items.
+
+#### Browsing
+
+- **Responsive folder previews:** Connected collages show at most four sections and adapt to compact screens and folder contents, with consistent selection tile sizes.
+- **Sort sheet:** Changing between Library, Folders, and Tree keeps the sheet open; irrelevant folder-grid options are hidden in Library view.
+
+- **Live updates:** The browser refreshes while it is open when videos or songs are added or removed.
+- **Optimistic delete:** Deleting from Library view removes items immediately.
+- **Internal storage label:** The internal volume is labeled "Internal Storage" instead of a folder named "0".
+- **Blacklists everywhere:** Folder blacklists also apply in Library and Tree, without leaving empty parent folders behind.
+
+### Faster Loading and Hidden Folders
+
+#### Instant Reopen
+
+- **No rescans on launch:** Folders, Tree, and Library reuse their saved lists when nothing has changed. Photos, screenshots, and downloads no longer count as changes; only video and audio do.
+- **Saved video lists:** Each opened folder remembers its videos and shows them immediately, then refreshes in the background.
+- **Saved tree:** The folder tree is kept in durable storage, keeps its hierarchy during background checks, and uses the same loading indicator as Folders.
+- **Leaner scanning:** Scans check each folder once instead of each file, so large libraries need far fewer storage queries. Normal refreshes no longer trigger a full-storage media scan.
+
+#### Hidden Folders (.nomedia)
+
+- **Folder access:** Detected hidden folders can be granted access through Android's folder picker. The access lists put .nomedia folders before dot-folders.
+
+- **Per-view hidden scans:** Choose separately whether Library, Tree, and Folders include hidden folders, with switches for marker files and dot-folders and per-marker exclusions.
+- **Listed without waiting:** Hidden folders appear right away; their durations fill in afterwards in the background.
+- **External changes noticed:** Adding or removing a .nomedia marker in another app is picked up while Folders is open.
+- **Android data folders:** .nomedia markers inside Android data folders are respected (#825).
+
+#### Thumbnails
+
+- **Generated where you look:** Thumbnails are generated when a folder opens or Library is idle, visible cards come first, and grids fill in while you scroll.
+- **Kept across launches:** Thumbnails no longer reload when you reopen the app, and finished thumbnails are never thrown away.
+- **Smart mode:** Prefers embedded cover art before falling back to a frame from the video.
+
+### Player
+
+#### Faster, Steadier Starts
+
+- **Quicker video open:** Non-essential setup, web-only features, yt-dlp, and font syncing run after playback starts instead of before it.
+- **No black screen on open:** Video decoding waits until the display surface is ready, and the first frame uses the correct orientation.
+- **Startup hang fixed:** A native callback could deadlock the player while it started.
+
+#### Background Playback
+
+- **Video comes back:** Video resumes correctly after screen-off background playback and after long background sleeps (#848).
+- **Steadier playback:** Picture-in-picture metadata, frame-rate hints, and track bitrate handling are more reliable, with less redundant seek and thumbnail work.
+
+#### Seeking and Controls
+
+- **Responsive seeking:** The seekbar follows rapid seeks immediately, scrubbing shows a live preview, and an expanding seek ripple with a soft glass halo confirms each seek.
+- **Your choice:** Choose whether the seekbar appears during horizontal-swipe seeking while the controls are hidden. The seekbar style preview gains selectable options, including skip markers.
+- **Easier to read:** A subtle vignette sits behind the top and bottom control bars, and on-screen numbers no longer jitter.
+- **Orientation memory:** Live sessions handle orientation changes better, and remembered aspect ratios are more accurate.
+- **Custom filter presets:** Save your own video filter presets (#787).
+
+#### Subtitles
+
+- **Move and resize by touch:** Long-press a subtitle and drag to move it, or pinch on it to resize. Gestures run at native speed, and mpv's own background box highlights the text while you adjust it or swipe between lines.
+- **Independent tracks:** Primary and secondary subtitles move separately, and the other track hides while one is being moved.
+- **Zoom with the video:** An option zooms the on-screen display and subtitles together with the video.
+- **Secondary subtitle sync:** Sync applies to secondary subtitles too, with one-tap delay offsets (#781). Turning on a secondary track no longer overrides the primary track's ASS styles.
+
+#### Mini Player and Full Player
+
+- **One continuous motion:** The mini player expands into the full player and collapses back without stalling the interface, because mpv preparation no longer blocks the UI thread.
+- **Clear of the navigation bar:** The mini player animates into place and stays clear of the navigation bar and floating buttons.
+- **Dismiss and go back:** Dismissing the mini player and pressing Back behave predictably.
+- **No black space:** Swiping the music player past full screen no longer drags the sheet off its edge (#876).
+
+#### mpv Core
+
+- **mpvlib 1.1.3:** All builds use the latest native mpv library.
+- **More accurate playback:** Track, timing, and metadata properties are read with correct types, intent seeks keep millisecond precision, HTTP headers carry over between files, screenshots save reliably, and shaders apply only once mpv is ready.
+- **YouTube quality:** yt-dlp keeps YouTube video formats and the quality you chose.
+
+### Ambient Lighting
+
+- **Four new modes:** Ambilight, Cinema, Echo, and Mirror join Glow and YouTube.
+- **Fine-tuning:** Each new mode has Fast, Balanced, and High Quality presets plus sliders for samples, spread, intensity, saturation, warmth, fade, opacity, and vignette.
+- **Cleaner light:** Smoother B-spline sampling, plus fixes for banding, streaks, and mirrored edge artifacts.
+- **Easier on the battery:** Glow uses fewer resources, eases off in Battery Saver or below 20% battery, and throttles while menus are open.
+- **Hold the last frame:** Ambient lighting can keep showing the last frame while playback is inactive.
+- **Tablets:** The ambient gradient also appears behind the landscape playlist and lyrics panes.
+
+### Music and Lyrics
+
+#### Music
+
+- **Animated covers:** Embedded GIF and WebP artwork animates in the music player and mini player, and pauses when playback pauses.
+- **Widget:** Artwork fades smoothly, and a music pill was added.
+- **Faster library:** Songs appear before album tags finish verifying, and artwork selection is stable.
+- **Layout:** Music grids use the same spacing as Home, and the playlist sheet and lyrics layout were refined.
+
+#### Lyrics
+
+- **New provider:** lrc.red joins the lineup. Automatic mode races providers and falls back to LRCLIB.
+- **Richer lyrics:** Backing vocals, duets, and overlapping voices display correctly, including in translations, and timed lyrics that run past the end of a song are rejected.
+- **Clearer picker:** Provider rows show current, fetching, not found, and retry states, with rotating loading messages.
+- **Embedded first:** Embedded lyrics show immediately, and automatic online lookups can be turned off (#835).
+- **Fixes:** Lyrics no longer go stale when the track changes in the background, and translation and romanization handle parentheses and each line correctly.
+
+### Network, Streaming, and Downloads
+
+- **Server suggestions:** Saved and discovered servers appear as editable suggestions with protocol labels.
+- **SMB:** Leave the path blank to browse every share on a server. Administrative shares are hidden, listings stay separate per share (#841), connections time out instead of hanging, and share, domain, and guest logins were repaired.
+- **IPTV and Syncplay:** Xtream provider links and Player API catalog fallback are supported, and Syncplay address lookup and login are fixed (#832).
+- **Streaming tools:** The yt-dlp manager and P2P controls now live in Network settings.
+- **Downloads:** The Downloads screen was redesigned, and in-app updates resume interrupted APK downloads.
+- **Steadier lists:** Network and music lists stay on screen during temporary connection failures.
+- **WebDAV filenames:** Preserve decomposed Unicode filenames in playback URLs, fixing HTTP 404 errors for some files copied from macOS (#881).
+
+### Google Play Build
+
+- **New edition:** A Google Play build ships as a universal APK and an app bundle alongside the existing variants.
+- **Play-compliant:** It leaves out yt-dlp, torrent streaming, AI features, unofficial lyrics providers and translation, scraped subtitle sources, and in-app updates.
+- **Folders you choose:** Pick folders with Android's folder picker to include them, along with their subfolders and .nomedia folders. Folders list quickly, empty folders are hidden, overlapping folders appear once, and chosen folders have their own section below Hidden folder scan.
+- **Full playback support:** Resume positions, progress, swipe actions, and sibling playlists work for chosen folders, and durations fill in the background. Deleting a chosen folder itself is turned off (#853).
+
+### Settings and Tools
+
+- **Permission recovery:** If storage, notification, or microphone access is revoked, mpvRx asks again as soon as you return instead of leaving you to find it in system settings. All files access, which Android grants only from its settings page, opens that page directly.
+- **Config editor:** Includes the mpv manual offline for documentation-driven completion, plus search and replace, go-to-line, saved drafts, syntax highlighting, and touch-friendly tools.
+- **Secure Folder settings:** A new settings screen to destroy, hide, or unhide the Secure Folder, enable biometrics behind a PIN, and choose a 4- or 6-digit PIN.
+- **Debug logs:** Logs save into your mpv configuration folder, and you can share the full log file or copy all logs.
+- **Notification style:** Also available under Advanced (#717).
+- **Fonts:** Every imported font file is kept, duplicate families are flagged in the font pickers (#860), and the chosen app font is honored everywhere (#717).
+- **Hall of Fame:** A redesigned contributors screen, with avatars cached for 72 hours.
+- **Reorder navigation:** Rearrange bottom navigation destinations and Music library tabs from their settings.
+- **Device Info:** Refreshed information layout, corrected copy/version output, and a list of native dependencies reported by mpvlib.
 
 ### Translations
 
-- **Ukrainian:** Added a complete Ukrainian translation, contributed by [@WATCHER-00](https://github.com/WATCHER-00). Every user-facing string and plural is covered, so the app now speaks Ukrainian alongside the existing locales.
+- **Ukrainian:** Added a complete Ukrainian translation, contributed by [@WATCHER-00](https://github.com/WATCHER-00). Every user-facing string and plural is covered.
+- **New strings:** Completed 61 missing strings across all ten existing translation locales, including icons, hidden-folder scanning, ambient effects, downloads, navigation, and the color picker.
+- **Translation cleanup:** Removed redundant locale copies of non-translatable resources while preserving formatting placeholders; HSV wheel controls are localized.
+
+### Removed
+
+- **Anitomy and GuessIt:** The bundled filename parsers and their Python packages were removed. The built-in parser handles filenames, and the app is smaller.
+- **Separate Recents and Playlists tabs:** Both now live in Profile, along with Snapshots.
+- **Fixed launcher icons:** Replaced by the icon builder; your previous choice carries over.
+
+### Fixes
+
+- **Resolution labels:** 4:3 and anamorphic videos with 1080 lines are labeled 1080p instead of 720p or 480p (#796).
+- **Liquid Glass sliders:** Subtitle color sliders drag smoothly instead of scrolling the page (#861).
+- **Layout polish:** Checkboxes have space before their labels, and browser controls, audio rows, and expandable headers line up (#717).
+- **Folder settings:** Folder settings and the blacklist scroll together as one list.
+- **RTL and system navigation:** The player controls drawer stays on the right in RTL layouts, and three-button navigation has improved contrast.
+- **Playlist interaction:** Connected playlist rows and more stable drag reordering.
+
+### Release and Upgrade
+
+- **Version:** 3.0.0, with an increased Android version code so it can update existing 2.7.2 stable and preview installations signed with the same key.
+- **Packages:** Standard universal and per-architecture APKs, FongMi, No Vulkan, and Play Store universal APKs, plus a Play Store app bundle.
+- **Changes since 2.7.2:** [Full comparison](https://github.com/Riteshp2001/mpvRx/compare/v2.7.2...v3.0.0).
+
+### Thanks
+
+Thanks to [@ThisisWyatt](https://github.com/ThisisWyatt), [@Arnab11](https://github.com/Arnab11), [@Utsavrajputt](https://github.com/Utsavrajputt), and [@SunnyVishnu3](https://github.com/SunnyVishnu3) for their pull requests, to [@WATCHER-00](https://github.com/WATCHER-00) for the Ukrainian translation, and to everyone who reported bugs and UI issues.
 
 ## 2.7.2 - Hotfixes - mpvlib 1.1.1, Track Badges, Pinned Videos, and Font Sharing
 

@@ -187,19 +187,6 @@ class PlaylistRepository(
     return items.any { isPathMatching(it.filePath, filePath) }
   }
 
-  suspend fun addToFavorites(
-    filePath: String,
-    fileName: String,
-    isAudio: Boolean = true,
-  ): Boolean {
-    if (filePath.isBlank()) return false
-    val cleanPath = normalizePlaylistPath(filePath)
-    return playlistWriteMutex.withLock {
-      val favorites = getOrCreateFavoritesPlaylistLocked(isAudio)
-      addItemToPlaylistLocked(favorites.id, cleanPath, fileName)
-    }
-  }
-
   suspend fun toggleFavorite(filePath: String, fileName: String, isAudio: Boolean = true): Boolean {
     if (filePath.isBlank()) return false
     val cleanPath = normalizePlaylistPath(filePath)
@@ -285,7 +272,8 @@ class PlaylistRepository(
         continue
       }
       var effectiveIsAudio = playlist.isAudio
-      if (!effectiveIsAudio) {
+      // Favorites lists are per media type; reclassifying one would leave its type without one.
+      if (!effectiveIsAudio && !isProtectedPlaylist(playlist)) {
         val items = playlistDao.getPlaylistItems(playlist.id)
         if (items.isNotEmpty()) {
           val hasAudioItems = items.any { app.gyrolet.mpvrx.utils.storage.FileTypeUtils.isAudioFile(java.io.File(it.filePath)) }
@@ -304,6 +292,11 @@ class PlaylistRepository(
 
   suspend fun getPlaylistById(playlistId: Int): PlaylistEntity? = playlistDao.getPlaylistById(playlistId)
 
+  /** Persists the audio flag for playlists whose entries turned out to be audio. */
+  suspend fun reclassifyAudioPlaylists() {
+    classifyAndFilterPlaylists(playlistDao.getAllPlaylists(), targetIsAudio = true)
+  }
+
   suspend fun removeDeletedZipPlaylists() = withContext(Dispatchers.IO) {
     playlistWriteMutex.withLock {
       for (playlist in playlistDao.getAllPlaylists()) {
@@ -315,13 +308,6 @@ class PlaylistRepository(
   }
 
   fun observePlaylistById(playlistId: Int): Flow<PlaylistEntity?> = playlistDao.observePlaylistById(playlistId)
-
-  // Playlist item operations
-  suspend fun addItemToPlaylist(
-    playlistId: Int,
-    filePath: String,
-    fileName: String,
-  ): Boolean = playlistWriteMutex.withLock { addItemToPlaylistLocked(playlistId, filePath, fileName) }
 
   private suspend fun addItemToPlaylistLocked(
     playlistId: Int,
@@ -382,28 +368,10 @@ class PlaylistRepository(
     }
   }
 
-  suspend fun removeItemFromPlaylist(item: PlaylistItemEntity) {
-    playlistDao.deletePlaylistItem(item)
-    getPlaylistById(item.playlistId)?.let { playlist ->
-      updatePlaylist(playlist)
-    }
-  }
-
   suspend fun removeItemsFromPlaylist(items: List<PlaylistItemEntity>) {
     if (items.isEmpty()) return
     playlistDao.deletePlaylistItems(items)
     getPlaylistById(items.first().playlistId)?.let { playlist ->
-      updatePlaylist(playlist)
-    }
-  }
-
-  suspend fun removeItemById(itemId: Int) {
-    playlistDao.deletePlaylistItemById(itemId)
-  }
-
-  suspend fun clearPlaylist(playlistId: Int) {
-    playlistDao.deleteAllItemsFromPlaylist(playlistId)
-    getPlaylistById(playlistId)?.let { playlist ->
       updatePlaylist(playlist)
     }
   }
@@ -413,6 +381,9 @@ class PlaylistRepository(
 
   fun observeFirstPlaylistItem(playlistId: Int): Flow<PlaylistItemEntity?> =
     playlistDao.observeFirstPlaylistItem(playlistId)
+
+  fun observePlaylistPreviewItems(playlistId: Int, limit: Int = 2): Flow<List<PlaylistItemEntity>> =
+    playlistDao.observePlaylistPreviewItems(playlistId, limit)
 
   suspend fun getPlaylistItems(playlistId: Int): List<PlaylistItemEntity> = playlistDao.getPlaylistItems(playlistId)
 
@@ -428,35 +399,6 @@ class PlaylistRepository(
     getPlaylistById(playlistId)?.let { playlist ->
       updatePlaylist(playlist)
     }
-  }
-
-  suspend fun getPlaylistItemsAsUris(playlistId: Int): List<Uri> =
-    getPlaylistItems(playlistId).map {
-      Uri.parse(it.filePath)
-    }
-
-  /**
-   * Get a windowed subset of playlist items as URIs to avoid loading huge playlists at once.
-   */
-  suspend fun getPlaylistItemsWindowAsUris(
-    playlistId: Int,
-    centerIndex: Int = 0,
-    windowSize: Int = 100,
-  ): List<Uri> {
-    val totalCount = getPlaylistItemCount(playlistId)
-    if (totalCount == 0) return emptyList()
-
-    if (totalCount <= windowSize) {
-      return getPlaylistItemsAsUris(playlistId)
-    }
-
-    val halfWindow = windowSize / 2
-    val startPosition = (centerIndex - halfWindow).coerceAtLeast(0)
-    val endPosition = (startPosition + windowSize).coerceAtMost(totalCount)
-
-    return playlistDao
-      .getPlaylistItemsInRange(playlistId, startPosition, endPosition)
-      .map { Uri.parse(it.filePath) }
   }
 
   // Play history operations
@@ -639,36 +581,6 @@ class PlaylistRepository(
               parseResult = parseResult,
               name = parseResult.playlistName,
               sourceUrl = uri.toString(),
-            )
-          Result.success(playlistId)
-        }
-        is M3UParseResult.Error -> {
-          Result.failure(Exception(parseResult.message, parseResult.exception))
-        }
-      }
-    } catch (e: CancellationException) {
-      throw e
-    } catch (e: Exception) {
-      Result.failure(e)
-    }
-
-  suspend fun createM3UPlaylistFromContent(
-    content: String,
-    sourceName: String,
-    sourceUrl: String? = null,
-    userAgent: String? = null,
-  ): Result<Long> =
-    try {
-      val parseResult = M3UParser.parseContent(content, sourceUrl ?: sourceName)
-
-      when (parseResult) {
-        is M3UParseResult.Success -> {
-          val playlistId =
-            persistM3UPlaylist(
-              parseResult = parseResult,
-              name = parseResult.playlistName.ifBlank { sourceName.substringBeforeLast('.') },
-              sourceUrl = sourceUrl?.let(M3UParser::sanitizeSourceUrl),
-              userAgent = userAgent,
             )
           Result.success(playlistId)
         }

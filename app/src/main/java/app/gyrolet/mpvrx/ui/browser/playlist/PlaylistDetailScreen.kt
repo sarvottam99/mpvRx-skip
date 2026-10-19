@@ -13,6 +13,11 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import app.gyrolet.mpvrx.ui.utils.NavigationBackHandler as BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import app.gyrolet.mpvrx.ui.theme.AppMotion
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -33,7 +38,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.ExperimentalMaterialApi
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -90,10 +94,14 @@ import app.gyrolet.mpvrx.presentation.Screen
 import app.gyrolet.mpvrx.repository.NetworkProbeResult
 import app.gyrolet.mpvrx.presentation.components.pullrefresh.PullRefreshBox
 import app.gyrolet.mpvrx.ui.browser.cards.M3UVideoCard
-import app.gyrolet.mpvrx.ui.browser.cards.PlaylistBookmarkButton
+import app.gyrolet.mpvrx.presentation.components.captureLiquidGlassBackdrop
 import app.gyrolet.mpvrx.ui.browser.cards.sourceChipColor
 import app.gyrolet.mpvrx.ui.browser.cards.VideoCard
 import app.gyrolet.mpvrx.ui.browser.cards.VideoCardUiConfig
+import app.gyrolet.mpvrx.ui.browser.cards.MediaSelectionNeighbors
+import app.gyrolet.mpvrx.ui.browser.cards.MediaSelectionGridGap
+import app.gyrolet.mpvrx.ui.browser.cards.MediaSelectionListGap
+import app.gyrolet.mpvrx.ui.browser.cards.mediaSelectionNeighbors
 import app.gyrolet.mpvrx.ui.browser.components.BrowserTopBar
 import app.gyrolet.mpvrx.ui.browser.components.ExpressiveScrollBar
 import app.gyrolet.mpvrx.ui.browser.components.fastScrollGlyph
@@ -138,7 +146,7 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
 data class PlaylistDetailScreen(
   val playlistId: Int,
 ) : Screen {
-  @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
+  @OptIn(ExperimentalMaterial3Api::class)
   @Composable
   override fun Content() {
     val context = LocalContext.current
@@ -268,6 +276,25 @@ data class PlaylistDetailScreen(
     val mediaInfoError = remember { mutableStateOf<String?>(null) }
     var showUrlDialog by rememberSaveable { mutableStateOf(false) }
     var urlDialogContent by remember { mutableStateOf("") }
+    var videosForAddToPlaylist by remember { mutableStateOf<List<Video>>(emptyList()) }
+
+    val selectedItems = selectionManager.getSelectedItems()
+    val isReadOnlySource = playlist?.isM3uPlaylist == true || playlist?.isZipPlaylist == true
+
+    fun openSelectedItemInfo() {
+      selectedItems.firstOrNull()?.let { item ->
+        if (playlist?.isM3uPlaylist == true) {
+          urlDialogContent = item.video.path
+          showUrlDialog = true
+        } else {
+          val intent = Intent(context, app.gyrolet.mpvrx.ui.mediainfo.MediaInfoActivity::class.java)
+          intent.action = Intent.ACTION_VIEW
+          intent.data = item.video.uri
+          context.startActivity(intent)
+        }
+        selectionManager.clear()
+      }
+    }
 
     // Predictive back: Intercept when in selection mode, reorder mode, or searching
     BackHandler(enabled = selectionManager.isInSelectionMode || isReorderMode || isSearching) {
@@ -298,7 +325,9 @@ data class PlaylistDetailScreen(
             val headersMap = headerExtra?.let { mapOf(it[0] to it[1]) }.orEmpty()
             PlaybackItem.fromUri(
               uri = uri.toString(),
-              stableId = playlistEntry.video.path.takeIf(String::isNotBlank)?.let(PlaybackIdentity::forLocalPath),
+              stableId = if (app.gyrolet.mpvrx.BuildConfig.SCOPED_STORAGE_ONLY && playlistEntry.video.uri.scheme == "content") {
+                app.gyrolet.mpvrx.ui.browser.videolist.videoPlaybackIdentifiers(playlistEntry.video).first()
+              } else playlistEntry.video.path.takeIf(String::isNotBlank)?.let(PlaybackIdentity::forLocalPath),
               title = playlistEntry.playlistItem.fileName,
               mimeType = if (isAudio) "audio/*" else playlistEntry.video.mimeType,
               headers = headersMap,
@@ -395,9 +424,14 @@ data class PlaylistDetailScreen(
       }
     }
 
-    Scaffold(
-      containerColor = app.gyrolet.mpvrx.ui.theme.wallpaperAwareBackgroundColor(),
-      topBar = {
+    val bottomBarBackdrop = app.gyrolet.mpvrx.ui.browser.components.rememberBrowserBottomBarBackdrop()
+    val showFloatingBottomBar = selectionManager.isInSelectionMode && !isReorderMode
+
+    Box(modifier = Modifier.fillMaxSize()) {
+      Scaffold(
+        modifier = Modifier.fillMaxSize().captureLiquidGlassBackdrop(bottomBarBackdrop),
+        containerColor = app.gyrolet.mpvrx.ui.theme.wallpaperAwareBackgroundColor(),
+        topBar = {
         if (isSearching) {
           // Search mode - show search bar
           InlineSearchBar(
@@ -459,41 +493,24 @@ data class PlaylistDetailScreen(
             onCancelSelection = { selectionManager.clear() },
             isSingleSelection = selectionManager.isSingleSelection,
             onSortClick = if (isReorderMode) null else ({ showSortDialog = true }),
-            useRemoveIcon = true, // Show remove icon instead of delete for playlist
+            useRemoveIcon = true, // Remove from playlist, not delete the backing media.
             onInfoClick =
-              if (selectionManager.isSingleSelection && playlist?.isXtreamPlaylist != true && playlist?.isZipPlaylist != true) {
-                {
-                  val item = selectionManager.getSelectedItems().firstOrNull()
-                  if (item != null) {
-                    if (playlist?.isM3uPlaylist == true) {
-                      // For M3U playlists, show URL dialog
-                      urlDialogContent = item.video.path
-                      showUrlDialog = true
-                      selectionManager.clear()
-                    } else {
-                      // For regular playlists, show MediaInfo activity
-                      val intent = Intent(context, app.gyrolet.mpvrx.ui.mediainfo.MediaInfoActivity::class.java)
-                      intent.action = Intent.ACTION_VIEW
-                      intent.data = item.video.uri
-                      context.startActivity(intent)
-                      selectionManager.clear()
-                    }
-                  }
-                }
+              if (
+                selectionManager.isSingleSelection &&
+                  playlist?.isXtreamPlaylist != true &&
+                  playlist?.isZipPlaylist != true
+              ) {
+                ::openSelectedItemInfo
               } else {
                 null
               },
             onShareClick =
-              if (playlist?.isM3uPlaylist != true && playlist?.isZipPlaylist != true) {
-                // Hide share button for M3U playlists
-                {
-                  val videosToShare = selectionManager.getSelectedItems().map { it.video }
-                  MediaUtils.shareVideos(context, videosToShare)
-                }
+              if (!isReadOnlySource && selectedItems.isNotEmpty()) {
+                { MediaUtils.shareVideos(context, selectedItems.map { it.video }) }
               } else {
                 null
               },
-            onPlayClick = null, // Don't show play icon in selection mode for playlist
+            onPlayClick = null, // Playback/queue actions stay in the bottom selection strip.
             onSelectAll = { selectionManager.selectAll() },
             onInvertSelection = { selectionManager.invertSelection() },
             onDeselectAll = { selectionManager.clear() },
@@ -617,6 +634,7 @@ data class PlaylistDetailScreen(
         }
       },
     ) { padding ->
+      Box(modifier = Modifier.fillMaxSize()) {
       // Show "no results" message when searching with no results
       if (isSearching && filteredVideoItems.isEmpty() && searchQuery.isNotBlank()) {
         Box(
@@ -714,22 +732,6 @@ data class PlaylistDetailScreen(
                   viewModel.reorderPlaylistItems(fromIndex, toIndex)
                 }
               },
-              onToggleFavorite =
-                if (!selectionManager.isInSelectionMode && !isReorderMode) {
-                  { item ->
-                    coroutineScope.launch {
-                      try {
-                        viewModel.toggleFavorite(item.playlistItem.id)
-                      } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                        throw cancelled
-                      } catch (_: Exception) {
-                        showToast(context.getString(R.string.playback_bookmark_update_failed))
-                      }
-                    }
-                  }
-                } else {
-                  null
-                },
               onVideoItemClick = { item ->
                 when {
                   selectionManager.isInSelectionMode -> selectionManager.toggleFromUser(item)
@@ -752,12 +754,25 @@ data class PlaylistDetailScreen(
         }
       }
 
+      if (videosForAddToPlaylist.isNotEmpty()) {
+        app.gyrolet.mpvrx.ui.browser.dialogs.AddToPlaylistDialog(
+          isOpen = true,
+          videos = videosForAddToPlaylist,
+          onDismiss = { videosForAddToPlaylist = emptyList() },
+          onSuccess = {
+            videosForAddToPlaylist = emptyList()
+            selectionManager.clear()
+          },
+        )
+      }
+
       // Dialogs
       app.gyrolet.mpvrx.ui.browser.dialogs.PlaylistSortDialog(
         isOpen = showSortDialog,
         onDismiss = { showSortDialog = false },
         isM3uPlaylist = playlist?.isM3uPlaylist == true,
         availableWidthDp = contentWidthDp,
+        isAudio = playlist?.isAudio == true || videoItems.any { it.video.isAudio },
       )
 
       RemoveFromPlaylistDialog(
@@ -779,6 +794,89 @@ data class PlaylistDetailScreen(
       }
     }
   }
+
+      AnimatedVisibility(
+        visible = showFloatingBottomBar,
+        enter = slideInVertically(
+          animationSpec = spring(
+            dampingRatio = AppMotion.Spatial.Expressive.dampingRatio,
+            stiffness = AppMotion.Spatial.Expressive.stiffness,
+          ),
+          initialOffsetY = { it },
+        ),
+        exit = slideOutVertically(
+          animationSpec = spring(
+            dampingRatio = AppMotion.Spatial.Standard.dampingRatio,
+            stiffness = AppMotion.Spatial.Standard.stiffness,
+          ),
+          targetOffsetY = { it },
+        ),
+        modifier = Modifier.align(Alignment.BottomCenter),
+      ) {
+        val allSelectedBookmarked = selectedItems.isNotEmpty() && selectedItems.all { it.playlistItem.isFavorite }
+        val bookmarkLabel =
+          stringResource(if (allSelectedBookmarked) R.string.audiobook_delete_bookmark else R.string.audiobook_add_bookmark)
+        app.gyrolet.mpvrx.ui.browser.components.BrowserBottomBar(
+          backdrop = bottomBarBackdrop,
+          isSelectionMode = true,
+          onCopyClick = { },
+          onMoveClick = { },
+          onRenameClick = { },
+          onDeleteClick = { deleteDialogOpen.value = true },
+          onAddToPlaylistClick = {
+            videosForAddToPlaylist = selectedItems.map { it.video }
+          },
+          onPlayNextClick = {
+            val queued =
+              app.gyrolet.mpvrx.ui.browser.components.addVideosToPlaybackQueue(
+                context,
+                selectedItems.filter { it.isAvailable }.map { it.video },
+                app.gyrolet.mpvrx.ui.browser.components.QueueInsertion.PlayNext,
+              )
+            if (queued) selectionManager.clear()
+          },
+          onAddToQueueClick = {
+            val queued =
+              app.gyrolet.mpvrx.ui.browser.components.addVideosToPlaybackQueue(
+                context,
+                selectedItems.filter { it.isAvailable }.map { it.video },
+                app.gyrolet.mpvrx.ui.browser.components.QueueInsertion.AddToEnd,
+              )
+            if (queued) selectionManager.clear()
+          },
+          showCopy = false,
+          showMove = false,
+          showRename = false,
+          showDelete = false,
+          showAddToPlaylist = playlist?.isZipPlaylist != true,
+          extraActions =
+            buildList {
+              add(
+                app.gyrolet.mpvrx.ui.browser.components.BrowserBottomBarAction(
+                  icon = Icons.RoundedFilled.Bookmarks,
+                  label = bookmarkLabel,
+                  onClick = {
+                    val targetBookmarked = !allSelectedBookmarked
+                    val toToggle = selectedItems.filter { it.playlistItem.isFavorite != targetBookmarked }
+                    coroutineScope.launch {
+                      try {
+                        toToggle.forEach { viewModel.toggleFavorite(it.playlistItem.id) }
+                        selectionManager.clear()
+                      } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                      } catch (_: Exception) {
+                        showToast(context.getString(R.string.playback_bookmark_update_failed))
+                      }
+                    }
+                  },
+                ),
+              )
+            },
+          modifier = Modifier.padding(bottom = 0.dp),
+        )
+      }
+    }
+  }
 }
 
 @Composable
@@ -788,7 +886,6 @@ private fun PlaylistVideoListContent(
   selectionManager: app.gyrolet.mpvrx.ui.browser.selection.SelectionManager<PlaylistVideoItem, Int>,
   isReorderMode: Boolean,
   onReorder: (Int, Int) -> Unit,
-  onToggleFavorite: ((PlaylistVideoItem) -> Unit)?,
   onVideoItemClick: (PlaylistVideoItem) -> Unit,
   onVideoItemLongClick: (PlaylistVideoItem) -> Unit,
   listState: androidx.compose.foundation.lazy.LazyListState,
@@ -888,7 +985,7 @@ private fun PlaylistVideoListContent(
         .maxByOrNull { it.playlistItem.lastPlayedAt }
     }
 
-  val itemContent: @Composable (PlaylistVideoItem, Boolean, Int, Modifier) -> Unit = { item, grid, columns, itemModifier ->
+  val itemContent: @Composable (PlaylistVideoItem, Boolean, Int, MediaSelectionNeighbors, Modifier) -> Unit = { item, grid, columns, neighbors, itemModifier ->
     val sourceLabel = when {
       isM3uPlaylist -> null
       item.protocol != null -> item.protocol.displayName
@@ -910,8 +1007,9 @@ private fun PlaylistVideoListContent(
         onClick = { onVideoItemClick(item) },
         onLongClick = { onVideoItemLongClick(item) },
         onThumbClick = thumbnailClick,
-        onFavoriteClick = onToggleFavorite?.let { toggle -> { toggle(item) } },
+        onFavoriteClick = null,
         isSelected = selectionManager.isSelected(item),
+        selectionNeighbors = neighbors,
         isRecentlyPlayed = item.playlistItem.id == mostRecentlyPlayedItem?.playlistItem?.id,
         isFavorite = item.playlistItem.isFavorite,
         video = item.video,
@@ -937,6 +1035,7 @@ private fun PlaylistVideoListContent(
         } else null,
         isRecentlyPlayed = item.playlistItem.id == mostRecentlyPlayedItem?.playlistItem?.id,
         isSelected = selectionManager.isSelected(item),
+        selectionNeighbors = neighbors,
         onClick = { onVideoItemClick(item) },
         onLongClick = { onVideoItemLongClick(item) },
         onThumbClick = thumbnailClick,
@@ -950,8 +1049,15 @@ private fun PlaylistVideoListContent(
         sourceSubtitle = location,
         modifier = itemModifier,
         uiConfig = videoCardUiConfig,
-        titleAction = if (onToggleFavorite != null) {
-          { PlaylistBookmarkButton(item.playlistItem.isFavorite, onToggle = { onToggleFavorite(item) }) }
+        titleAction = if (item.playlistItem.isFavorite) {
+          {
+            Icon(
+              imageVector = Icons.RoundedFilled.Bookmarks,
+              contentDescription = stringResource(R.string.audiobook_delete_bookmark),
+              tint = MaterialTheme.colorScheme.primary,
+              modifier = Modifier.size(18.dp),
+            )
+          }
         } else null,
       )
     }
@@ -1039,17 +1145,19 @@ private fun PlaylistVideoListContent(
             state = gridState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 4.dp, bottom = bottomClearance),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(MediaSelectionGridGap),
+            verticalArrangement = Arrangement.spacedBy(MediaSelectionGridGap),
           ) {
             items(count = videoItems.size, key = { videoItems[it].playlistItem.id }) { index ->
-              itemContent(videoItems[index], true, columns, Modifier.fillMaxWidth())
+              val neighbors = mediaSelectionNeighbors(index, videoItems.size, columns) { n -> selectionManager.isSelected(videoItems[n]) }
+              itemContent(videoItems[index], true, columns, neighbors, Modifier.fillMaxWidth())
             }
           }
         } else {
         LazyColumn(
           state = listState,
           modifier = Modifier.fillMaxSize(),
+          verticalArrangement = Arrangement.spacedBy(MediaSelectionListGap),
           contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 4.dp, bottom = bottomClearance),
         ) {
           items(
@@ -1058,13 +1166,14 @@ private fun PlaylistVideoListContent(
           ) { index ->
             ReorderableItem(reorderableLazyListState, key = videoItems[index].playlistItem.id) { isDragging ->
               val item = videoItems[index]
+              val neighbors = mediaSelectionNeighbors(index, videoItems.size, 1) { n -> selectionManager.isSelected(videoItems[n]) }
               val elevation = dragElevation(isDragging)
 
               Row(
                 modifier = Modifier.fillMaxWidth().shadow(elevation, MaterialTheme.shapes.medium, clip = false),
                 verticalAlignment = Alignment.CenterVertically,
               ) {
-                itemContent(item, false, 1, Modifier.weight(1f))
+                itemContent(item, false, 1, neighbors, Modifier.weight(1f))
 
                 if (isReorderMode) {
                   IconButton(
@@ -1188,7 +1297,7 @@ private fun StreamUrlDialog(
   onDismiss: () -> Unit,
   onCopy: () -> Unit,
 ) {
-  androidx.compose.material3.AlertDialog(
+  app.gyrolet.mpvrx.presentation.components.AppAlertDialog(
     onDismissRequest = onDismiss,
     title = {
       Text(
@@ -1204,7 +1313,7 @@ private fun StreamUrlDialog(
       )
     },
     confirmButton = {
-      androidx.compose.material3.TextButton(
+      app.gyrolet.mpvrx.presentation.components.AppDialogTextButton(
         onClick = {
           onCopy()
           onDismiss()
@@ -1222,7 +1331,7 @@ private fun StreamUrlDialog(
       }
     },
     dismissButton = {
-      androidx.compose.material3.TextButton(onClick = onDismiss) {
+      app.gyrolet.mpvrx.presentation.components.AppDialogTextButton(onClick = onDismiss) {
         Text(
           androidx.compose.ui.res
             .stringResource(app.gyrolet.mpvrx.R.string.ui_close),
@@ -1242,7 +1351,7 @@ private fun RemoveFromPlaylistDialog(
   if (!isOpen) return
 
 
-  androidx.compose.material3.AlertDialog(
+  app.gyrolet.mpvrx.presentation.components.AppAlertDialog(
     onDismissRequest = onDismiss,
     title = {
       Text(
@@ -1296,7 +1405,7 @@ private fun RemoveFromPlaylistDialog(
       }
     },
     dismissButton = {
-      androidx.compose.material3.TextButton(
+      app.gyrolet.mpvrx.presentation.components.AppDialogTextButton(
         onClick = onDismiss,
         shape = MaterialTheme.shapes.extraLarge,
       ) {

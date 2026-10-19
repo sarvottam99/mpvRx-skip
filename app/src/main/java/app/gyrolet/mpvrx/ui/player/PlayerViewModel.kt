@@ -9,7 +9,6 @@
 
 package app.gyrolet.mpvrx.ui.player
 
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -47,7 +46,6 @@ import app.gyrolet.mpvrx.domain.hdr.HdrToysManager
 import app.gyrolet.mpvrx.domain.network.NetworkPlaybackUri
 import app.gyrolet.mpvrx.domain.network.XtreamPlaybackUri
 import app.gyrolet.mpvrx.domain.torrent.TorrentStreamingState
-import app.gyrolet.mpvrx.domain.torrent.formatTorrentSpeed
 import app.gyrolet.mpvrx.domain.syncplay.SyncplayFile
 import app.gyrolet.mpvrx.domain.syncplay.SyncplayPlaybackState
 import app.gyrolet.mpvrx.preferences.AdvancedPreferences
@@ -55,7 +53,6 @@ import app.gyrolet.mpvrx.preferences.AudioChannels
 import app.gyrolet.mpvrx.preferences.AudioPreferences
 import app.gyrolet.mpvrx.preferences.DecoderPreferences
 import app.gyrolet.mpvrx.preferences.GesturePreferences
-import app.gyrolet.mpvrx.preferences.MpvConfigOverride
 import app.gyrolet.mpvrx.preferences.MpvConfigControlledFeatures
 import app.gyrolet.mpvrx.preferences.MpvConfigOverridePolicy
 import app.gyrolet.mpvrx.preferences.IntroSegmentProvider
@@ -78,6 +75,7 @@ import app.gyrolet.mpvrx.ui.player.anime4k.applyAnime4KShaderChain
 import app.gyrolet.mpvrx.ui.player.anime4k.applyAnime4KStabilityOptions
 import app.gyrolet.mpvrx.ui.player.anime4k.clearAnime4KShaders
 import app.gyrolet.mpvrx.ui.player.anime4k.selectRuntimeStableAnime4K
+import app.gyrolet.mpvrx.ui.player.controls.components.panels.toColorHexString
 import app.gyrolet.mpvrx.ui.player.controls.components.sheets.EQ_MAX_DB
 import app.gyrolet.mpvrx.ui.player.controls.components.sheets.EQ_MIN_DB
 import app.gyrolet.mpvrx.ui.player.controls.components.sheets.EQ_TONE_STEPS
@@ -100,15 +98,11 @@ import app.gyrolet.mpvrx.utils.media.SubtitleHashUtils
 import app.gyrolet.mpvrx.utils.media.fileExtension
 import app.gyrolet.mpvrx.utils.media.resolveSubtitleLookupDirectories
 import app.gyrolet.mpvrx.utils.storage.FileTypeUtils
-import `is`.xyz.mpv.FastThumbnails
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -118,6 +112,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
@@ -146,12 +141,24 @@ import java.io.FileOutputStream
 import java.security.MessageDigest
 import java.lang.ref.WeakReference
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.properties.ReadOnlyProperty
 import kotlin.random.Random
 import kotlin.reflect.KProperty
+
+// ~45% opaque charcoal (#AARRGGBB): visible on bright scenes without hiding the video like solid black.
+private const val SUBTITLE_GESTURE_HIGHLIGHT_COLOR = "#73202429"
+private const val SUBTITLE_GESTURE_HIGHLIGHT_PADDING = 8f
+
+private data class SubtitleGestureBoxStyle(
+  val borderStyle: String?,
+  val backgroundColor: String?,
+  val shadowOffset: String?,
+)
 
 enum class AutoCropState {
   IDLE,
@@ -546,6 +553,13 @@ class PlayerViewModel : ViewModel(),
     data object Unavailable : AutoCropAnalysisResult
   }
 
+  private data class AutoCropMetadata(
+    val width: Int,
+    val height: Int,
+    val x: Int,
+    val y: Int,
+  )
+
   private fun updateMetadataCache(
     key: String,
     value: Pair<String, String>,
@@ -850,6 +864,7 @@ class PlayerViewModel : ViewModel(),
   }
 
   private fun currentYouTubeSource(): String? {
+    if (!app.gyrolet.mpvrx.BuildConfig.ENABLE_YTDLP) return null
     val item = PlaybackSession.state.value.currentItem ?: return null
     return sequenceOf(item.originalUri, item.playableUri)
       .map(String::trim)
@@ -1138,6 +1153,7 @@ class PlayerViewModel : ViewModel(),
     val artist: String,
     val durationSeconds: Int,
     val allowOnline: Boolean,
+    val autoFetchOnline: Boolean,
     val album: String?,
     val isrc: String?,
   )
@@ -1145,6 +1161,28 @@ class PlayerViewModel : ViewModel(),
   private var lyricsLoadJob: Job? = null
   private var lyricsTranslateJob: Job? = null
   private var lastLyricsLoadRequest: LyricsLoadRequest? = null
+
+  /** The file the lyrics state on screen belongs to, so a track change nobody saw is noticed. */
+  private var lyricsStatePath: String? = null
+
+  /**
+   * Brings the lyrics back in line with what is actually playing.
+   *
+   * Lyrics are normally reloaded by [onVideoLoadCompleted], which only runs while the player
+   * screen is alive. With the app in the background the queue keeps advancing, so on return
+   * the panel still held the previous song's lyrics. This is called when the track changes
+   * and when the screen resumes, and does nothing if the lyrics already belong to this file.
+   */
+  fun syncLyricsWithPlayback() {
+    if (!isAudioOnly.value) return
+    val path = currentLyricsPath() ?: return
+    if (path == lyricsStatePath) return
+    lyricsLoadJob?.cancel()
+    lyricsTranslateJob?.cancel()
+    lastLyricsLoadRequest = null
+    lyricsUiState.value = LyricsUiState()
+    loadLyricsForCurrentTrack()
+  }
 
   fun setEqualizerEnabled(enabled: Boolean) {
     equalizerState.value = equalizerState.value.copy(isEnabled = enabled)
@@ -1214,6 +1252,7 @@ class PlayerViewModel : ViewModel(),
   fun loadLyricsForCurrentTrack(
     forceRefresh: Boolean = false,
     titleOverride: String? = null,
+    forceOnline: Boolean = false,
   ) {
     val allowOnline = PlaybackSession.state.value.currentItem?.audiobook == null
     val path = currentLyricsPath() ?: return
@@ -1232,16 +1271,16 @@ class PlayerViewModel : ViewModel(),
       ?: PlaybackSession.getPropertyString("metadata/by-key/album_artist")
       ?: ""
 
-    val duration = PlaybackSession.getPropertyInt("duration") ?: 0
+    val duration = PlaybackSession.getPropertyDouble("duration")?.toInt() ?: 0
     val album = PlaybackSession.getPropertyString("metadata/by-key/Album")
       ?: PlaybackSession.getPropertyString("metadata/by-key/album")
     val isrc = PlaybackSession.getPropertyString("metadata/by-key/isrc")
-    val request = LyricsLoadRequest(path, title, artist, duration, allowOnline, album, isrc)
-    if (
-      !forceRefresh && lastLyricsLoadRequest?.path == path && lastLyricsLoadRequest?.allowOnline == allowOnline &&
-      (lyricsLoadJob?.isActive == true || request == lastLyricsLoadRequest)
-    ) return
+    val request = LyricsLoadRequest(
+      path, title, artist, duration, allowOnline, audioPreferences.lyricsAutoFetchOnline.get(), album, isrc,
+    )
+    if (!forceRefresh && !forceOnline && request == lastLyricsLoadRequest) return
     lastLyricsLoadRequest = request
+    lyricsStatePath = path
 
     lyricsUiState.value = lyricsUiState.value.copy(
       isLoading = true,
@@ -1264,6 +1303,7 @@ class PlayerViewModel : ViewModel(),
         durationSeconds = duration,
         forceRefresh = forceRefresh,
         allowOnline = allowOnline,
+        forceOnline = forceOnline,
         album = album,
         isrc = isrc,
       )
@@ -1320,7 +1360,7 @@ class PlayerViewModel : ViewModel(),
    */
   fun searchLyricsOnline() {
     val path = currentLyricsPath() ?: return
-    loadLyricsForCurrentTrack(forceRefresh = true, titleOverride = trackSearchTitle(path))
+    loadLyricsForCurrentTrack(forceRefresh = true, titleOverride = trackSearchTitle(path), forceOnline = true)
   }
 
   /** What to search for when mpv has not published a title for [mediaPath] yet. */
@@ -1361,7 +1401,7 @@ class PlayerViewModel : ViewModel(),
           ?: PlaybackSession.getPropertyString("metadata/by-key/ARTIST")
           ?: PlaybackSession.getPropertyString("metadata/by-key/album_artist")
           ?: ""
-        val duration = PlaybackSession.getPropertyInt("duration") ?: 0
+        val duration = PlaybackSession.getPropertyDouble("duration")?.toInt() ?: 0
         val album = PlaybackSession.getPropertyString("metadata/by-key/Album")
           ?: PlaybackSession.getPropertyString("metadata/by-key/album")
 
@@ -1380,7 +1420,11 @@ class PlayerViewModel : ViewModel(),
 
         val updated = lyricsRepository.mergeOnline(path, fetched, allowOnline)
         val online = updated?.onlineLyrics ?: fetched.lyrics
-        val updatedSources = (current.availableSources + app.gyrolet.mpvrx.domain.lyrics.LyricsSourceType.ONLINE).distinct()
+        val updatedSources = if (online != null) {
+          (current.availableSources + app.gyrolet.mpvrx.domain.lyrics.LyricsSourceType.ONLINE).distinct()
+        } else {
+          current.availableSources
+        }
         val activeLyrics = online ?: current.embeddedLyrics
         val activeIndex = app.gyrolet.mpvrx.utils.media.LyricsUtils.getActiveLineIndex(
           syncedLines = activeLyrics?.synced,
@@ -1480,7 +1524,7 @@ class PlayerViewModel : ViewModel(),
           .distinct(),
         errorMessage = null,
       )
-      if (autoTranslate && activeLyrics?.synced?.isNotEmpty() == true) translateLyrics(defaultTargetLang)
+      if (autoTranslate && activeLyrics.synced?.isNotEmpty() == true) translateLyrics(defaultTargetLang)
       return
     }
 
@@ -1494,7 +1538,7 @@ class PlayerViewModel : ViewModel(),
         ?: PlaybackSession.getPropertyString("metadata/by-key/ARTIST")
         ?: PlaybackSession.getPropertyString("metadata/by-key/album_artist")
         ?: ""
-      val duration = PlaybackSession.getPropertyInt("duration") ?: 0
+      val duration = PlaybackSession.getPropertyDouble("duration")?.toInt() ?: 0
       val album = PlaybackSession.getPropertyString("metadata/by-key/Album")
         ?: PlaybackSession.getPropertyString("metadata/by-key/album")
 
@@ -1582,6 +1626,8 @@ class PlayerViewModel : ViewModel(),
   }
 
   fun translateLyrics(targetLang: String? = null) {
+    // Play builds omit translation: it relies on Google Translate's unofficial web endpoint.
+    if (app.gyrolet.mpvrx.BuildConfig.IS_PLAY_STORE_BUILD) return
     val current = lyricsUiState.value
     val baseLyrics = current.originalLyrics ?: current.lyrics ?: return
     val lang = targetLang ?: audioPreferences.lyricsTargetLanguage.get().ifBlank { "en" }
@@ -1635,15 +1681,6 @@ class PlayerViewModel : ViewModel(),
         errorMessage =
           if (outcome.isComplete) null else appContext.getString(R.string.lyrics_translation_partial),
       )
-    }
-  }
-
-  fun toggleLyricsTranslation() {
-    val current = lyricsUiState.value
-    if (current.isTranslationActive || current.isTranslating) {
-      showOriginalLyrics()
-    } else {
-      translateLyrics()
     }
   }
 
@@ -1761,10 +1798,6 @@ class PlayerViewModel : ViewModel(),
   private fun formatEqualizerNumber(value: Float): String =
     String.format(java.util.Locale.US, "%.2f", value).trimEnd('0').trimEnd('.')
 
-  fun updateAlbumArtBounds(rect: android.graphics.Rect?) {
-    albumArtBounds.value = rect
-  }
-
   private val audioVisualizerToggleDebouncer =
     app.gyrolet.mpvrx.ui.player
       .ToggleDebouncer()
@@ -1816,8 +1849,16 @@ class PlayerViewModel : ViewModel(),
         else -> if (channelsInt > 0) "$channelsInt Channels" else "Unknown"
       }
 
-    val bitrateInt = PlaybackSession.getPropertyInt("audio-bitrate") ?: 0
-    val bitrateStr = if (bitrateInt > 0) "${bitrateInt / 1000} kbps" else "Variable / Unknown"
+    // Prefer the selected track's demux metadata. mpv's top-level audio-bitrate is optional
+    // and can be unavailable during seeks/reconfigures, which needlessly logged E/mpv entries.
+    val bitrateBitsPerSecond =
+      audioTracks.value
+        .firstOrNull(TrackNode::isSelected)
+        ?.demuxBitrate
+        ?.takeIf { it > 0L }
+        ?: 0L
+    val bitrateStr =
+      if (bitrateBitsPerSecond > 0L) "${bitrateBitsPerSecond / 1000} kbps" else "Variable / Unknown"
 
     val path = PlaybackSession.getPropertyString("path") ?: PlaybackSession.getPropertyString("stream-open-filename") ?: ""
     val fileSizeStr =
@@ -2161,15 +2202,14 @@ val isBrightnessSliderShown = MutableStateFlow(false)
     MutableStateFlow(playerPreferences.ambientYouTubeEdgeBlend.get().takeIf { it.isFinite() }?.coerceIn(0f, 0.1f) ?: 0f)
   val ambientYouTubeEdgeBlend: StateFlow<Float> = _ambientYouTubeEdgeBlend.asStateFlow()
 
-  @Volatile private var lastAmbientScaleX = -1.0
-  @Volatile private var lastAmbientScaleY = -1.0
+  @Volatile private var lastAmbientGeometry: AmbientGeometry? = null
+  @Volatile private var isAmbientPipActive = false
   private var ambientDebounceJob: kotlinx.coroutines.Job? = null
   private val ambientScheduleLock = Any()
   private val ambientRenderLock = Any()
   private val ambientUpdateGeneration = AtomicLong()
   private val _isAmbientLifecycleActive = MutableStateFlow(false)
   val isAmbientLifecycleActive: StateFlow<Boolean> = _isAmbientLifecycleActive.asStateFlow()
-  private val ambientShaderSeq = AtomicLong()
   @Volatile private var ambientShaderFile: java.io.File? = null
 
   /**
@@ -2186,6 +2226,13 @@ val isBrightnessSliderShown = MutableStateFlow(false)
    * the main thread in disableAmbientShader() / restartAmbientIfActive().
    */
   @Volatile private var lastCompiledSpec: AmbientGlowShaderSpec? = null
+
+  /**
+   * Tracks which fx-ambient spec (Cinema/Echo/Mirror + parameters) was last compiled so
+   * we can skip recompilation when the parameters haven't changed.
+   * @Volatile: written on renderPrepDispatcher, read/nulled on main thread.
+   */
+  @Volatile private var lastCompiledFxSpec: FxAmbientShaderSpec? = null
 
   /**
    * Latest device thermal headroom reading ([0f] = at thermal limit, [1f] = cool).
@@ -2205,7 +2252,6 @@ val isBrightnessSliderShown = MutableStateFlow(false)
   private var ambientPreBatterySaverWarmth: Float = 0.0f
   private var ambientPreBatterySaverFadeCurve: Float = 1.5f
   private var ambientPreBatterySaverOpacity: Float = 1.0f
-  private var batteryReceiver: BroadcastReceiver? = null
   private var androidSystemInfoBridgeJob: Job? = null
 
   // ==================== Post-Processing ===================================
@@ -2272,6 +2318,23 @@ val isBrightnessSliderShown = MutableStateFlow(false)
   )
 
   init {
+    syncAmbientParamsForStyle(_ambientStyle.value)
+    // Clean up any stale ambient shader files left in cacheDir from previous abnormal exits
+    appContext.cacheDir.listFiles { _, name -> name.startsWith("ambient_") && name.endsWith(".glsl") }
+      ?.forEach { runCatching { it.delete() } }
+    // A track change while nobody is looking at the player (app backgrounded, screen off)
+    // never reaches onVideoLoadCompleted; follow the session directly instead. The short
+    // wait lets mpv publish the new file's tags before they are used as the search query.
+    viewModelScope.launch {
+      PlaybackSession.state
+        .map { it.currentItem?.originalUri }
+        .distinctUntilChanged()
+        .drop(1)
+        .collectLatest {
+          delay(1_000)
+          syncLyricsWithPlayback()
+        }
+    }
     viewModelScope.launch {
       decoderPreferences.gpuNext.changes().collect { enabled ->
         _isGpuNextEnabled.value = enabled
@@ -2386,9 +2449,10 @@ val isBrightnessSliderShown = MutableStateFlow(false)
           if (kotlin.math.abs(newHeadroom - thermalHeadroom) > 0.08f) {
             thermalHeadroom = newHeadroom
             if (_isAmbientEnabled.value) {
-              // Invalidate the spec cache so the new budget cap is applied on the
+              // Invalidate both spec caches so the new budget cap is applied on the
               // next scheduled ambient update.
               lastCompiledSpec = null
+              lastCompiledFxSpec = null
               scheduleAmbientUpdate()
             }
             Log.d(TAG, "Thermal headroom updated: %.2f".format(newHeadroom))
@@ -2418,7 +2482,7 @@ val isBrightnessSliderShown = MutableStateFlow(false)
 
           // --- AMBIENT FIX: Adapt shader to new file dimensions by @Chinna95P ---
           if (_isAmbientEnabled.value) {
-            lastAmbientScaleX = -1.0 // Force a complete shader rewrite
+            lastAmbientGeometry = null
             // Slight delay ensures MPV's video-params (w/h/crop) are fully populated.
             scheduleAmbientUpdate(250)
           }
@@ -2432,7 +2496,8 @@ val isBrightnessSliderShown = MutableStateFlow(false)
         PlaybackSession.state
           .map { state ->
             state.generation.takeIf {
-              state.phase == PlaybackPhase.READY || state.phase == PlaybackPhase.BACKGROUND
+              state.surfaceAttached &&
+                (state.phase == PlaybackPhase.READY || state.phase == PlaybackPhase.BACKGROUND)
             }
           }.distinctUntilChanged()
 
@@ -2443,10 +2508,23 @@ val isBrightnessSliderShown = MutableStateFlow(false)
       ) { crop, generation, coreReady -> Triple(crop, generation, coreReady) }
         .distinctUntilChanged()
         .collect { (_, generation, coreReady) ->
-          if (!coreReady || generation == null) return@collect
+          if (!coreReady || generation == null) {
+            disableAmbientShader()
+            return@collect
+          }
           refreshStretchAspectAfterCropChange()
           restartAmbientIfActive()
         }
+    }
+
+    viewModelScope.launch {
+      combine(
+        PlaybackSession.propInt["osd-width"],
+        PlaybackSession.propInt["osd-height"],
+        PlaybackSession.propInt["video-out-params/dw"],
+        PlaybackSession.propInt["video-out-params/dh"],
+        PlaybackSession.propInt["video-out-params/rotate"],
+      ) { _, _, _, _, _ -> Unit }.collect { onAmbientGeometryChanged() }
     }
 
     viewModelScope.launch {
@@ -2572,7 +2650,7 @@ val isBrightnessSliderShown = MutableStateFlow(false)
         } else {
           playlistMetadataJob?.cancel()
         }
-        if (_isAmbientEnabled.value && _ambientStyle.value == AmbientStyle.Glow) {
+        if (_isAmbientEnabled.value && _ambientStyle.value != AmbientStyle.YouTube) {
           scheduleAmbientUpdate(100)
         }
       }
@@ -2737,6 +2815,8 @@ val isBrightnessSliderShown = MutableStateFlow(false)
   fun onVideoLoadStarted() {
     cancelSeekPreview()
     cancelFrameSeek()
+    seekCommitJob?.cancel()
+    seekCommitJob = null
     seekCoalesceJob?.cancel()
     seekCoalesceJob = null
     pendingSeekOffset = 0
@@ -2745,6 +2825,7 @@ val isBrightnessSliderShown = MutableStateFlow(false)
     lyricsTranslateJob?.cancel()
     lyricsTranslateJob = null
     lastLyricsLoadRequest = null
+    lyricsStatePath = null
     lyricsUiState.value = LyricsUiState()
     stopRealtimeSubtitles(showToastMessage = false)
     introLookupJob?.cancel()
@@ -2794,19 +2875,6 @@ val isBrightnessSliderShown = MutableStateFlow(false)
   fun updateTorrentState(state: TorrentStreamingState) {
     _torrentState.value = state
   }
-
-  fun torrentBufferingText(state: TorrentStreamingState): String =
-    when (state) {
-      is TorrentStreamingState.Idle -> ""
-      is TorrentStreamingState.Connecting -> state.phase
-      is TorrentStreamingState.Streaming -> {
-        val speed = formatTorrentSpeed(state.downloadSpeed)
-        val peers = "${state.peers} peers"
-        val progress = "${(state.bufferProgress * 100).toInt()}%"
-        "$speed | $peers | $progress"
-      }
-      is TorrentStreamingState.Error -> state.message.ifBlank { "Torrent error" }
-    }
 
   private fun currentSyncplayPlaybackState(): SyncplayPlaybackState =
     SyncplayPlaybackState(
@@ -3255,22 +3323,25 @@ val isBrightnessSliderShown = MutableStateFlow(false)
   }
 
   private var seekPreviewJob: Job? = null
+  private var seekCommitJob: Job? = null
   private var frameSeekJob: Job? = null
 
   private companion object {
     const val TAG = "PlayerViewModel"
-    const val AUTO_CROP_SAMPLE_COUNT = 3
+    const val AUTO_CROP_SAMPLE_COUNT = 7
     const val AUTO_CROP_MIN_VALID_SAMPLES = 3
-    const val AUTO_CROP_THUMBNAIL_SIZE = 256
+    const val AUTO_CROP_THUMBNAIL_SIZE = 640
     const val AUTO_CROP_READY_TIMEOUT_MS = 15_000L
     const val AUTO_CROP_CACHE_CAPACITY = 20
     const val AUTO_CROP_FILTER_LABEL = "mpvrx_autocrop_detect"
+    const val AUTO_CROP_DETECT_LIMIT = "24/255"
+    const val AUTO_CROP_DETECT_ROUND = 2
+    const val AUTO_CROP_ACTIVE_DETECT_TIMEOUT_MS = 1_600L
+    const val AUTO_CROP_ACTIVE_SETTLE_MS = 1_000L
     const val AUTO_CROP_METADATA_POLL_MS = 100L
+    const val AUTO_CROP_HWDEC_TIMEOUT_MS = 1_500L
     const val AUTO_CROP_ACTIVE_FRAME_TIMEOUT_MS = 2_500L
     const val AUTO_CROP_ACTIVE_FRAME_INTERVAL_MS = 300L
-    // Lets the first-frame decode and the initial buffer fill settle before auto-crop competes
-    // for the decoder, so detection cannot delay the video the user is waiting on.
-    const val AUTO_CROP_START_SETTLE_MS = 250L
     const val AUTO_SHOW_SKIP_CHIP_DURATION = 10.0
     const val SEEK_COALESCE_DELAY_MS = 60L
     // Reported positions within this distance of the requested target count as "landed".
@@ -3278,9 +3349,8 @@ val isBrightnessSliderShown = MutableStateFlow(false)
     // Upper bound on how long the optimistic thumb may outrun the player.
     const val RELATIVE_SEEK_FEEDBACK_HOLD_MS = 1500L
     const val ABSOLUTE_SEEK_FEEDBACK_HOLD_MS = 3000L
-    const val RELATIVE_SEEK_EOF_GUARD_SECONDS = 0.25
-    const val SEEK_TARGET_TOLERANCE_SECONDS = 0.05
-    const val PREVIEW_SEEK_INTERVAL_MS = 100L
+    // The thumb updates immediately; decoder previews only need a modest cadence.
+    const val PREVIEW_SEEK_INTERVAL_MS = 200L
     const val FRAME_SEEK_POLL_INTERVAL_MS = 10L
     const val FRAME_SEEK_MIN_SETTLE_POLLS = 8
     const val FRAME_SEEK_MAX_SETTLE_POLLS = 75
@@ -3293,16 +3363,12 @@ val isBrightnessSliderShown = MutableStateFlow(false)
       "http", "https", "ftp", "ftps", "rtmp", "rtmps", "rtsp", "rtsps", "mms", "mmsh",
       "srt", "rist", "udp", "tcp", NetworkPlaybackUri.SCHEME, XtreamPlaybackUri.SCHEME,
     )
-    const val NATIVE_LINEAR_HDR_YOUTUBE_BLUR_RADIUS = 100.0
     val MPV_ONLY_PSEUDO_PROTOCOLS =
       setOf("fd", "fdclose", "edl", "memory", "null", "av", "lavf", "archive", "slice", "mf", "hex", "bd", "dvd", "dvb")
-    const val PLAYLIST_METADATA_PREFETCH_RADIUS = 8
-    const val PLAYLIST_METADATA_PREFETCH_LIMIT = 30
-    const val PLAYLIST_NETWORK_METADATA_PREFETCH_RADIUS = 1
-    const val PLAYLIST_NETWORK_METADATA_TIMEOUT_MS = 2_000L
-    // Hard ceiling on concurrent metadata extractions. Batching on this value is what keeps the
-    // prefetch genuinely parallel without letting it saturate the decoder or the network stack.
-    const val PLAYLIST_METADATA_PARALLEL_LIMIT = 5
+    const val PLAYLIST_METADATA_PREFETCH_RADIUS = 40
+    const val PLAYLIST_METADATA_PREFETCH_LIMIT = 120
+    const val PLAYLIST_NETWORK_METADATA_PREFETCH_RADIUS = 3
+    const val PLAYLIST_NETWORK_METADATA_TIMEOUT_MS = 8_000L
     const val INTRO_MARKER_CACHE_PREFS = "intro_marker_cache"
     const val INTRO_MARKER_CACHE_PREFIX = "intro_marker:v3:"
     const val INTRO_MARKER_CACHE_MAX_ENTRIES = 200
@@ -4981,6 +5047,30 @@ val isBrightnessSliderShown = MutableStateFlow(false)
   }
 
 
+  /**
+   * Cancels UI-originated native work before PlayerActivity releases its Surface.
+   */
+  fun prepareForPlayerTeardown() {
+    cancelSeekPreview()
+    cancelFrameSeek()
+    seekCommitJob?.cancel()
+    seekCommitJob = null
+    seekCoalesceJob?.cancel()
+    seekCoalesceJob = null
+    pendingSeekOffset = 0
+
+    synchronized(ambientScheduleLock) {
+      ambientUpdateGeneration.incrementAndGet()
+      ambientDebounceJob?.cancel()
+      ambientDebounceJob = null
+    }
+    synchronized(ppScheduleLock) {
+      ppUpdateGeneration.incrementAndGet()
+      ppDebounceJob?.cancel()
+      ppDebounceJob = null
+    }
+  }
+
   fun lockControls() {
     _areControlsLocked.value = true
   }
@@ -5014,6 +5104,7 @@ val isBrightnessSliderShown = MutableStateFlow(false)
   }
 
   private suspend fun runSeekPreviewLoop(generation: Long) {
+    var lastSentPosition: Float? = null
     while (kotlinx.coroutines.currentCoroutineContext().isActive) {
       val target =
         synchronized(seekPreviewLock) {
@@ -5023,7 +5114,12 @@ val isBrightnessSliderShown = MutableStateFlow(false)
               return
             }
         }
+      // Repeated pointer events at effectively the same time position should not cause another
+      // MediaCodec flush. A final exact seek still runs when the user releases the thumb.
+      val previous = lastSentPosition
+      if (previous != null && kotlin.math.abs(target - previous) < 0.5f) continue
       if (!PlaybackSession.commandForGeneration(generation, "seek", target.toString(), "absolute+keyframes")) return
+      lastSentPosition = target
       delay(PREVIEW_SEEK_INTERVAL_MS)
     }
   }
@@ -5043,10 +5139,11 @@ val isBrightnessSliderShown = MutableStateFlow(false)
     cancelFrameSeek()
     cancelSeekPreview()
     val generation = PlaybackSession.state.value.generation
-    viewModelScope.launch(Dispatchers.IO) {
+    seekCommitJob?.cancel()
+    seekCommitJob = viewModelScope.launch(Dispatchers.IO) {
       if (!PlaybackSession.isCurrentGeneration(generation)) return@launch
       val maxDuration =
-        (PlaybackSession.getPropertyInt("duration") ?: duration ?: _preciseDuration.value.toInt())
+        (PlaybackSession.getPropertyDouble("duration")?.toInt() ?: duration ?: _preciseDuration.value.toInt())
           .coerceAtLeast(0)
       var clampedPosition =
         if (maxDuration > 0) position.coerceIn(0, maxDuration) else position.coerceAtLeast(0)
@@ -5101,11 +5198,11 @@ val isBrightnessSliderShown = MutableStateFlow(false)
             return@launch
           }
           val duration =
-            PlaybackSession.getPropertyInt("duration")
+            PlaybackSession.getPropertyDouble("duration")?.toInt()
               ?: duration
               ?: _preciseDuration.value.toInt()
           val currentPos =
-            PlaybackSession.getPropertyInt("time-pos")
+            PlaybackSession.getPropertyDouble("time-pos")?.toInt()
               ?: (pos ?: 0)
 
           if (duration > 0 && currentPos + toApply >= duration) {
@@ -5167,10 +5264,6 @@ val isBrightnessSliderShown = MutableStateFlow(false)
 
   fun updateSeekText(text: String?) {
     _seekState.update { it.copy(text = text) }
-  }
-
-  fun updateIsSeekingForwards(isForwards: Boolean) {
-    _seekState.update { it.copy(isForwards = isForwards) }
   }
 
   private fun seekToWithText(
@@ -5318,21 +5411,103 @@ val isBrightnessSliderShown = MutableStateFlow(false)
     volumeSliderTimestamp.value = System.currentTimeMillis()
   }
 
-  fun changeSubtitlePositionTo(position: Int) {
-    changeSubtitlePositionsTo(position, subtitlesPreferences.secondarySubPos.get())
+  // mpv property writes block until the core handles them; gestures must never wait on that.
+  private val subtitleGestureDispatcher = Dispatchers.IO.limitedParallelism(1)
+  private val pendingSubtitleProperties = ConcurrentHashMap<String, Float>()
+  private val subtitleFlushQueued = AtomicBoolean(false)
+  @Volatile private var savedSubtitleBoxStyle: SubtitleGestureBoxStyle? = null
+  @Volatile private var hiddenSubtitleVisibility: String? = null
+  private var lastSubtitleGestureText: String? = null
+
+  /** Only the newest value per property reaches mpv, so fast drags never queue up stale frames. */
+  private fun queueSubtitleProperty(property: String, value: Float) {
+    if (MpvConfigOverridePolicy.isOwnedByMpvConf(property)) return
+    pendingSubtitleProperties[property] = value
+    if (!subtitleFlushQueued.compareAndSet(false, true)) return
+    viewModelScope.launch(subtitleGestureDispatcher) {
+      subtitleFlushQueued.set(false)
+      pendingSubtitleProperties.keys.toList().forEach { key ->
+        pendingSubtitleProperties.remove(key)?.let { PlaybackSession.setPropertyFloat(key, it) }
+      }
+    }
+  }
+
+  fun previewSubtitlePosition(position: Float, target: SubtitleGestureTarget) {
+    val newPosition = position.coerceIn(0f, 150f)
+    queueSubtitleProperty("${target.prefix}-pos", newPosition)
+    val label = appContext.getString(
+      if (target == SubtitleGestureTarget.Secondary) R.string.player_sheets_secondary_sub_position
+      else R.string.player_sheets_sub_primary_position,
+    )
+    val text = "$label: ${newPosition.roundToInt()}%"
+    if (text != lastSubtitleGestureText) {
+      lastSubtitleGestureText = text
+      playerUpdate.value = PlayerUpdates.ShowText(text)
+    }
+  }
+
+  fun previewSubtitleScale(scale: Float, target: SubtitleGestureTarget) {
+    queueSubtitleProperty("${target.prefix}-scale", scale)
+  }
+
+  fun persistSubtitleGesturePosition(target: SubtitleGestureTarget, position: Float) {
+    lastSubtitleGestureText = null
+    if (MpvConfigOverridePolicy.isOwnedByMpvConf("${target.prefix}-pos")) return
+    val preference = if (target == SubtitleGestureTarget.Secondary) subtitlesPreferences.secondarySubPos else subtitlesPreferences.subPos
+    val rounded = clampSubtitlePosition(position.roundToInt())
+    if (preference.get() != rounded) preference.set(rounded)
   }
 
   /**
-   * Moves primary + secondary subtitles together (secondary keeps its offset from
-   * primary). Both mpv props, prefs, OSD and settings sliders update live.
+   * mpv's own background box outlines the real rendered glyphs while a subtitle is dragged or pinched.
+   * The style is shared by both tracks, so the other track is hidden until release when [target] is set.
    */
-  fun changeSubtitlePositionsTo(primaryPosition: Int, secondaryPosition: Int) {
-    val newPrimary = clampSubtitlePosition(primaryPosition)
-    val newSecondary = clampSubtitlePosition(secondaryPosition)
-    subtitlesPreferences.subPos.set(newPrimary)
-    subtitlesPreferences.secondarySubPos.set(newSecondary)
-    syncSubtitleLayout(newPrimary, newSecondary)
-    playerUpdate.value = PlayerUpdates.ShowText(appContext.getString(R.string.subtitle_position_update, newPrimary))
+  fun setSubtitleGestureHighlight(active: Boolean, target: SubtitleGestureTarget? = null) {
+    viewModelScope.launch(subtitleGestureDispatcher) {
+      if (active) {
+        if (savedSubtitleBoxStyle != null) return@launch
+        val style = SubtitleGestureBoxStyle(
+          PlaybackSession.getPropertyString("sub-border-style"),
+          PlaybackSession.getPropertyString("sub-back-color"),
+          PlaybackSession.getPropertyString("sub-shadow-offset"),
+        )
+        savedSubtitleBoxStyle = style
+        // For background-box, mpv uses sub-shadow-offset as padding around all text lines.
+        // Keep larger user margins; restore the exact original value when the gesture ends.
+        val padding = maxOf(
+          style.shadowOffset?.toFloatOrNull() ?: subtitlesPreferences.shadowOffset.get().toFloat(),
+          SUBTITLE_GESTURE_HIGHLIGHT_PADDING,
+        )
+        PlaybackSession.setPropertyFloat("sub-shadow-offset", padding)
+        PlaybackSession.setPropertyString("sub-border-style", "background-box")
+        PlaybackSession.setPropertyString("sub-back-color", SUBTITLE_GESTURE_HIGHLIGHT_COLOR)
+        val other = SubtitleGestureTarget.entries.firstOrNull { target != null && it != target }
+        val visibility = other?.let { "${it.prefix}-visibility" }
+        if (visibility != null && PlaybackSession.getPropertyBoolean(visibility) == true) {
+          PlaybackSession.setPropertyBoolean(visibility, false)
+          hiddenSubtitleVisibility = visibility
+        }
+      } else {
+        restoreSubtitleGestureHighlight()
+      }
+    }
+  }
+
+  private fun restoreSubtitleGestureHighlight() {
+    hiddenSubtitleVisibility?.let { PlaybackSession.setPropertyBoolean(it, true) }
+    hiddenSubtitleVisibility = null
+    val style = savedSubtitleBoxStyle ?: return
+    savedSubtitleBoxStyle = null
+    // mpv may not have reported a value at gesture start; fall back to the user's saved choice.
+    PlaybackSession.setPropertyString("sub-border-style", style.borderStyle ?: subtitlesPreferences.borderStyle.get().value)
+    PlaybackSession.setPropertyString(
+      "sub-back-color",
+      style.backgroundColor ?: subtitlesPreferences.backgroundColor.get().toColorHexString(),
+    )
+    PlaybackSession.setPropertyString(
+      "sub-shadow-offset",
+      style.shadowOffset ?: subtitlesPreferences.shadowOffset.get().toString(),
+    )
   }
 
   private fun syncSubtitleLayout(
@@ -5419,6 +5594,7 @@ val isBrightnessSliderShown = MutableStateFlow(false)
     _videoAspect.value = aspect
     _currentAspectRatio.value = -1.0 // Reset custom ratio when using standard modes
 
+    onAmbientGeometryChanged()
     // Notify the UI
     if (showUpdate) {
       playerUpdate.value = PlayerUpdates.AspectRatio
@@ -5434,6 +5610,7 @@ val isBrightnessSliderShown = MutableStateFlow(false)
     PlaybackSession.setPropertyDouble("video-aspect-override", ratio)
     playerPreferences.lastCustomAspectRatio.set(ratio.toFloat())
     _currentAspectRatio.value = ratio
+    onAmbientGeometryChanged()
     if (showUpdate) {
       playerUpdate.value = PlayerUpdates.AspectRatio
     }
@@ -5559,12 +5736,6 @@ val isBrightnessSliderShown = MutableStateFlow(false)
       }
     autoCropJob =
       viewModelScope.launch(Dispatchers.IO) {
-        // Auto-crop runs the moment the phase flips to READY. Yield briefly so the first-frame
-        // decode and the opening buffer fill finish before we sample frames or seek elsewhere.
-        delay(AUTO_CROP_START_SETTLE_MS)
-        if (!PlaybackSession.isCurrentGeneration(generation) || !playerPreferences.autoCropBlackBars.get()) {
-          return@launch
-        }
         Log.i(TAG, "Auto-crop analyzing generation=$generation source=$sourceIdentity")
         val result =
           try {
@@ -5575,7 +5746,7 @@ val isBrightnessSliderShown = MutableStateFlow(false)
               val positions = autoCropSamplePositions(source, durationSeconds)
               val combined = extractAutoCropSamples(source, positions)
               when {
-                combined == null -> detectAutoCropFromActivePlayback(generation)
+                combined == null -> detectAutoCropFromActivePlayback(generation, sourceWidth, sourceHeight)
                 else -> {
                   val detected = AutoCropAnalyzer.combine(combined.edges)
                   if (detected == null) {
@@ -5588,7 +5759,7 @@ val isBrightnessSliderShown = MutableStateFlow(false)
                 }
               }
             } else {
-              detectAutoCropFromActivePlayback(generation)
+              detectAutoCropFromActivePlayback(generation, sourceWidth, sourceHeight)
             }
           } catch (cancellation: kotlinx.coroutines.CancellationException) {
             throw cancellation
@@ -5632,18 +5803,68 @@ val isBrightnessSliderShown = MutableStateFlow(false)
       }
   }
 
-  /**
-   * Detects encoded bars from the frames the active core already has in memory.
-   *
-   * Sampling in-memory frames keeps auto-crop off the decoder and filter-graph hot path: switching
-   * `hwdec` to software and installing a `cropdetect` filter mid-playback forces a full decoder
-   * re-init and filter rebuild, which stalls every network/HLS source for the whole detection pass.
-   */
-  private suspend fun detectAutoCropFromActivePlayback(generation: Long): AutoCropAnalysisResult {
+  private suspend fun detectAutoCropFromActivePlayback(
+    generation: Long,
+    sourceWidth: Int,
+    sourceHeight: Int,
+  ): AutoCropAnalysisResult {
+    if (MpvConfigOverridePolicy.isOwnedByMpvConf("vf")) return detectAutoCropFromCurrentFrames(generation)
     if (PlaybackSession.getPropertyBoolean("current-tracks/video/image") == true) {
       return AutoCropAnalysisResult.Unavailable
     }
-    return detectAutoCropFromCurrentFrames(generation)
+
+    var hwdecBackup: String? = null
+    try {
+      PlaybackSession.removeVideoFilter(AUTO_CROP_FILTER_LABEL)
+      val activeHwdec = PlaybackSession.getPropertyString("hwdec-current").orEmpty()
+      val needsSoftwareFrames =
+        activeHwdec.isNotBlank() &&
+          activeHwdec != "no" &&
+          !activeHwdec.endsWith("-copy") &&
+          activeHwdec !in setOf("crystalhd", "rkmpp")
+      if (needsSoftwareFrames) {
+        if (MpvConfigOverridePolicy.isOwnedByMpvConf("hwdec")) {
+          return detectAutoCropFromCurrentFrames(generation)
+        }
+        hwdecBackup = PlaybackSession.getPropertyString("hwdec")?.takeIf(String::isNotBlank)
+        PlaybackSession.setPropertyString("hwdec", "no")
+        withTimeoutOrNull(AUTO_CROP_HWDEC_TIMEOUT_MS) {
+          while (currentCoroutineContext().isActive && PlaybackSession.isCurrentGeneration(generation)) {
+            if (PlaybackSession.getPropertyString("hwdec-current").orEmpty() in setOf("", "no")) return@withTimeoutOrNull
+            delay(AUTO_CROP_METADATA_POLL_MS)
+          }
+        }
+      }
+
+      if (!PlaybackSession.isCurrentGeneration(generation)) return AutoCropAnalysisResult.Unavailable
+      PlaybackSession.command(
+        "vf",
+        "pre",
+        "@$AUTO_CROP_FILTER_LABEL:cropdetect=limit=$AUTO_CROP_DETECT_LIMIT:round=$AUTO_CROP_DETECT_ROUND:reset=0",
+      )
+
+      val startedAt = SystemClock.elapsedRealtime()
+      val deadline = startedAt + AUTO_CROP_ACTIVE_DETECT_TIMEOUT_MS
+      var metadata: AutoCropMetadata? = null
+      while (
+        currentCoroutineContext().isActive &&
+        PlaybackSession.isCurrentGeneration(generation) &&
+        SystemClock.elapsedRealtime() < deadline
+      ) {
+        delay(AUTO_CROP_METADATA_POLL_MS)
+        metadata = readAutoCropMetadata()
+        if (metadata != null && SystemClock.elapsedRealtime() - startedAt >= AUTO_CROP_ACTIVE_SETTLE_MS) break
+      }
+
+      if (!PlaybackSession.isCurrentGeneration(generation)) return AutoCropAnalysisResult.Unavailable
+      return metadata?.toAutoCropResult(sourceWidth, sourceHeight) ?: detectAutoCropFromCurrentFrames(generation)
+    } finally {
+      PlaybackSession.removeVideoFilter(AUTO_CROP_FILTER_LABEL)
+      val backup = hwdecBackup
+      if (backup != null && PlaybackSession.getPropertyString("hwdec") == "no") {
+        PlaybackSession.setPropertyString("hwdec", backup)
+      }
+    }
   }
 
   private suspend fun detectAutoCropFromCurrentFrames(generation: Long): AutoCropAnalysisResult {
@@ -5663,6 +5884,43 @@ val isBrightnessSliderShown = MutableStateFlow(false)
     return AutoCropAnalyzer.combine(samples)
       ?.let(AutoCropAnalysisResult::Detected)
       ?: AutoCropAnalysisResult.NoBars
+  }
+
+  private fun readAutoCropMetadata(): AutoCropMetadata? {
+    fun value(key: String): Int? =
+      PlaybackSession
+        .getPropertyString("vf-metadata/$AUTO_CROP_FILTER_LABEL/lavfi.cropdetect.$key")
+        ?.toIntOrNull()
+
+    return AutoCropMetadata(
+      width = value("w") ?: return null,
+      height = value("h") ?: return null,
+      x = value("x") ?: return null,
+      y = value("y") ?: return null,
+    )
+  }
+
+  private fun AutoCropMetadata.toAutoCropResult(
+    sourceWidth: Int,
+    sourceHeight: Int,
+  ): AutoCropAnalysisResult {
+    if (width <= 0 || height <= 0 || x < 0 || y < 0) return AutoCropAnalysisResult.Unavailable
+    if (x + width > sourceWidth + AUTO_CROP_DETECT_ROUND || y + height > sourceHeight + AUTO_CROP_DETECT_ROUND) {
+      return AutoCropAnalysisResult.Unavailable
+    }
+    if (width < sourceWidth / 2 || height < sourceHeight / 2) return AutoCropAnalysisResult.NoBars
+
+    val right = (sourceWidth - width - x).coerceAtLeast(0)
+    val bottom = (sourceHeight - height - y).coerceAtLeast(0)
+    if (x < 2 && y < 2 && right < 2 && bottom < 2) return AutoCropAnalysisResult.NoBars
+    return AutoCropAnalysisResult.Detected(
+      AutoCropEdges(
+        left = x.toFloat() / sourceWidth,
+        top = y.toFloat() / sourceHeight,
+        right = right.toFloat() / sourceWidth,
+        bottom = bottom.toFloat() / sourceHeight,
+      ),
+    )
   }
 
   private fun autoCropSamplePositions(
@@ -6323,11 +6581,6 @@ val isBrightnessSliderShown = MutableStateFlow(false)
         }
       val localPath = uri.extractLocalPath() ?: if (uri.scheme == "file") uri.path else null
       val path = localPath ?: resolvedUri.path?.takeIf { File(it).exists() } ?: resolvedUri.toString()
-      // Both spellings are probed below and are identical whenever the scheme is not "content".
-      // Hoisting them keeps the `isAudio` chain a pure read of locals instead of re-lowercasing
-      // the same URI up to four times per queue item.
-      val lowerResolved = resolvedUri.toString().lowercase()
-      val lowerUri = uri.toString().lowercase()
       val isAudio =
         isAudioOnly.value ||
         item.mimeType?.startsWith("audio/", ignoreCase = true) == true ||
@@ -6336,12 +6589,12 @@ val isBrightnessSliderShown = MutableStateFlow(false)
           .substringBefore('#')
           .substringAfterLast('.', "")
           .lowercase() in FileTypeUtils.AUDIO_EXTENSIONS ||
-        lowerResolved.contains("audio") ||
-        lowerUri.contains("audio") ||
-        lowerResolved.contains("stream.view") ||
-        lowerUri.contains("stream.view") ||
-        lowerResolved.contains("/rest/stream") ||
-        lowerUri.contains("/rest/stream") ||
+        resolvedUri.toString().lowercase().contains("audio") ||
+        uri.toString().lowercase().contains("audio") ||
+        resolvedUri.toString().lowercase().contains("stream.view") ||
+        uri.toString().lowercase().contains("stream.view") ||
+        resolvedUri.toString().lowercase().contains("/rest/stream") ||
+        uri.toString().lowercase().contains("/rest/stream") ||
         (item.artist?.isNotBlank() == true && item.durationSeconds != null)
       val isCurrentlyPlaying = index == queue.currentIndex
 
@@ -6740,41 +6993,30 @@ val isBrightnessSliderShown = MutableStateFlow(false)
             item.networkConnectionId == null || abs(item.index - currentIndex) <= PLAYLIST_NETWORK_METADATA_PREFETCH_RADIUS
           }
 
-        // Batching both bounds the work and drives the UI updates below: each batch is extracted
-        // in parallel, then published to the StateFlow in one shot. Extraction has to run inside a
-        // coroutineScope so the batch's async children are awaited (and cancelled) together.
-        metadataItems.chunked(PLAYLIST_METADATA_PARALLEL_LIMIT).forEach { batch ->
-          // Two rows can share a URI; the cache and the update map are both keyed by it, so extract
-          // each key once instead of racing two extractions for the same entry.
-          val distinctBatch = batch.distinctBy { it.uri.toString() }
-          val updates =
-            coroutineScope {
-              distinctBatch
-                .map { item ->
-                  async {
-                    val cacheKey = item.uri.toString()
+        // Limit concurrent metadata extraction to avoid overwhelming resources
+        val batchSize = 5
+        metadataItems.chunked(batchSize).forEach { batch ->
+          val updates = mutableMapOf<String, Pair<String, String>>()
 
-                    val cached = metadataCache.get(cacheKey)
-                    val needsDuration = item.duration.isBlank() && cached?.first.isNullOrBlank()
-                    val needsResolution = !item.isAudio && item.resolution.isBlank() && cached?.second.isNullOrBlank()
-                    if (cached == null && (needsDuration || needsResolution)) {
-                      // Extract metadata
-                      val (durationStr, resolutionStr) = getVideoMetadata(item)
+          // Extract metadata for the batch
+          batch.forEach { item ->
+            val cacheKey = item.uri.toString()
 
-                      // Update cache and track update
-                      val merged =
-                        (durationStr.takeIf(String::isNotBlank) ?: cached?.first.orEmpty()) to
-                          (resolutionStr.takeIf(String::isNotBlank) ?: cached?.second.orEmpty())
-                      updateMetadataCache(cacheKey, merged)
-                      cacheKey to merged
-                    } else {
-                      null
-                    }
-                  }
-                }.awaitAll()
-                .filterNotNull()
-                .toMap()
+            val cached = metadataCache.get(cacheKey)
+            val needsDuration = item.duration.isBlank() && cached?.first.isNullOrBlank()
+            val needsResolution = !item.isAudio && item.resolution.isBlank() && cached?.second.isNullOrBlank()
+            if (cached == null && (needsDuration || needsResolution)) {
+              // Extract metadata
+              val (durationStr, resolutionStr) = getVideoMetadata(item)
+
+              // Update cache and track update
+              val merged =
+                (durationStr.takeIf(String::isNotBlank) ?: cached?.first.orEmpty()) to
+                  (resolutionStr.takeIf(String::isNotBlank) ?: cached?.second.orEmpty())
+              updateMetadataCache(cacheKey, merged)
+              updates[cacheKey] = merged
             }
+          }
 
           // Apply all batched updates at once (single playlist update)
           if (updates.isNotEmpty()) {
@@ -6844,13 +7086,6 @@ val isBrightnessSliderShown = MutableStateFlow(false)
     // Show overlay update instead of toast
     playerUpdate.value = PlayerUpdates.Shuffle(_shuffleEnabled.value)
   }
-
-  fun shouldRepeatCurrentFile(): Boolean =
-    _repeatMode.value == RepeatMode.ONE ||
-      (_repeatMode.value == RepeatMode.ALL && !PlaybackSession.queue.value.isExplicitQueue)
-
-  fun shouldRepeatPlaylist(): Boolean =
-    _repeatMode.value == RepeatMode.ALL && PlaybackSession.queue.value.isExplicitQueue
 
   // ==================== A-B Loop ====================
 
@@ -7013,7 +7248,7 @@ val isBrightnessSliderShown = MutableStateFlow(false)
     val pipelineReady = refreshHdrScreenOutputPipelineState()
     runCatching {
       val boostSdr = decoderPreferences.boostSdrToHdr.get()
-      applyHdrScreenOutputOptions(mode, pipelineReady, boostSdr)
+      // Init-time options are already applied by MPVView. Runtime transitions only need properties.
       applyHdrScreenOutputProperties(mode, pipelineReady, boostSdr)
       applyHdrToysMode(mode, pipelineReady)
     }.onFailure { e ->
@@ -7111,18 +7346,32 @@ val isBrightnessSliderShown = MutableStateFlow(false)
     _isAmbientLifecycleActive.value &&
       _isMpvCoreReady.value &&
       _isAmbientEnabled.value &&
+      !isAmbientPipActive &&
+      !isAudioOnly.value &&
+      PlaybackSession.state.value.surfaceAttached &&
+      PlaybackSession.state.value.phase in setOf(PlaybackPhase.READY, PlaybackPhase.BACKGROUND) &&
       !MpvConfigOverridePolicy.ownsAny(MpvConfigControlledFeatures.AMBIENT)
 
-  private fun isAmbientGlowRuntimeActive(): Boolean =
-    isAmbientRuntimeActive() && _ambientStyle.value == AmbientStyle.Glow
+  /** All shader styles share the same renderer and lifecycle. YouTube retains its capture renderer. */
+  private fun isAmbientShaderRuntimeActive(): Boolean =
+    isAmbientRuntimeActive() && _ambientStyle.value != AmbientStyle.YouTube
+
+  fun setAmbientPipActive(active: Boolean) {
+    isAmbientPipActive = active
+    if (active) disableAmbientShader() else scheduleAmbientUpdate(0)
+  }
+
+  fun onAmbientGeometryChanged() {
+    if (isAmbientShaderRuntimeActive()) scheduleAmbientUpdate(0)
+  }
 
   fun toggleAmbientMode() {
     if (MpvConfigOverridePolicy.ownsAny(MpvConfigControlledFeatures.AMBIENT)) return
     _isAmbientEnabled.value = !_isAmbientEnabled.value
     playerPreferences.isAmbientEnabled.set(_isAmbientEnabled.value)
     if (_isAmbientEnabled.value) {
-      if (_ambientStyle.value == AmbientStyle.Glow) {
-        lastAmbientScaleX = -1.0
+      if (_ambientStyle.value != AmbientStyle.YouTube) {
+        lastAmbientGeometry = null
         scheduleAmbientUpdate(0)
       }
       playerUpdate.value = PlayerUpdates.ShowText(appContext.getString(R.string.player_ambience_on))
@@ -7132,21 +7381,84 @@ val isBrightnessSliderShown = MutableStateFlow(false)
     }
   }
 
-  /** Switches between the shader-backed Glow and frame-captured YouTube styles. */
+  private fun syncAmbientParamsForStyle(style: AmbientStyle) {
+    when (style) {
+      AmbientStyle.Glow -> {
+        _ambientBlurSamples.value = playerPreferences.ambientBlurSamples.get()
+        _ambientMaxRadius.value = playerPreferences.ambientMaxRadius.get()
+        _ambientGlowIntensity.value = playerPreferences.ambientGlowIntensity.get()
+        _ambientSatBoost.value = playerPreferences.ambientSatBoost.get()
+        _ambientVignetteStrength.value = playerPreferences.ambientVignetteStrength.get()
+        _ambientWarmth.value = playerPreferences.ambientWarmth.get()
+        _ambientFadeCurve.value = playerPreferences.ambientFadeCurve.get()
+        _ambientOpacity.value = playerPreferences.ambientOpacity.get()
+      }
+      AmbientStyle.Cinema -> {
+        _ambientBlurSamples.value = playerPreferences.ambientCinemaBlurSamples.get()
+        _ambientMaxRadius.value = playerPreferences.ambientCinemaSpread.get()
+        _ambientGlowIntensity.value = playerPreferences.ambientCinemaIntensity.get()
+        _ambientSatBoost.value = playerPreferences.ambientCinemaSatBoost.get()
+        _ambientVignetteStrength.value = playerPreferences.ambientCinemaVignette.get()
+        _ambientWarmth.value = playerPreferences.ambientCinemaWarmth.get()
+        _ambientFadeCurve.value = playerPreferences.ambientCinemaFadeCurve.get()
+        _ambientOpacity.value = playerPreferences.ambientCinemaOpacity.get()
+      }
+      AmbientStyle.Ambilight -> {
+        _ambientBlurSamples.value = playerPreferences.ambientAmbilightBlurSamples.get()
+        _ambientMaxRadius.value = playerPreferences.ambientAmbilightSpread.get()
+        _ambientGlowIntensity.value = playerPreferences.ambientAmbilightIntensity.get()
+        _ambientSatBoost.value = playerPreferences.ambientAmbilightSatBoost.get()
+        _ambientVignetteStrength.value = playerPreferences.ambientAmbilightVignette.get()
+        _ambientWarmth.value = playerPreferences.ambientAmbilightWarmth.get()
+        _ambientFadeCurve.value = playerPreferences.ambientAmbilightFadeCurve.get()
+        _ambientOpacity.value = playerPreferences.ambientAmbilightOpacity.get()
+      }
+      AmbientStyle.Echo -> {
+        _ambientBlurSamples.value = playerPreferences.ambientEchoBlurSamples.get()
+        _ambientMaxRadius.value = playerPreferences.ambientEchoSpread.get()
+        _ambientGlowIntensity.value = playerPreferences.ambientEchoIntensity.get()
+        _ambientSatBoost.value = playerPreferences.ambientEchoSatBoost.get()
+        _ambientVignetteStrength.value = playerPreferences.ambientEchoVignette.get()
+        _ambientWarmth.value = playerPreferences.ambientEchoWarmth.get()
+        _ambientFadeCurve.value = playerPreferences.ambientEchoFadeCurve.get()
+        _ambientOpacity.value = playerPreferences.ambientEchoOpacity.get()
+      }
+      AmbientStyle.Mirror -> {
+        _ambientBlurSamples.value = playerPreferences.ambientMirrorBlurSamples.get()
+        _ambientMaxRadius.value = playerPreferences.ambientMirrorSpread.get()
+        _ambientGlowIntensity.value = playerPreferences.ambientMirrorIntensity.get()
+        _ambientSatBoost.value = playerPreferences.ambientMirrorSatBoost.get()
+        _ambientVignetteStrength.value = playerPreferences.ambientMirrorVignette.get()
+        _ambientWarmth.value = playerPreferences.ambientMirrorWarmth.get()
+        _ambientFadeCurve.value = playerPreferences.ambientMirrorFadeCurve.get()
+        _ambientOpacity.value = playerPreferences.ambientMirrorOpacity.get()
+      }
+      AmbientStyle.YouTube -> Unit
+    }
+  }
+
+  /** Switches between Glow, YouTube, Cinema, Echo, and Mirror styles. */
   fun setAmbientStyle(style: AmbientStyle) {
     if (MpvConfigOverridePolicy.ownsAny(MpvConfigControlledFeatures.AMBIENT)) return
     if (_ambientStyle.value == style) return
     _ambientStyle.value = style
     playerPreferences.ambientStyle.set(style)
+    syncAmbientParamsForStyle(style)
     playerUpdate.value =
       PlayerUpdates.ShowText(
         appContext.getString(R.string.ambient_style_update, appContext.getString(style.titleRes)),
       )
-    if (style == AmbientStyle.Glow) {
-      lastAmbientScaleX = -1.0
-      scheduleAmbientUpdate(0)
-    } else {
-      disableAmbientShader()
+    when (style) {
+      AmbientStyle.Glow, AmbientStyle.Ambilight, AmbientStyle.Cinema, AmbientStyle.Echo, AmbientStyle.Mirror -> {
+        // Any shader-based mode: invalidate scale and spec caches so a fresh shader is compiled
+        // for the new mode. Both lastCompiledSpec and lastCompiledFxSpec are cleared so
+        // switching between Glow and Fx modes (or between Fx modes) never hits a stale shader cache.
+        lastAmbientGeometry = null
+        lastCompiledSpec = null
+        lastCompiledFxSpec = null
+        scheduleAmbientUpdate(0)
+      }
+      AmbientStyle.YouTube -> disableAmbientShader()
     }
   }
 
@@ -7157,38 +7469,26 @@ val isBrightnessSliderShown = MutableStateFlow(false)
       ambientDebounceJob?.cancel()
       ambientDebounceJob = null
     }
+    clearAmbientRenderState()
+  }
+
+  private fun clearAmbientRenderState() {
     synchronized(ambientRenderLock) {
-      ambientShaderFile?.let { file ->
-        runCatching { PlaybackSession.command("change-list", "glsl-shaders", "remove", file.absolutePath) }
-        file.delete()
-      }
+      if (!PlaybackSession.clearAmbientShader()) return@synchronized
+      ambientShaderFile?.delete()
       ambientShaderFile = null
-      runCatching {
-        appContext.cacheDir.listFiles { _, name ->
-          name.startsWith("ambient_") && name.endsWith(".glsl")
-        }?.forEach { it.delete() }
-      }
-      // Reset the shader cache and scale tracking so a subsequent enable always
-      // compiles a fresh shader and recalculates the correct video-scale offsets.
       lastCompiledSpec = null
-      lastAmbientScaleX = -1.0
-      lastAmbientScaleY = -1.0
-      runCatching {
-        PlaybackSession.setPropertyDouble("video-scale-x", 1.0)
-        PlaybackSession.setPropertyDouble("video-scale-y", 1.0)
-        PlaybackSession.setPropertyString("blend-subtitles", "no")
-      }
+      lastCompiledFxSpec = null
+      lastAmbientGeometry = null
     }
   }
 
-  /** Called when the device orientation changes. Refreshes Glow for the new output dimensions. */
+  /** Called when the device orientation changes. Refreshes all shader-based modes for new output dimensions. */
   fun onOrientationChanged() {
-    if (!isAmbientGlowRuntimeActive()) return
+    if (!isAmbientShaderRuntimeActive()) return
 
-    // The compiled spec is the cache key; scale sentinels alone do not force a rebuild.
-    lastCompiledSpec = null
-    lastAmbientScaleX = -1.0
-    lastAmbientScaleY = -1.0
+    // The output dimensions are part of the compiled spec. Keep the cache intact here so a
+    // redundant orientation callback cannot recompile the same Vulkan shader.
     scheduleAmbientUpdate(200)
   }
 
@@ -7196,8 +7496,7 @@ val isBrightnessSliderShown = MutableStateFlow(false)
   fun prepareAmbientForNewVideo() {
     if (!_isAmbientEnabled.value || MpvConfigOverridePolicy.ownsAny(MpvConfigControlledFeatures.AMBIENT)) return
     disableAmbientShader()
-    lastAmbientScaleX = -1.0
-    lastAmbientScaleY = -1.0
+    lastAmbientGeometry = null
   }
 
   /**
@@ -7205,9 +7504,17 @@ val isBrightnessSliderShown = MutableStateFlow(false)
    * Called after shader-stack changes so ambient stays as the last OUTPUT pass.
    */
   fun restartAmbientIfActive() {
-    if (!isAmbientGlowRuntimeActive()) return
-    disableAmbientShader()
-    // Small delay to let Anime4K shaders settle.
+    if (!isAmbientShaderRuntimeActive()) return
+
+    // Move the existing Ambient program back to the final OUTPUT pass without invalidating the
+    // compiled-spec cache. Rebuilding an identical file was forcing avoidable SPIR-V/pipeline work.
+    synchronized(ambientRenderLock) {
+      ambientShaderFile
+        ?.takeIf { it.exists() }
+        ?.let { file ->
+          PlaybackSession.command("change-list", "glsl-shaders", "append", file.absolutePath)
+        }
+    }
     scheduleAmbientUpdate(200)
   }
 
@@ -7223,6 +7530,8 @@ val isBrightnessSliderShown = MutableStateFlow(false)
         _ambientYouTubeEdgeBlend.value = clamped
         playerPreferences.ambientYouTubeEdgeBlend.set(clamped)
       }
+      // Fx modes have fixed internal blending — edge-blend slider is hidden in the UI.
+      AmbientStyle.Ambilight, AmbientStyle.Cinema, AmbientStyle.Echo, AmbientStyle.Mirror -> Unit
     }
   }
 
@@ -7236,31 +7545,113 @@ val isBrightnessSliderShown = MutableStateFlow(false)
     fadeCurve: Float = _ambientFadeCurve.value,
     opacity: Float = _ambientOpacity.value,
   ) {
-    _ambientBlurSamples.value = blurSamples
-    _ambientMaxRadius.value = maxRadius
-    _ambientGlowIntensity.value = glowIntensity
-    _ambientSatBoost.value = satBoost
-    _ambientVignetteStrength.value = vignetteStrength
-    _ambientWarmth.value = warmth
-    _ambientFadeCurve.value = fadeCurve
-    _ambientOpacity.value = opacity
+    // Slider updates are frequent. Persist only actual changes: writing eight preferences for
+    // a single moving slider forced unnecessary flows/disk work alongside shader compilation.
+    var changed = false
+    val style = _ambientStyle.value
+    if (_ambientBlurSamples.value != blurSamples) {
+      _ambientBlurSamples.value = blurSamples
+      when (style) {
+        AmbientStyle.Glow -> playerPreferences.ambientBlurSamples.set(blurSamples)
+        AmbientStyle.Ambilight -> playerPreferences.ambientAmbilightBlurSamples.set(blurSamples)
+        AmbientStyle.Cinema -> playerPreferences.ambientCinemaBlurSamples.set(blurSamples)
+        AmbientStyle.Echo -> playerPreferences.ambientEchoBlurSamples.set(blurSamples)
+        AmbientStyle.Mirror -> playerPreferences.ambientMirrorBlurSamples.set(blurSamples)
+        AmbientStyle.YouTube -> Unit
+      }
+      changed = true
+    }
+    if (_ambientMaxRadius.value != maxRadius) {
+      _ambientMaxRadius.value = maxRadius
+      when (style) {
+        AmbientStyle.Glow -> playerPreferences.ambientMaxRadius.set(maxRadius)
+        AmbientStyle.Ambilight -> playerPreferences.ambientAmbilightSpread.set(maxRadius)
+        AmbientStyle.Cinema -> playerPreferences.ambientCinemaSpread.set(maxRadius)
+        AmbientStyle.Echo -> playerPreferences.ambientEchoSpread.set(maxRadius)
+        AmbientStyle.Mirror -> playerPreferences.ambientMirrorSpread.set(maxRadius)
+        AmbientStyle.YouTube -> Unit
+      }
+      changed = true
+    }
+    if (_ambientGlowIntensity.value != glowIntensity) {
+      _ambientGlowIntensity.value = glowIntensity
+      when (style) {
+        AmbientStyle.Glow -> playerPreferences.ambientGlowIntensity.set(glowIntensity)
+        AmbientStyle.Ambilight -> playerPreferences.ambientAmbilightIntensity.set(glowIntensity)
+        AmbientStyle.Cinema -> playerPreferences.ambientCinemaIntensity.set(glowIntensity)
+        AmbientStyle.Echo -> playerPreferences.ambientEchoIntensity.set(glowIntensity)
+        AmbientStyle.Mirror -> playerPreferences.ambientMirrorIntensity.set(glowIntensity)
+        AmbientStyle.YouTube -> Unit
+      }
+      changed = true
+    }
+    if (_ambientSatBoost.value != satBoost) {
+      _ambientSatBoost.value = satBoost
+      when (style) {
+        AmbientStyle.Glow -> playerPreferences.ambientSatBoost.set(satBoost)
+        AmbientStyle.Ambilight -> playerPreferences.ambientAmbilightSatBoost.set(satBoost)
+        AmbientStyle.Cinema -> playerPreferences.ambientCinemaSatBoost.set(satBoost)
+        AmbientStyle.Echo -> playerPreferences.ambientEchoSatBoost.set(satBoost)
+        AmbientStyle.Mirror -> playerPreferences.ambientMirrorSatBoost.set(satBoost)
+        AmbientStyle.YouTube -> Unit
+      }
+      changed = true
+    }
+    if (_ambientVignetteStrength.value != vignetteStrength) {
+      _ambientVignetteStrength.value = vignetteStrength
+      when (style) {
+        AmbientStyle.Glow -> playerPreferences.ambientVignetteStrength.set(vignetteStrength)
+        AmbientStyle.Ambilight -> playerPreferences.ambientAmbilightVignette.set(vignetteStrength)
+        AmbientStyle.Cinema -> playerPreferences.ambientCinemaVignette.set(vignetteStrength)
+        AmbientStyle.Echo -> playerPreferences.ambientEchoVignette.set(vignetteStrength)
+        AmbientStyle.Mirror -> playerPreferences.ambientMirrorVignette.set(vignetteStrength)
+        AmbientStyle.YouTube -> Unit
+      }
+      changed = true
+    }
+    if (_ambientWarmth.value != warmth) {
+      _ambientWarmth.value = warmth
+      when (style) {
+        AmbientStyle.Glow -> playerPreferences.ambientWarmth.set(warmth)
+        AmbientStyle.Ambilight -> playerPreferences.ambientAmbilightWarmth.set(warmth)
+        AmbientStyle.Cinema -> playerPreferences.ambientCinemaWarmth.set(warmth)
+        AmbientStyle.Echo -> playerPreferences.ambientEchoWarmth.set(warmth)
+        AmbientStyle.Mirror -> playerPreferences.ambientMirrorWarmth.set(warmth)
+        AmbientStyle.YouTube -> Unit
+      }
+      changed = true
+    }
+    if (_ambientFadeCurve.value != fadeCurve) {
+      _ambientFadeCurve.value = fadeCurve
+      when (style) {
+        AmbientStyle.Glow -> playerPreferences.ambientFadeCurve.set(fadeCurve)
+        AmbientStyle.Ambilight -> playerPreferences.ambientAmbilightFadeCurve.set(fadeCurve)
+        AmbientStyle.Cinema -> playerPreferences.ambientCinemaFadeCurve.set(fadeCurve)
+        AmbientStyle.Echo -> playerPreferences.ambientEchoFadeCurve.set(fadeCurve)
+        AmbientStyle.Mirror -> playerPreferences.ambientMirrorFadeCurve.set(fadeCurve)
+        AmbientStyle.YouTube -> Unit
+      }
+      changed = true
+    }
+    if (_ambientOpacity.value != opacity) {
+      _ambientOpacity.value = opacity
+      when (style) {
+        AmbientStyle.Glow -> playerPreferences.ambientOpacity.set(opacity)
+        AmbientStyle.Ambilight -> playerPreferences.ambientAmbilightOpacity.set(opacity)
+        AmbientStyle.Cinema -> playerPreferences.ambientCinemaOpacity.set(opacity)
+        AmbientStyle.Echo -> playerPreferences.ambientEchoOpacity.set(opacity)
+        AmbientStyle.Mirror -> playerPreferences.ambientMirrorOpacity.set(opacity)
+        AmbientStyle.YouTube -> Unit
+      }
+      changed = true
+    }
 
-    // Persist to preferences
-    playerPreferences.ambientBlurSamples.set(blurSamples)
-    playerPreferences.ambientMaxRadius.set(maxRadius)
-    playerPreferences.ambientGlowIntensity.set(glowIntensity)
-    playerPreferences.ambientSatBoost.set(satBoost)
-    playerPreferences.ambientVignetteStrength.set(vignetteStrength)
-    playerPreferences.ambientWarmth.set(warmth)
-    playerPreferences.ambientFadeCurve.set(fadeCurve)
-    playerPreferences.ambientOpacity.set(opacity)
-
-    scheduleAmbientUpdate()
+    if (changed) scheduleAmbientUpdate()
   }
 
-  private fun scheduleAmbientUpdate(delayMs: Long = 150L) {
+  private fun scheduleAmbientUpdate(delayMs: Long = 275L) {
     synchronized(ambientScheduleLock) {
-      if (!isAmbientGlowRuntimeActive()) return
+      if (!isAmbientShaderRuntimeActive()) return
 
       val generation = ambientUpdateGeneration.incrementAndGet()
       ambientDebounceJob?.cancel()
@@ -7273,56 +7664,217 @@ val isBrightnessSliderShown = MutableStateFlow(false)
   }
 
   fun applyAmbientProfileFast() {
-    val preset = AmbientShaderPresets.glowFast
-    updateAmbientParams(
-      blurSamples = preset.blurSamples,
-      maxRadius = preset.maxRadius,
-      glowIntensity = preset.glowIntensity,
-      satBoost = preset.satBoost,
-      vignetteStrength = preset.vignetteStrength,
-      warmth = preset.warmth,
-      fadeCurve = preset.fadeCurve,
-      opacity = preset.opacity,
-    )
+    when (_ambientStyle.value) {
+      AmbientStyle.Glow -> {
+        val preset = AmbientShaderPresets.glowFast
+        updateAmbientParams(
+          blurSamples = preset.blurSamples,
+          maxRadius = preset.maxRadius,
+          glowIntensity = preset.glowIntensity,
+          satBoost = preset.satBoost,
+          vignetteStrength = preset.vignetteStrength,
+          warmth = preset.warmth,
+          fadeCurve = preset.fadeCurve,
+          opacity = preset.opacity,
+        )
+      }
+      AmbientStyle.Cinema -> {
+        val preset = FxAmbientPresets.cinemaFast
+        updateAmbientParams(
+          blurSamples = preset.blurSamples,
+          maxRadius = preset.spread,
+          glowIntensity = preset.intensity,
+          satBoost = preset.satBoost,
+          vignetteStrength = preset.vignetteStrength,
+          warmth = preset.warmth,
+          fadeCurve = preset.fadeCurve,
+          opacity = preset.opacity,
+        )
+      }
+      AmbientStyle.Ambilight -> {
+        val preset = FxAmbientPresets.ambilightFast
+        updateAmbientParams(
+          blurSamples = preset.blurSamples,
+          maxRadius = preset.spread,
+          glowIntensity = preset.intensity,
+          satBoost = preset.satBoost,
+          vignetteStrength = preset.vignetteStrength,
+          warmth = preset.warmth,
+          fadeCurve = preset.fadeCurve,
+          opacity = preset.opacity,
+        )
+      }
+      AmbientStyle.Echo -> {
+        val preset = FxAmbientPresets.echoFast
+        updateAmbientParams(
+          blurSamples = preset.blurSamples,
+          maxRadius = preset.spread,
+          glowIntensity = preset.intensity,
+          satBoost = preset.satBoost,
+          vignetteStrength = preset.vignetteStrength,
+          warmth = preset.warmth,
+          fadeCurve = preset.fadeCurve,
+          opacity = preset.opacity,
+        )
+      }
+      AmbientStyle.Mirror -> {
+        val preset = FxAmbientPresets.mirrorFast
+        updateAmbientParams(
+          blurSamples = preset.blurSamples,
+          maxRadius = preset.spread,
+          glowIntensity = preset.intensity,
+          satBoost = preset.satBoost,
+          vignetteStrength = preset.vignetteStrength,
+          warmth = preset.warmth,
+          fadeCurve = preset.fadeCurve,
+          opacity = preset.opacity,
+        )
+      }
+      AmbientStyle.YouTube -> Unit
+    }
   }
 
   /** Balanced profile — good quality/performance trade-off for most devices. */
   fun applyAmbientProfileBalanced() {
-    val preset = AmbientShaderPresets.glowBalanced
-    updateAmbientParams(
-      blurSamples = preset.blurSamples,
-      maxRadius = preset.maxRadius,
-      glowIntensity = preset.glowIntensity,
-      satBoost = preset.satBoost,
-      vignetteStrength = preset.vignetteStrength,
-      warmth = preset.warmth,
-      fadeCurve = preset.fadeCurve,
-      opacity = preset.opacity,
-    )
+    when (_ambientStyle.value) {
+      AmbientStyle.Glow -> {
+        val preset = AmbientShaderPresets.glowBalanced
+        updateAmbientParams(
+          blurSamples = preset.blurSamples,
+          maxRadius = preset.maxRadius,
+          glowIntensity = preset.glowIntensity,
+          satBoost = preset.satBoost,
+          vignetteStrength = preset.vignetteStrength,
+          warmth = preset.warmth,
+          fadeCurve = preset.fadeCurve,
+          opacity = preset.opacity,
+        )
+      }
+      AmbientStyle.Cinema -> {
+        val preset = FxAmbientPresets.cinemaBalanced
+        updateAmbientParams(
+          blurSamples = preset.blurSamples,
+          maxRadius = preset.spread,
+          glowIntensity = preset.intensity,
+          satBoost = preset.satBoost,
+          vignetteStrength = preset.vignetteStrength,
+          warmth = preset.warmth,
+          fadeCurve = preset.fadeCurve,
+          opacity = preset.opacity,
+        )
+      }
+      AmbientStyle.Ambilight -> {
+        val preset = FxAmbientPresets.ambilightBalanced
+        updateAmbientParams(
+          blurSamples = preset.blurSamples,
+          maxRadius = preset.spread,
+          glowIntensity = preset.intensity,
+          satBoost = preset.satBoost,
+          vignetteStrength = preset.vignetteStrength,
+          warmth = preset.warmth,
+          fadeCurve = preset.fadeCurve,
+          opacity = preset.opacity,
+        )
+      }
+      AmbientStyle.Echo -> {
+        val preset = FxAmbientPresets.echoBalanced
+        updateAmbientParams(
+          blurSamples = preset.blurSamples,
+          maxRadius = preset.spread,
+          glowIntensity = preset.intensity,
+          satBoost = preset.satBoost,
+          vignetteStrength = preset.vignetteStrength,
+          warmth = preset.warmth,
+          fadeCurve = preset.fadeCurve,
+          opacity = preset.opacity,
+        )
+      }
+      AmbientStyle.Mirror -> {
+        val preset = FxAmbientPresets.mirrorBalanced
+        updateAmbientParams(
+          blurSamples = preset.blurSamples,
+          maxRadius = preset.spread,
+          glowIntensity = preset.intensity,
+          satBoost = preset.satBoost,
+          vignetteStrength = preset.vignetteStrength,
+          warmth = preset.warmth,
+          fadeCurve = preset.fadeCurve,
+          opacity = preset.opacity,
+        )
+      }
+      AmbientStyle.YouTube -> Unit
+    }
   }
 
   /** High Quality profile — maximum visual fidelity for high-end devices. */
   fun applyAmbientProfileHighQuality() {
-    val preset = AmbientShaderPresets.glowHighQuality
-    updateAmbientParams(
-      blurSamples = preset.blurSamples,
-      maxRadius = preset.maxRadius,
-      glowIntensity = preset.glowIntensity,
-      satBoost = preset.satBoost,
-      vignetteStrength = preset.vignetteStrength,
-      warmth = preset.warmth,
-      fadeCurve = preset.fadeCurve,
-      opacity = preset.opacity,
-    )
-  }
-
-  fun updateAmbientBatterySaver(enabled: Boolean) {
-    _isAmbientBatterySaver.value = enabled
-    playerPreferences.ambientBatterySaver.set(enabled)
-    if (enabled && _isAmbientEnabled.value) {
-      applyBatterySaverPolicy()
-    } else if (!enabled && ambientWasOnBattery && _isAmbientEnabled.value) {
-      restoreFromBatterySaver()
+    when (_ambientStyle.value) {
+      AmbientStyle.Glow -> {
+        val preset = AmbientShaderPresets.glowHighQuality
+        updateAmbientParams(
+          blurSamples = preset.blurSamples,
+          maxRadius = preset.maxRadius,
+          glowIntensity = preset.glowIntensity,
+          satBoost = preset.satBoost,
+          vignetteStrength = preset.vignetteStrength,
+          warmth = preset.warmth,
+          fadeCurve = preset.fadeCurve,
+          opacity = preset.opacity,
+        )
+      }
+      AmbientStyle.Cinema -> {
+        val preset = FxAmbientPresets.cinemaHighQuality
+        updateAmbientParams(
+          blurSamples = preset.blurSamples,
+          maxRadius = preset.spread,
+          glowIntensity = preset.intensity,
+          satBoost = preset.satBoost,
+          vignetteStrength = preset.vignetteStrength,
+          warmth = preset.warmth,
+          fadeCurve = preset.fadeCurve,
+          opacity = preset.opacity,
+        )
+      }
+      AmbientStyle.Ambilight -> {
+        val preset = FxAmbientPresets.ambilightHighQuality
+        updateAmbientParams(
+          blurSamples = preset.blurSamples,
+          maxRadius = preset.spread,
+          glowIntensity = preset.intensity,
+          satBoost = preset.satBoost,
+          vignetteStrength = preset.vignetteStrength,
+          warmth = preset.warmth,
+          fadeCurve = preset.fadeCurve,
+          opacity = preset.opacity,
+        )
+      }
+      AmbientStyle.Echo -> {
+        val preset = FxAmbientPresets.echoHighQuality
+        updateAmbientParams(
+          blurSamples = preset.blurSamples,
+          maxRadius = preset.spread,
+          glowIntensity = preset.intensity,
+          satBoost = preset.satBoost,
+          vignetteStrength = preset.vignetteStrength,
+          warmth = preset.warmth,
+          fadeCurve = preset.fadeCurve,
+          opacity = preset.opacity,
+        )
+      }
+      AmbientStyle.Mirror -> {
+        val preset = FxAmbientPresets.mirrorHighQuality
+        updateAmbientParams(
+          blurSamples = preset.blurSamples,
+          maxRadius = preset.spread,
+          glowIntensity = preset.intensity,
+          satBoost = preset.satBoost,
+          vignetteStrength = preset.vignetteStrength,
+          warmth = preset.warmth,
+          fadeCurve = preset.fadeCurve,
+          opacity = preset.opacity,
+        )
+      }
+      AmbientStyle.YouTube -> Unit
     }
   }
 
@@ -7374,115 +7926,90 @@ val isBrightnessSliderShown = MutableStateFlow(false)
   }
 
   private suspend fun updateAmbientStretch(generation: Long) {
-    if (!isAmbientGlowRuntimeActive() || generation != ambientUpdateGeneration.get()) return
-
-    runCatching {
-      val osdW = PlaybackSession.getPropertyInt("osd-width") ?: 1920
-      val osdH = PlaybackSession.getPropertyInt("osd-height") ?: 1080
-
-      // Portrait mode: ambient glow goes on top/bottom (letterbox)
-      // Landscape mode: ambient glow goes on left/right (pillarbox)
-      // Both are handled by the same scaleX/scaleY math below
-
-      val vidAr = VideoAspectGeometry.currentEffectiveDisplayAspect() ?: return
-
-      if (osdW <= 0 || osdH <= 0) return
-
-      val screenAr = osdW.toDouble() / osdH.toDouble()
-
-      // Scale the video to fill the screen — the shader remaps it back to the
-      // correct aspect ratio, so only the "overflow" area receives ambient glow.
-      val scaleX = if (screenAr > vidAr) screenAr / vidAr else 1.0
-      val scaleY = if (vidAr > screenAr) vidAr / screenAr else 1.0
-
-      // ── Snapshot current parameter values ─────────────────────────────────
-      val sx = scaleX
-      val sy = scaleY
-      // Thermal-aware sample budget: cap shader complexity before the device enters
-      // hard CPU/GPU throttling.  On a cool device this is a no-op.
-      val rawSamples = _ambientBlurSamples.value
-      val samples = ThermalMonitor.clampAmbientSampleBudget(rawSamples, thermalHeadroom)
-      val radius = _ambientMaxRadius.value
-      val glow = _ambientGlowIntensity.value
-      val sat = _ambientSatBoost.value
-      val vignette = _ambientVignetteStrength.value
-      val warmth = _ambientWarmth.value
-      val curve = _ambientFadeCurve.value
-      val opacity = _ambientOpacity.value
-      val edgeBlend = _ambientGlowEdgeBlend.value
-
-      // ── Generate GLSL shader ───────────────────────────────────────────────
-      val spec =
-        buildAmbientSpec(
-          sx = sx,
-          sy = sy,
-          blurSamples = samples,
-          maxRadius = radius,
-          glowIntensity = glow,
-          satBoost = sat,
-          vignetteStrength = vignette,
-          warmth = warmth,
-          fadeCurve = curve,
-          opacity = opacity,
-          edgeBlend = edgeBlend,
-        )
-
-      // ── Shader parameter cache ──────────────────────────────────────────────────────
-      // Compare the AmbientGlowShaderSpec data class (cheap equality) before building
-      // the GLSL string. This avoids allocating the multi-KB shader string and
-      // running buildSpiralTapTable trig math on no-op refreshes (e.g. thermal
-      // monitor ticks that don't change the effective sample budget, orientation
-      // callbacks that fire with unchanged video dimensions).
-      val shaderIsCurrent =
+    if (!isAmbientShaderRuntimeActive() || generation != ambientUpdateGeneration.get()) return
+    try {
+      val playbackGeneration = PlaybackSession.state.value.generation
+      val geometry = PlaybackSession.ambientGeometry()
+      if (geometry == null || !geometry.hasBars) {
         synchronized(ambientRenderLock) {
-          spec == lastCompiledSpec && ambientShaderFile?.exists() == true
+          if (generation == ambientUpdateGeneration.get()) clearAmbientRenderState()
         }
-      if (shaderIsCurrent) {
         return
       }
-
-      // Each reload gets a unique filename so MPV never reuses a cached
-      // compiled shader — incrementing seq guarantees a fresh compile every time.
-      val shaderCode = AmbientShaderBuilder.build(appContext, spec)
-      val newFile = File(appContext.cacheDir, "ambient_${ambientShaderSeq.incrementAndGet()}.glsl")
-      // Blocking file write — dispatched to IO pool to avoid stalling renderPrepDispatcher.
-      // Catch CancellationException here: IO is not preemptible, so the write always
-      // completes fully even when the job is cancelled mid-flight. Without this guard,
-      // the file would be written but never tracked or deleted (disk leak on every
-      // superseded debounced update — fast slider drags, orientation flips, etc.).
+      val currentStyle = _ambientStyle.value
+      val samples = ThermalMonitor.clampAmbientSampleBudget(_ambientBlurSamples.value, thermalHeadroom)
+      val glowSpec = if (currentStyle == AmbientStyle.Glow) {
+        buildAmbientSpec(
+          context = geometry.picture,
+          blurSamples = samples,
+          maxRadius = _ambientMaxRadius.value,
+          glowIntensity = _ambientGlowIntensity.value,
+          satBoost = _ambientSatBoost.value,
+          vignetteStrength = _ambientVignetteStrength.value,
+          warmth = _ambientWarmth.value,
+          fadeCurve = _ambientFadeCurve.value,
+          opacity = _ambientOpacity.value,
+          edgeBlend = _ambientGlowEdgeBlend.value,
+        )
+      } else null
+      val fxSpec = if (currentStyle != AmbientStyle.Glow && currentStyle != AmbientStyle.YouTube) {
+        FxAmbientShaderSpec(
+          style = currentStyle,
+          scaleX = geometry.picture.scaleX,
+          scaleY = geometry.picture.scaleY,
+          centerX = geometry.picture.centerX,
+          centerY = geometry.picture.centerY,
+          blurSamples = samples,
+          spread = _ambientMaxRadius.value,
+          intensity = _ambientGlowIntensity.value,
+          satBoost = _ambientSatBoost.value,
+          vignetteStrength = _ambientVignetteStrength.value,
+          warmth = _ambientWarmth.value,
+          fadeCurve = _ambientFadeCurve.value,
+          opacity = _ambientOpacity.value,
+        )
+      } else null
+      if (glowSpec == null && fxSpec == null) return
+      val shaderIsCurrent = synchronized(ambientRenderLock) {
+        geometry == lastAmbientGeometry && glowSpec == lastCompiledSpec && fxSpec == lastCompiledFxSpec &&
+          ambientShaderFile?.exists() == true && PlaybackSession.isAmbientShaderActive
+      }
+      if (shaderIsCurrent) return
+      val shaderCode = when (currentStyle) {
+        AmbientStyle.Glow -> AmbientShaderBuilder.build(appContext, checkNotNull(glowSpec))
+        AmbientStyle.Ambilight -> FxAmbientShaderBuilder.buildAmbilight(appContext, checkNotNull(fxSpec))
+        AmbientStyle.Cinema -> FxAmbientShaderBuilder.buildCinema(appContext, checkNotNull(fxSpec))
+        AmbientStyle.Echo -> FxAmbientShaderBuilder.buildEcho(appContext, checkNotNull(fxSpec))
+        AmbientStyle.Mirror -> FxAmbientShaderBuilder.buildMirror(appContext, checkNotNull(fxSpec))
+        AmbientStyle.YouTube -> return
+      }
+      val newFile = File.createTempFile("ambient_", ".glsl", appContext.cacheDir)
+      var installed = false
       try {
         withContext(kotlinx.coroutines.Dispatchers.IO) { newFile.writeText(shaderCode) }
-      } catch (error: Throwable) {
-        newFile.delete()
-        throw error
-      }
-      currentCoroutineContext().ensureActive()
-
-      synchronized(ambientRenderLock) {
-        if (!isAmbientGlowRuntimeActive() || generation != ambientUpdateGeneration.get()) {
-          newFile.delete()
-          return@synchronized
+        currentCoroutineContext().ensureActive()
+        synchronized(ambientRenderLock) {
+          if (generation != ambientUpdateGeneration.get() || !isAmbientShaderRuntimeActive() ||
+            currentStyle != _ambientStyle.value
+          ) return@synchronized
+          installed = PlaybackSession.installAmbientShader(newFile.absolutePath, geometry, playbackGeneration)
+          if (installed) {
+            val previous = ambientShaderFile
+            ambientShaderFile = newFile
+            lastAmbientGeometry = geometry
+            lastCompiledSpec = glowSpec
+            lastCompiledFxSpec = fxSpec
+            previous?.delete()
+          }
         }
-        ambientShaderFile?.let { oldFile ->
-          runCatching { PlaybackSession.command("change-list", "glsl-shaders", "remove", oldFile.absolutePath) }
-          oldFile.delete()
-        }
-        PlaybackSession.setPropertyDouble("video-scale-x", scaleX)
-        PlaybackSession.setPropertyDouble("video-scale-y", scaleY)
-        val blendMode = if (subtitlesPreferences.blendSubtitlesWithVideo.get()) "video" else "no"
-        PlaybackSession.setPropertyString("blend-subtitles", blendMode)
-        PlaybackSession.command("change-list", "glsl-shaders", "append", newFile.absolutePath)
-        lastAmbientScaleX = scaleX
-        lastAmbientScaleY = scaleY
-        ambientShaderFile = newFile
-        lastCompiledSpec = spec
+      } finally {
+        // Includes cancellation during writeText/withContext, not only stale installs under the lock.
+        if (!installed) newFile.delete()
       }
-    }.onFailure { e ->
-      // runCatching catches Throwable including CancellationException — rethrow it so
-      // structured concurrency is not broken and debounce cancellation does not log
-      // spurious "Failed to update ambient stretch" stack traces that would mask real errors.
-      if (e is kotlinx.coroutines.CancellationException) throw e
-      Log.e(TAG, "Failed to update ambient stretch", e)
+    } catch (error: kotlinx.coroutines.CancellationException) {
+      throw error
+    } catch (error: Exception) {
+      Log.e(TAG, "Failed to update Ambient renderer", error)
     }
   }
 
@@ -7493,8 +8020,7 @@ val isBrightnessSliderShown = MutableStateFlow(false)
    * spec has actually changed from the last compiled version.
    */
   private fun buildAmbientSpec(
-    sx: Double,
-    sy: Double,
+    context: AmbientRenderContext,
     blurSamples: Int,
     maxRadius: Float,
     glowIntensity: Float,
@@ -7505,7 +8031,6 @@ val isBrightnessSliderShown = MutableStateFlow(false)
     opacity: Float,
     edgeBlend: Float,
   ): AmbientGlowShaderSpec {
-    val context = AmbientRenderContext(scaleX = sx, scaleY = sy)
     val shared =
       AmbientSharedShaderConfig(
         bezelDepth = 0f,
@@ -7838,6 +8363,8 @@ val isBrightnessSliderShown = MutableStateFlow(false)
   }
 
   override fun onCleared() {
+    // The core can outlive this screen (background playback), so never leave the gesture style behind.
+    restoreSubtitleGestureHighlight()
     // Deterministic cleanup of resources that previously relied on GC.
     // viewModelScope is auto-cancelled by ViewModel, but the following
     // resources are not coroutine-scoped and need explicit release.

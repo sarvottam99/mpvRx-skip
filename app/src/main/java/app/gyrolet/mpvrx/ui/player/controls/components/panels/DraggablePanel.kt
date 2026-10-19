@@ -14,9 +14,11 @@ package app.gyrolet.mpvrx.ui.player.controls.components.panels
 import android.content.res.Configuration
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,9 +30,12 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -45,11 +50,21 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import app.gyrolet.mpvrx.R
 import app.gyrolet.mpvrx.presentation.components.PlayerSheetDragHandle
+import app.gyrolet.mpvrx.ui.icons.Icon
+import app.gyrolet.mpvrx.ui.icons.Icons
+import app.gyrolet.mpvrx.ui.liquidglass.LocalKyantPlayerBackdrop
+import app.gyrolet.mpvrx.ui.liquidglass.playerGlassSurface
+import app.gyrolet.mpvrx.ui.liquidglass.LocalPlayerGlassSurfaceActive
+import app.gyrolet.mpvrx.preferences.AppearancePreferences
+import app.gyrolet.mpvrx.preferences.preference.collectAsState
+import org.koin.compose.koinInject
 import app.gyrolet.mpvrx.ui.player.controls.panelCardsColors
 import kotlin.math.roundToInt
 
@@ -73,6 +88,8 @@ fun DraggablePanel(
 ) {
   var offsetX by remember { mutableFloatStateOf(0f) }
   var panelWidth by remember { mutableIntStateOf(0) }
+  val preferences = koinInject<AppearancePreferences>()
+  val liquidGlassEnabled by preferences.liquidGlassEnabled.collectAsState()
 
   val configuration = LocalConfiguration.current
   val isPortrait = configuration.orientation == Configuration.ORIENTATION_PORTRAIT
@@ -93,22 +110,35 @@ fun DraggablePanel(
     val minOffset = -initialLeft.toFloat()
     val maxOffset = (freeSpace - initialLeft).toFloat()
 
-    val panelHeight = if (isPortrait) (configuration.screenHeightDp.dp * 0.5f).coerceAtMost(maxHeight) else maxHeight
+    val panelHeight = if (isPortrait) maxHeight * 0.62f else maxHeight
 
     val colors = panelCardsColors()
+    val backdrop = LocalKyantPlayerBackdrop.current
+    val panelShape = shape ?: MaterialTheme.shapes.extraLargeIncreased
+    val panelColor = containerColor ?: colors.containerColor
+    val expressivePanelColor = panelColor.copy(alpha = 1f)
     Surface(
       modifier =
         Modifier
           .absoluteOffset { IntOffset(offsetX.coerceIn(minOffset, maxOffset).roundToInt(), 0) }
           .onSizeChanged { panelWidth = it.width }
-          .widthIn(max = 380.dp)
-          .height(panelHeight),
-      shape = shape ?: MaterialTheme.shapes.extraLarge,
-      color = containerColor ?: colors.containerColor,
+          .widthIn(max = 420.dp)
+          .height(panelHeight)
+          .playerGlassSurface(backdrop, panelShape, panelColor, enabled = liquidGlassEnabled),
+      shape = panelShape,
+      color = if (liquidGlassEnabled) Color.Transparent else expressivePanelColor,
       contentColor = colors.contentColor,
-      tonalElevation = tonalElevation,
-      shadowElevation = shadowElevation,
-      border = border,
+      tonalElevation = if (liquidGlassEnabled) 0.dp else tonalElevation,
+      shadowElevation = if (liquidGlassEnabled) 0.dp else shadowElevation,
+      border =
+        if (liquidGlassEnabled) {
+          null
+        } else {
+          border ?: BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.28f),
+          )
+        },
     ) {
       Column(Modifier.fillMaxWidth()) {
         // Drag Handle & Indicator
@@ -130,16 +160,45 @@ fun DraggablePanel(
 
         // Fixed header (if provided) - stays constant
         if (header != null) {
-          header()
+          Box(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+            header()
+          }
         }
 
         // Scrollable content
         Column(
           modifier = Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState()),
         ) {
-          content()
+          CompositionLocalProvider(LocalPlayerGlassSurfaceActive provides liquidGlassEnabled) {
+            content()
+          }
         }
       }
+    }
+  }
+}
+
+@Composable
+fun DraggablePanelHeader(
+  title: String,
+  onDismissRequest: () -> Unit,
+  modifier: Modifier = Modifier,
+  leadingContent: (@Composable () -> Unit)? = null,
+) {
+  Row(
+    modifier = modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
+    horizontalArrangement = Arrangement.spacedBy(12.dp),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    leadingContent?.invoke()
+    Text(
+      text = title,
+      style = MaterialTheme.typography.titleLargeEmphasized,
+      modifier = Modifier.weight(1f),
+      maxLines = 2,
+    )
+    FilledTonalIconButton(onClick = onDismissRequest) {
+      Icon(Icons.RoundedFilled.Close, contentDescription = stringResource(R.string.generic_cancel))
     }
   }
 }

@@ -7,7 +7,9 @@ package app.gyrolet.mpvrx.ui.theme
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Image
+import android.widget.ImageView
+import androidx.compose.ui.viewinterop.AndroidView
+import app.gyrolet.mpvrx.ui.preferences.LauncherIconManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,7 +29,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -67,10 +68,13 @@ fun SplashContent(
   }
   if (!mounted) return
 
-  val alpha by animateFloatAsState(
+  // Fade only the branded content. The fullscreen background stays fully opaque until this
+  // composable unmounts, otherwise the real UI shows through as a dim/ghost overlay during the
+  // final splash frames.
+  val contentAlpha by animateFloatAsState(
     targetValue = if (visible) 1f else 0f,
     animationSpec = tween(durationMillis = SPLASH_FADE_OUT_DURATION_MS, easing = FastOutSlowInEasing),
-    label = "splashAlpha",
+    label = "splashContentAlpha",
   )
 
   // A short grow-in gives the icon some life; it settles well before the fade starts.
@@ -86,23 +90,26 @@ fun SplashContent(
     modifier =
       modifier
         .fillMaxSize()
-        // background, not surface: this must match the canvas the app is about to draw on, so the
-        // handover does not flash a second shade.
-        .background(MaterialTheme.colorScheme.background)
-        .alpha(alpha),
+        // Keep this background opaque for the entire handoff. Only the logo/text fade below;
+        // fading the background itself exposes the already-rendered UI underneath and creates a
+        // visible translucent overlay at the end of the splash animation.
+        .background(MaterialTheme.colorScheme.background),
     contentAlignment = Alignment.Center,
   ) {
     Column(
+      modifier = Modifier.alpha(contentAlpha),
       horizontalAlignment = Alignment.CenterHorizontally,
       verticalArrangement = Arrangement.spacedBy(SPLASH_LABEL_SPACING),
     ) {
-      Image(
-        painter = painterResource(R.mipmap.ic_launcher_foreground),
-        contentDescription = null,
-        modifier =
-          Modifier
-            .size(SPLASH_ICON_SIZE)
-            .scale(iconScale),
+      AndroidView(
+        modifier = Modifier.size(SPLASH_ICON_SIZE).scale(iconScale),
+        factory = { context ->
+          ImageView(context).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setImageResource(LauncherIconManager.current(context).preview)
+          }
+        },
+        update = { it.setImageResource(LauncherIconManager.current(it.context).preview) },
       )
       Text(
         text = stringResource(R.string.app_name),
@@ -115,8 +122,6 @@ fun SplashContent(
   }
 }
 
-internal const val SPLASH_MIN_DURATION_MS = 500
-internal const val SPLASH_MAX_DURATION_MS = 5_000
 internal const val SPLASH_FADE_OUT_DURATION_MS = 320
 internal const val SPLASH_ICON_ENTER_DURATION_MS = 420
 

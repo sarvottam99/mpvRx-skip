@@ -9,16 +9,13 @@
 
 package app.gyrolet.mpvrx.ui.browser.jellyfin
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -44,7 +41,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.ui.platform.LocalConfiguration
-import app.gyrolet.mpvrx.utils.media.MediaUtils
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
@@ -57,7 +53,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.ui.platform.LocalContext
@@ -67,7 +62,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -79,7 +73,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -1245,71 +1238,6 @@ fun JellyfinMusicCard(
 // ============================================================================
 // Library Filter Chips Row
 // ============================================================================
-
-@Composable
-fun JellyfinLibraryChipRow(
-  libraries: List<JellyfinItem>,
-  selectedLibraryId: String?,
-  onSelectLibrary: (String?) -> Unit,
-  modifier: Modifier = Modifier,
-) {
-  if (libraries.isEmpty()) return
-
-  Row(
-    modifier =
-      modifier
-        .fillMaxWidth()
-        .horizontalScroll(rememberScrollState())
-        .padding(horizontal = 16.dp, vertical = 6.dp),
-    horizontalArrangement = Arrangement.spacedBy(8.dp),
-    verticalAlignment = Alignment.CenterVertically,
-  ) {
-    FilterChip(
-      selected = selectedLibraryId == null,
-      onClick = { onSelectLibrary(null) },
-      label = { Text("All", fontWeight = if (selectedLibraryId == null) FontWeight.Bold else FontWeight.Normal) },
-      shape = RoundedCornerShape(12.dp),
-      colors =
-        FilterChipDefaults.filterChipColors(
-          selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-          selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        ),
-    )
-
-    libraries.forEach { library ->
-      val isSelected = selectedLibraryId == library.id
-      val colType = library.collectionType?.lowercase() ?: library.type.lowercase()
-      val libName = library.name.lowercase()
-      val icon =
-        when {
-          libName.contains("anime") || colType.contains("anime") -> Icons.RoundedFilled.Movie
-          colType == "movies" || library.type.lowercase() == "movie" -> Icons.RoundedFilled.Movie
-          colType == "tvshows" || library.type.lowercase() == "series" -> Icons.RoundedFilled.Tv
-          colType == "music" || library.type.lowercase() == "audio" -> Icons.RoundedFilled.Audiotrack
-          else -> Icons.RoundedFilled.Folder
-        }
-
-      FilterChip(
-        selected = isSelected,
-        onClick = { onSelectLibrary(if (isSelected) null else library.id) },
-        leadingIcon = {
-          Icon(
-            imageVector = icon,
-            contentDescription = null,
-            modifier = Modifier.size(16.dp),
-          )
-        },
-        label = { Text(library.name, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
-        shape = RoundedCornerShape(12.dp),
-        colors =
-          FilterChipDefaults.filterChipColors(
-            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-          ),
-      )
-    }
-  }
-}
 
 @Composable
 fun JellyfinGenreChipRow(

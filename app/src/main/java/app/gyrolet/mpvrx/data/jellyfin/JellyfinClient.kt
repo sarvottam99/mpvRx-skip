@@ -89,9 +89,6 @@ class JellyfinClient(
 
     private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
-    fun isLocalHostOrIp(host: String): Boolean =
-      ServerUrlUtils.isLocalOrPrivateHost(host)
-
     fun normalizeUrlCandidates(rawUrl: String): List<String> =
       ServerUrlUtils.generateCandidateUrls(rawUrl, defaultPort = 8096)
 

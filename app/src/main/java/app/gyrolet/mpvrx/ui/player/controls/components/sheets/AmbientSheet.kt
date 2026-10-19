@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ButtonDefaults
@@ -53,8 +54,10 @@ import app.gyrolet.mpvrx.ui.components.themedSegmentedButtonColors
 import app.gyrolet.mpvrx.ui.icons.Icons
 import app.gyrolet.mpvrx.ui.player.AmbientShaderPresets
 import app.gyrolet.mpvrx.ui.player.AmbientStyle
+import app.gyrolet.mpvrx.ui.player.FxAmbientPresets
 import app.gyrolet.mpvrx.ui.player.PlayerViewModel
 import app.gyrolet.mpvrx.ui.player.components.expressive.SectionHeader
+import app.gyrolet.mpvrx.ui.player.matchesFxPreset
 import app.gyrolet.mpvrx.ui.player.matchesGlowPreset
 import app.gyrolet.mpvrx.ui.theme.AppMotion
 import app.gyrolet.mpvrx.ui.theme.spacing
@@ -77,24 +80,49 @@ fun AmbientSheet(
   val opacity by viewModel.ambientOpacity.collectAsState()
   val glowEdgeBlend by viewModel.ambientGlowEdgeBlend.collectAsState()
   val youTubeEdgeBlend by viewModel.ambientYouTubeEdgeBlend.collectAsState()
-  val edgeBlend = if (ambientStyle == AmbientStyle.Glow) glowEdgeBlend else youTubeEdgeBlend
+  val edgeBlend = when (ambientStyle) {
+    AmbientStyle.Glow    -> glowEdgeBlend
+    AmbientStyle.YouTube -> youTubeEdgeBlend
+    else                 -> 0f  // Cinema/Echo/Mirror: no exposed edge-blend parameter
+  }
   val isFast =
     remember(
-      blurSamples, maxRadius, glowIntensity, satBoost, vignetteStrength, warmth, fadeCurve, opacity,
+      ambientStyle, blurSamples, maxRadius, glowIntensity, satBoost, vignetteStrength, warmth, fadeCurve, opacity,
     ) {
-      matchesGlowPreset(AmbientShaderPresets.glowFast, blurSamples, maxRadius, glowIntensity, satBoost, vignetteStrength, warmth, fadeCurve, opacity)
+      when (ambientStyle) {
+        AmbientStyle.Glow -> matchesGlowPreset(AmbientShaderPresets.glowFast, blurSamples, maxRadius, glowIntensity, satBoost, vignetteStrength, warmth, fadeCurve, opacity)
+        AmbientStyle.Ambilight -> matchesFxPreset(FxAmbientPresets.ambilightFast, blurSamples, maxRadius, glowIntensity, satBoost, vignetteStrength, warmth, fadeCurve, opacity)
+        AmbientStyle.Cinema -> matchesFxPreset(FxAmbientPresets.cinemaFast, blurSamples, maxRadius, glowIntensity, satBoost, vignetteStrength, warmth, fadeCurve, opacity)
+        AmbientStyle.Echo -> matchesFxPreset(FxAmbientPresets.echoFast, blurSamples, maxRadius, glowIntensity, satBoost, vignetteStrength, warmth, fadeCurve, opacity)
+        AmbientStyle.Mirror -> matchesFxPreset(FxAmbientPresets.mirrorFast, blurSamples, maxRadius, glowIntensity, satBoost, vignetteStrength, warmth, fadeCurve, opacity)
+        AmbientStyle.YouTube -> false
+      }
     }
   val isBalanced =
     remember(
-      blurSamples, maxRadius, glowIntensity, satBoost, vignetteStrength, warmth, fadeCurve, opacity,
+      ambientStyle, blurSamples, maxRadius, glowIntensity, satBoost, vignetteStrength, warmth, fadeCurve, opacity,
     ) {
-      matchesGlowPreset(AmbientShaderPresets.glowBalanced, blurSamples, maxRadius, glowIntensity, satBoost, vignetteStrength, warmth, fadeCurve, opacity)
+      when (ambientStyle) {
+        AmbientStyle.Glow -> matchesGlowPreset(AmbientShaderPresets.glowBalanced, blurSamples, maxRadius, glowIntensity, satBoost, vignetteStrength, warmth, fadeCurve, opacity)
+        AmbientStyle.Ambilight -> matchesFxPreset(FxAmbientPresets.ambilightBalanced, blurSamples, maxRadius, glowIntensity, satBoost, vignetteStrength, warmth, fadeCurve, opacity)
+        AmbientStyle.Cinema -> matchesFxPreset(FxAmbientPresets.cinemaBalanced, blurSamples, maxRadius, glowIntensity, satBoost, vignetteStrength, warmth, fadeCurve, opacity)
+        AmbientStyle.Echo -> matchesFxPreset(FxAmbientPresets.echoBalanced, blurSamples, maxRadius, glowIntensity, satBoost, vignetteStrength, warmth, fadeCurve, opacity)
+        AmbientStyle.Mirror -> matchesFxPreset(FxAmbientPresets.mirrorBalanced, blurSamples, maxRadius, glowIntensity, satBoost, vignetteStrength, warmth, fadeCurve, opacity)
+        AmbientStyle.YouTube -> false
+      }
     }
   val isHQ =
     remember(
-      blurSamples, maxRadius, glowIntensity, satBoost, vignetteStrength, warmth, fadeCurve, opacity,
+      ambientStyle, blurSamples, maxRadius, glowIntensity, satBoost, vignetteStrength, warmth, fadeCurve, opacity,
     ) {
-      matchesGlowPreset(AmbientShaderPresets.glowHighQuality, blurSamples, maxRadius, glowIntensity, satBoost, vignetteStrength, warmth, fadeCurve, opacity)
+      when (ambientStyle) {
+        AmbientStyle.Glow -> matchesGlowPreset(AmbientShaderPresets.glowHighQuality, blurSamples, maxRadius, glowIntensity, satBoost, vignetteStrength, warmth, fadeCurve, opacity)
+        AmbientStyle.Ambilight -> matchesFxPreset(FxAmbientPresets.ambilightHighQuality, blurSamples, maxRadius, glowIntensity, satBoost, vignetteStrength, warmth, fadeCurve, opacity)
+        AmbientStyle.Cinema -> matchesFxPreset(FxAmbientPresets.cinemaHighQuality, blurSamples, maxRadius, glowIntensity, satBoost, vignetteStrength, warmth, fadeCurve, opacity)
+        AmbientStyle.Echo -> matchesFxPreset(FxAmbientPresets.echoHighQuality, blurSamples, maxRadius, glowIntensity, satBoost, vignetteStrength, warmth, fadeCurve, opacity)
+        AmbientStyle.Mirror -> matchesFxPreset(FxAmbientPresets.mirrorHighQuality, blurSamples, maxRadius, glowIntensity, satBoost, vignetteStrength, warmth, fadeCurve, opacity)
+        AmbientStyle.YouTube -> false
+      }
     }
   PlayerSheet(
     onDismissRequest = onDismissRequest,
@@ -108,20 +136,23 @@ fun AmbientSheet(
           .padding(vertical = 8.dp),
       verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-      SingleChoiceSegmentedButtonRow(
+      Row(
         modifier =
           Modifier
             .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
             .padding(horizontal = 16.dp, vertical = 8.dp),
       ) {
-        AmbientStyle.entries.forEachIndexed { index, style ->
-          SegmentedButton(
-            selected = ambientStyle == style,
-            onClick = { viewModel.setAmbientStyle(style) },
-            shape = SegmentedButtonDefaults.itemShape(index, AmbientStyle.entries.size),
-            colors = themedSegmentedButtonColors(),
-          ) {
-            Text(text = stringResource(style.titleRes))
+        SingleChoiceSegmentedButtonRow {
+          AmbientStyle.entries.forEachIndexed { index, style ->
+            SegmentedButton(
+              selected = ambientStyle == style,
+              onClick = { viewModel.setAmbientStyle(style) },
+              shape = SegmentedButtonDefaults.itemShape(index, AmbientStyle.entries.size),
+              colors = themedSegmentedButtonColors(),
+            ) {
+              Text(text = stringResource(style.titleRes))
+            }
           }
         }
       }
@@ -131,25 +162,29 @@ fun AmbientSheet(
         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
       )
 
-      SliderItem(
-        label = stringResource(R.string.ambient_edge_blend),
-        valueText = "%.1f%%".format(edgeBlend * 100f),
-        value = edgeBlend,
-        onChange = { viewModel.setAmbientEdgeBlend(ambientStyle, it) },
-        min = 0f,
-        max = 0.1f,
-        steps = 19,
-        icon = {
-          AppSymbolIcon(
-            imageVector = Icons.RoundedFilled.Gradient,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(20.dp),
-          )
-        },
-      )
+      // Edge-blend is only relevant for modes where it is a tunable parameter.
+      // Cinema, Echo, and Mirror blend the transition internally at fixed values.
+      if (ambientStyle == AmbientStyle.Glow || ambientStyle == AmbientStyle.YouTube) {
+        SliderItem(
+          label = stringResource(R.string.ambient_edge_blend),
+          valueText = "%.1f%%".format(edgeBlend * 100f),
+          value = edgeBlend,
+          onChange = { viewModel.setAmbientEdgeBlend(ambientStyle, it) },
+          min = 0f,
+          max = 0.1f,
+          steps = 19,
+          icon = {
+            AppSymbolIcon(
+              imageVector = Icons.RoundedFilled.Gradient,
+              contentDescription = null,
+              tint = MaterialTheme.colorScheme.onSurfaceVariant,
+              modifier = Modifier.size(20.dp),
+            )
+          },
+        )
+      }
 
-      if (ambientStyle == AmbientStyle.Glow) {
+      if (ambientStyle != AmbientStyle.YouTube) {
       // ── Quality Presets ──────────────────────────────────────────────
       Row(
         modifier =
@@ -181,15 +216,15 @@ fun AmbientSheet(
         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
       )
 
-      // ── Section: Glow ────────────────────────────────────────────────
-      var glowExpanded by remember { mutableStateOf(true) }
+      // ── Section: Mode Effect ─────────────────────────────────────────
+      var effectExpanded by remember { mutableStateOf(true) }
       SectionHeader(
-        title = stringResource(R.string.ambient_glow),
-        isExpanded = glowExpanded,
-        onClick = { glowExpanded = !glowExpanded },
+        title = stringResource(ambientStyle.titleRes),
+        isExpanded = effectExpanded,
+        onClick = { effectExpanded = !effectExpanded },
       )
       AnimatedVisibility(
-        visible = glowExpanded,
+        visible = effectExpanded,
         enter =
           expandVertically(
             animationSpec =
@@ -212,13 +247,22 @@ fun AmbientSheet(
         Column(
           verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.small),
         ) {
+          val minSamples = if (ambientStyle == AmbientStyle.Mirror || ambientStyle == AmbientStyle.Echo) 3 else 4
+          val maxSamples = when (ambientStyle) {
+            AmbientStyle.Glow -> 64
+            AmbientStyle.Ambilight -> 32
+            AmbientStyle.Cinema -> 32
+            AmbientStyle.Echo -> 15
+            AmbientStyle.Mirror -> 9
+            AmbientStyle.YouTube -> 32
+          }
           SliderItem(
             label = "Blur Samples",
             valueText = "$blurSamples",
             value = blurSamples,
             onChange = { viewModel.updateAmbientParams(blurSamples = it) },
-            min = 5,
-            max = 64,
+            min = minSamples,
+            max = maxSamples,
             icon = {
               AppSymbolIcon(
                 imageVector = Icons.RoundedFilled.BlurOn,
@@ -234,9 +278,9 @@ fun AmbientSheet(
             valueText = "%.2f".format(maxRadius),
             value = maxRadius,
             onChange = { viewModel.updateAmbientParams(maxRadius = it) },
-            min = 0.05f,
-            max = 0.80f,
-            steps = 75,
+            min = 0.02f,
+            max = if (ambientStyle == AmbientStyle.Glow) 0.80f else 0.40f,
+            steps = if (ambientStyle == AmbientStyle.Glow) 75 else 38,
             icon = {
               AppSymbolIcon(
                 imageVector = Icons.RoundedFilled.Gradient,
@@ -248,13 +292,13 @@ fun AmbientSheet(
           )
 
           SliderItem(
-            label = "Glow Intensity",
+            label = if (ambientStyle == AmbientStyle.Glow) "Glow Intensity" else "Intensity",
             valueText = "%.1f".format(glowIntensity),
             value = glowIntensity,
             onChange = { viewModel.updateAmbientParams(glowIntensity = it) },
-            min = 0.5f,
+            min = 0.2f,
             max = 3.0f,
-            steps = 25,
+            steps = 28,
             icon = {
               AppSymbolIcon(
                 imageVector = Icons.RoundedFilled.Brightness6,

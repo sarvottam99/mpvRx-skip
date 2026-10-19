@@ -134,8 +134,6 @@ class YtdlpDownloadEngine(
     _jobs.update { current -> current.filterNot { it.id == id } }
   }
 
-  fun hasQueuedWork(): Boolean = _jobs.value.any { it.state == JobState.QUEUED }
-
   /** Runs queued jobs sequentially until the queue drains. Called from the service. */
   suspend fun drainQueue(onJobUpdate: (Job) -> Unit) {
     while (true) {

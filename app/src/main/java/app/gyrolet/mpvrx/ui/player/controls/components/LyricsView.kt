@@ -6,9 +6,7 @@ package app.gyrolet.mpvrx.ui.player.controls.components
 
 import app.gyrolet.mpvrx.ui.player.PlaybackSession
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
@@ -17,12 +15,16 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.animateScrollBy
@@ -44,7 +46,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -58,6 +59,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -93,7 +95,6 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.gyrolet.mpvrx.R
-import app.gyrolet.mpvrx.data.lyrics.LyricsLanguageOptions
 import app.gyrolet.mpvrx.domain.lyrics.LyricsSourceType
 import app.gyrolet.mpvrx.domain.lyrics.SyncedLine
 import app.gyrolet.mpvrx.domain.lyrics.SyncedWord
@@ -111,6 +112,10 @@ import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
+
+private const val BACKING_LEAD_IN_MS = 120L
+private const val BACKING_TAIL_MS = 350L
+private const val LEAD_DONE_GRACE_MS = 150L
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -198,7 +203,7 @@ fun LyricsView(
     Column(
       modifier = Modifier
         .fillMaxSize()
-        .padding(horizontal = 4.dp, vertical = 4.dp),
+        .padding(vertical = 4.dp),
       horizontalAlignment = Alignment.CenterHorizontally,
     ) {
       // Optional Header
@@ -208,23 +213,28 @@ fun LyricsView(
         val displayTitle = mediaTitle?.takeIf { it.isNotBlank() } ?: "Current Track"
         val displayArtist = artistName?.takeIf { it.isNotBlank() } ?: ""
 
-        Text(
-          text = displayTitle,
-          style = MaterialTheme.typography.titleMedium,
-          fontWeight = FontWeight.ExtraBold,
-          fontFamily = fontFamilyForText(displayTitle),
-          color = MaterialTheme.colorScheme.onSurface,
-          maxLines = 1,
-        )
-        if (displayArtist.isNotBlank()) {
+        Column(
+          modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+          horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
           Text(
-            text = displayArtist,
-            style = MaterialTheme.typography.bodySmall,
-            fontWeight = FontWeight.Bold,
-            fontFamily = fontFamilyForText(displayArtist),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            text = displayTitle,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.ExtraBold,
+            fontFamily = fontFamilyForText(displayTitle),
+            color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
           )
+          if (displayArtist.isNotBlank()) {
+            Text(
+              text = displayArtist,
+              style = MaterialTheme.typography.bodySmall,
+              fontWeight = FontWeight.Bold,
+              fontFamily = fontFamilyForText(displayArtist),
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              maxLines = 1,
+            )
+          }
         }
         Spacer(modifier = Modifier.height(4.dp))
       }
@@ -292,8 +302,11 @@ fun LyricsView(
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
               CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
               Spacer(modifier = Modifier.height(12.dp))
+              val loadingLine = rememberPlaceholderLine(LyricsPlaceholders.LOADING, PLACEHOLDER_ROTATE_MS)
               Text(
-                text = "Fetching synced lyrics...",
+                text = loadingLine,
+                fontFamily = fontFamilyForText(loadingLine),
+                textAlign = TextAlign.Center,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -303,6 +316,8 @@ fun LyricsView(
 
           activeLyrics != null && !activeLyrics.synced.isNullOrEmpty() -> {
             val centerPadding = with(density) { (lyricsViewportPx / 2f).toDp() }
+            // A duet puts the answering singer on the opposite edge; a solo song stays centred.
+            val hasDuet = remember(activeLyrics) { activeLyrics.synced.any { it.alignEnd } }
             LazyColumn(
               state = listState,
               modifier = Modifier
@@ -327,7 +342,57 @@ fun LyricsView(
                 key = { index, line -> "${line.time}_${index}" },
                 contentType = { _, _ -> "lyric_synced_line" },
               ) { index, line ->
-                val isActiveLine = index == state.activeLineIndex
+                val isPrimaryLine = index == state.activeLineIndex
+                // Voices overlap: a line whose words are still being sung stays lit
+                // after the next one has taken over the cursor.
+                val stillSinging by remember(line) {
+                  derivedStateOf {
+                    val end = line.endTime
+                    end != null && !line.words.isNullOrEmpty() &&
+                      smoothPositionMs.value in line.time.toLong() until end.toLong()
+                  }
+                }
+                val isActiveLine = isPrimaryLine || stillSinging
+                // The backing voice shows only while it is itself being sung (a short
+                // lead-in and tail keep it from flickering at the edges).
+                val backingSinging by remember(line) {
+                  derivedStateOf {
+                    val backing = line.background ?: return@derivedStateOf false
+                    val start = backing.time.toLong() - BACKING_LEAD_IN_MS
+                    val end =
+                      (backing.endTime ?: line.endTime)?.toLong()?.plus(BACKING_TAIL_MS)
+                        ?: (backing.time.toLong() + 3_000L)
+                    smoothPositionMs.value in start until end
+                  }
+                }
+                // Once the lead has finished and the backing voice carries on, the lead
+                // stops being lit even though it still owns the line cursor.
+                val leadFinished by remember(line) {
+                  derivedStateOf {
+                    val end = line.endTime
+                    end != null && !line.words.isNullOrEmpty() &&
+                      smoothPositionMs.value >= end.toLong() + LEAD_DONE_GRACE_MS
+                  }
+                }
+                val leadLit = isActiveLine && !(leadFinished && line.background != null && backingSinging)
+                val rowAlignment: Alignment.Horizontal =
+                  when {
+                    !hasDuet -> Alignment.CenterHorizontally
+                    line.alignEnd -> Alignment.End
+                    else -> Alignment.Start
+                  }
+                val rowArrangement: Arrangement.Horizontal =
+                  when {
+                    !hasDuet -> Arrangement.Center
+                    line.alignEnd -> Arrangement.End
+                    else -> Arrangement.Start
+                  }
+                val rowTextAlign =
+                  when {
+                    !hasDuet -> TextAlign.Center
+                    line.alignEnd -> TextAlign.End
+                    else -> TextAlign.Start
+                  }
                 val (ogText, transText) = remember(line.line, line.translation, translationDisplayMode) {
                   val rawTrans = line.translation?.trim()
                   if (translationDisplayMode == LyricsTranslationDisplayMode.Replace && !rawTrans.isNullOrBlank()) {
@@ -389,8 +454,8 @@ fun LyricsView(
                 val inactiveColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f)
 
                 val lineColor by animateColorAsState(
-                  targetValue = if (isActiveLine) activeColor else inactiveColor,
-                  animationSpec = tween(durationMillis = 250),
+                  targetValue = if (leadLit) activeColor else inactiveColor,
+                  animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing),
                   label = "LineColor",
                 )
 
@@ -411,7 +476,15 @@ fun LyricsView(
                       alpha = lineAlpha
                       scaleX = lineScale
                       scaleY = lineScale
-                      transformOrigin = TransformOrigin(0.5f, 0.5f)
+                      transformOrigin =
+                        TransformOrigin(
+                          when {
+                            !hasDuet -> 0.5f
+                            line.alignEnd -> 1f
+                            else -> 0f
+                          },
+                          0.5f,
+                        )
                     }
                     .clip(RoundedCornerShape(8.dp))
                     .clickable {
@@ -422,16 +495,16 @@ fun LyricsView(
                       }
                     }
                     .padding(vertical = 4.dp, horizontal = 6.dp),
-                  horizontalAlignment = Alignment.CenterHorizontally,
+                  horizontalAlignment = rowAlignment,
                 ) {
-                  if (isActiveLine && !isBlankLine && !line.words.isNullOrEmpty()) {
+                  if (leadLit && !isBlankLine && !line.words.isNullOrEmpty()) {
                     val isRtl = displayText.hasRtlDirection()
                     CompositionLocalProvider(
                       LocalLayoutDirection provides if (isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr,
                     ) {
                       FlowRow(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
+                        horizontalArrangement = rowArrangement,
                         verticalArrangement = Arrangement.Center,
                       ) {
                         line.words.forEachIndexed { wordIndex, word ->
@@ -439,6 +512,7 @@ fun LyricsView(
                           val wordEndMs =
                             line.words.getOrNull(wordIndex + 1)?.time?.toLong()
                               ?.takeIf { it > wordStartMs }
+                              ?: line.endTime?.toLong()?.takeIf { it > wordStartMs }
                               ?: activeLyrics.synced.getOrNull(index + 1)?.time?.toLong()
                                 ?.coerceAtMost(line.time.toLong() + 8_000L)
                                 ?.takeIf { it > wordStartMs }
@@ -460,16 +534,48 @@ fun LyricsView(
                       text = displayText,
                       color = lineColor,
                       fontSize = when {
-                        isActiveLine && isLyricsFullscreen -> 30.sp
-                        isActiveLine -> 26.sp
+                        leadLit && isLyricsFullscreen -> 30.sp
+                        leadLit -> 26.sp
                         isLyricsFullscreen -> 24.sp
                         else -> 22.sp
                       },
-                      fontWeight = if (isActiveLine) FontWeight.Black else FontWeight.ExtraBold,
+                      fontWeight = if (leadLit) FontWeight.Black else FontWeight.ExtraBold,
                       fontFamily = fontFamilyForText(displayText),
-                      textAlign = TextAlign.Center,
+                      textAlign = rowTextAlign,
                       modifier = Modifier.fillMaxWidth(),
                     )
+                  }
+
+                  // The backing voice stays hidden until its line is being sung, then
+                  // appears small and dim under the lead, on its own timings.
+                  line.background?.let { backing ->
+                    AnimatedVisibility(
+                      visible = backingSinging,
+                      enter =
+                        fadeIn(tween(340, easing = FastOutSlowInEasing)) +
+                          slideInVertically(spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessLow)) { it / 2 } +
+                          scaleIn(
+                            initialScale = 0.9f,
+                            transformOrigin = TransformOrigin(if (!hasDuet) 0.5f else if (line.alignEnd) 1f else 0f, 0f),
+                            animationSpec = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessLow),
+                          ) +
+                          expandVertically(spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessLow)),
+                      exit =
+                        fadeOut(tween(300, easing = FastOutSlowInEasing)) +
+                          slideOutVertically(tween(380, easing = FastOutSlowInEasing)) { it / 4 } +
+                          shrinkVertically(tween(420, easing = FastOutSlowInEasing)),
+                    ) {
+                      BackingVoice(
+                        backing = backing,
+                        positionMs = smoothPositionMs,
+                        activeColor = activeColor,
+                        fullscreen = isLyricsFullscreen,
+                        arrangement = rowArrangement,
+                        textAlign = rowTextAlign,
+                        translated = backing.translation?.trim()?.takeIf { it.isNotBlank() },
+                        replaceWithTranslation = translationDisplayMode == LyricsTranslationDisplayMode.Replace,
+                      )
+                    }
                   }
 
                   // Render Translation if present (Smaller font size, highlighted together with original when active)
@@ -486,7 +592,7 @@ fun LyricsView(
                       fontSize = if (isActiveLine) 18.sp else 16.sp,
                       fontWeight = FontWeight.Bold,
                       fontFamily = fontFamilyForText(transText.orEmpty()),
-                      textAlign = TextAlign.Center,
+                      textAlign = rowTextAlign,
                       modifier = Modifier.fillMaxWidth(),
                     )
                   }
@@ -538,8 +644,12 @@ fun LyricsView(
               horizontalAlignment = Alignment.CenterHorizontally,
               verticalArrangement = Arrangement.Center,
             ) {
+              val emptyLine =
+                if (isAudiobook) stringResource(R.string.audiobook_no_text) else rememberPlaceholderLine(LyricsPlaceholders.EMPTY)
               Text(
-                text = if (isAudiobook) stringResource(R.string.audiobook_no_text) else "No lyrics available for this track.",
+                text = emptyLine,
+                fontFamily = fontFamilyForText(emptyLine),
+                textAlign = TextAlign.Center,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -583,10 +693,11 @@ fun LyricsView(
         Row(
           modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 8.dp, bottom = 4.dp),
+            .padding(horizontal = 16.dp, vertical = 6.dp),
           verticalAlignment = Alignment.CenterVertically,
         ) {
           // Translate button on Left (40.dp square with rounded corners)
+          if (!app.gyrolet.mpvrx.BuildConfig.IS_PLAY_STORE_BUILD) {
           Surface(
             onClick = { showTranslateDialog = true },
             shape = RoundedCornerShape(12.dp),
@@ -612,6 +723,7 @@ fun LyricsView(
           }
 
           Spacer(modifier = Modifier.width(8.dp))
+          }
 
           // Sync Section on the Right (pinned to right when collapsed, expands leftwards across remaining space)
           Box(
@@ -723,6 +835,72 @@ fun LyricsView(
       viewModel = viewModel,
       onDismiss = { showTranslateDialog = false },
     )
+  }
+}
+
+/**
+ * The backing voice of a line: smaller and dimmer than the lead, swept word by
+ * word on its own timings when the source has them and shown whole when it has
+ * not.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun BackingVoice(
+  backing: SyncedLine,
+  positionMs: State<Long>,
+  activeColor: Color,
+  fullscreen: Boolean,
+  arrangement: Arrangement.Horizontal,
+  textAlign: TextAlign,
+  translated: String? = null,
+  replaceWithTranslation: Boolean = false,
+) {
+  val size = if (fullscreen) 19.sp else 17.sp
+  val words = backing.words
+  if (translated != null && replaceWithTranslation) {
+    Text(
+      text = translated,
+      color = activeColor.copy(alpha = 0.7f),
+      fontSize = size,
+      fontWeight = FontWeight.Bold,
+      fontFamily = fontFamilyForText(translated),
+      textAlign = textAlign,
+      modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+    )
+    return
+  }
+  if (words.isNullOrEmpty()) {
+    Text(
+      text = backing.line,
+      color = activeColor.copy(alpha = 0.6f),
+      fontSize = size,
+      fontWeight = FontWeight.Bold,
+      fontFamily = fontFamilyForText(backing.line),
+      textAlign = textAlign,
+      modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+    )
+    return
+  }
+  FlowRow(
+    modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+    horizontalArrangement = arrangement,
+  ) {
+    words.forEachIndexed { index, word ->
+      val start = word.time.toLong()
+      val end =
+        words.getOrNull(index + 1)?.time?.toLong()?.takeIf { it > start }
+          ?: backing.endTime?.toLong()?.takeIf { it > start }
+          ?: (start + 600L)
+      AnimatedLyricWord(
+        word = word,
+        endTimeMs = end,
+        positionMs = positionMs,
+        activeColor = activeColor.copy(alpha = 0.78f),
+        inactiveColor = activeColor.copy(alpha = 0.28f),
+        fontSize = size,
+        isRtl = word.word.hasRtlDirection(),
+      )
+    }
   }
 }
 

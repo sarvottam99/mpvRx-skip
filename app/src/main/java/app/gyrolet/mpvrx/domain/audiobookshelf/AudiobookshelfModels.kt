@@ -33,19 +33,6 @@ data class AudiobookshelfLibrary(
 )
 
 @Serializable
-data class AudiobookshelfAuthor(
-  val id: String? = null,
-  val name: String = "",
-)
-
-@Serializable
-data class AudiobookshelfSeries(
-  val id: String? = null,
-  val name: String = "",
-  val sequence: String = "",
-)
-
-@Serializable
 data class AudiobookshelfChapter(
   val id: Long = 0,
   val startMs: Long = 0,

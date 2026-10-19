@@ -1,20 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <!--
-        Launch screen.
-
-        The system splash can only take a static colour from the theme, so this matches the default
-        theme's surfaces and keeps the handoff to the app seamless. A palette the user picks at
-        runtime (custom themes, AMOLED) cannot be expressed here — Android's SplashScreen API has no
-        setter for it — so the Compose splash draws the live colour instead. See SplashContent.
-    -->
+    <!-- Native animated-vector splash; the animation never delays app launch. -->
     <style name="Theme.mpvrx.Splash" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_solid_purple_animated</item>
+        <item name="windowSplashScreenAnimationDuration">420</item>
         <item name="windowSplashScreenBackground">@color/splash_background</item>
         <item name="postSplashScreenTheme">@style/Theme.mpvrx</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
 
+    <style name="Theme.mpvrx.PurpleSplash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_purple_animated</item>
+        <item name="windowSplashScreenAnimationDuration">420</item>
+        <item name="windowSplashScreenBackground">@color/splash_background</item>
+        <item name="postSplashScreenTheme">@style/Theme.mpvrx</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+
+    <!-- Legacy launcher icon is preserved; both animations occupy matched safe-area bounds. -->
+    <style name="Theme.mpvrx.ClassicSplash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_classic_inset</item>
+        <item name="windowSplashScreenBackground">@color/splash_background_classic</item>
+        <item name="postSplashScreenTheme">@style/Theme.mpvrx</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
 </resources>

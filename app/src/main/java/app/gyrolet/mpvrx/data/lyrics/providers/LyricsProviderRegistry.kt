@@ -34,6 +34,7 @@ internal class LyricsProviderRegistry(
 ) {
   private val clients: Map<LyricsProvider, LyricsProviderClient> =
     mapOf(
+      LyricsProvider.LRC_RED to LrcRedProvider,
       LyricsProvider.BINI_LYRICS to BiniLyricsProvider,
       LyricsProvider.BETTER_LYRICS to
         BetterLyricsProvider(LyricsProvider.BETTER_LYRICS, BetterLyricsProvider.APPLE),
@@ -60,6 +61,7 @@ internal class LyricsProviderRegistry(
     provider: LyricsProvider,
     query: LyricsFetchQuery,
   ): ProviderOutcome {
+    if (provider !in LyricsProvider.available) return ProviderOutcome.Missing
     val client = clients[provider] ?: return ProviderOutcome.Missing
     return withTimeoutOrNull(budgetFor(provider)) {
       try {

@@ -201,6 +201,9 @@ class PlaylistViewModel(
       _isLoading.value = true
       repository.removeDeletedZipPlaylists()
       if (scanLocalFiles) repository.discoverLocalPlaylists(force = forceLocalFiles)
+      repository.getOrCreateFavoritesPlaylist(isAudio = false)
+      repository.getOrCreateFavoritesPlaylist(isAudio = true)
+      repository.reclassifyAudioPlaylists()
       val playlistsFromDb = repository.getAllPlaylists()
       _playlistsWithCount.value = loadPlaylistsWithCounts(playlistsFromDb)
     } catch (e: CancellationException) {
@@ -213,7 +216,10 @@ class PlaylistViewModel(
     }
   }
 
-  suspend fun createPlaylist(name: String): Long = repository.createPlaylist(name, isAudio = false)
+  suspend fun createPlaylist(
+    name: String,
+    isAudio: Boolean = false,
+  ): Long = repository.createPlaylist(name, isAudio = isAudio)
 
   suspend fun createM3UPlaylist(
     url: String,

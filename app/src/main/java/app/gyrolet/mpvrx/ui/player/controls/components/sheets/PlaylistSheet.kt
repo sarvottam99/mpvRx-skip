@@ -59,6 +59,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -81,6 +82,9 @@ import app.gyrolet.mpvrx.ui.player.controls.components.MiniAudioVisualizer
 import app.gyrolet.mpvrx.ui.icons.Icon
 import app.gyrolet.mpvrx.ui.icons.Icons
 import app.gyrolet.mpvrx.ui.theme.spacing
+import app.gyrolet.mpvrx.ui.theme.AppConnectedShapeTokens
+import app.gyrolet.mpvrx.ui.theme.ConnectedLayout
+import app.gyrolet.mpvrx.ui.theme.connectedShape
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
@@ -325,47 +329,21 @@ fun PlaylistSheet(
 
   var showAddToPlaylistDialog by rememberSaveable { mutableStateOf(false) }
 
-  // v2.5.0 layout: portrait list = 420.dp, landscape list = 640.dp,
-  // grid = 85% of screen width for tablet landscape covers.
-  val screenWidth = LocalConfiguration.current.screenWidthDp.dp
-  val sheetWidth =
-    if (isListMode) {
-      if (LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
-        640.dp
-      } else {
-        420.dp
-      }
-    } else {
-      screenWidth * 0.85f
-    }
-
   PlayerSheet(
     onDismissRequest = onDismissRequest,
     modifier = Modifier.fillMaxWidth(),
-    customMaxWidth = sheetWidth,
-    customMaxHeight = if (isPortrait) LocalConfiguration.current.screenHeightDp.dp * 0.5f else null,
+    customMaxHeight = if (isPortrait) configuration.screenHeightDp.dp * 0.55f else null,
     isSwipeActive = isSwipeActive,
     swipeOffset = swipeOffset,
+    useFrostedGlass = true,
   ) {
-    Surface(
-      modifier = Modifier.fillMaxWidth(),
-      color = Color.Transparent,
-      shape =
-        RoundedCornerShape(
-          topStart = 16.dp,
-          topEnd = 16.dp,
-          bottomStart = 0.dp,
-          bottomEnd = 0.dp,
+    Column(
+      modifier =
+        modifier.padding(
+          vertical = MaterialTheme.spacing.smaller,
+          horizontal = if (!isListMode) MaterialTheme.spacing.medium else 0.dp,
         ),
-      tonalElevation = 0.dp,
     ) {
-      Column(
-        modifier =
-          modifier.padding(
-            vertical = MaterialTheme.spacing.smaller,
-            horizontal = if (!isListMode) MaterialTheme.spacing.medium else 0.dp,
-          ),
-      ) {
         // Header showing current playlist info with toggle button
         val currentItem = playlist.getOrNull(playingItemIndex)
         Row(
@@ -440,9 +418,19 @@ fun PlaylistSheet(
         // Conditional rendering based on view mode
         if (isListMode) {
           // Vertical list mode (original implementation)
-          var displayPlaylist by remember(playlist) { mutableStateOf(playlist) }
-          LaunchedEffect(playlist) {
-            displayPlaylist = playlist
+          // Keep a stable drag preview while queue metadata updates in the background.
+          var displayPlaylist by remember { mutableStateOf(playlist) }
+          var dragInProgress by remember { mutableStateOf(false) }
+          var pendingOrder by remember { mutableStateOf<List<String>?>(null) }
+          LaunchedEffect(playlist, dragInProgress, pendingOrder) {
+            if (!dragInProgress) {
+              val expected = pendingOrder
+              val incomingOrder = playlist.map { it.uri.toString() }
+              if (expected == null || incomingOrder == expected || incomingOrder.size != expected.size) {
+                pendingOrder = null
+                displayPlaylist = playlist
+              }
+            }
           }
 
           val showDragHandle = onReorder != null && !isM3UPlaylist && displayPlaylist.size > 1
@@ -458,10 +446,12 @@ fun PlaylistSheet(
                   dragStartIndex = from.index
                 }
                 dragEndIndex = to.index
-                displayPlaylist = displayPlaylist.toMutableList().apply {
-                  add(to.index, removeAt(from.index))
-                }.toImmutableList()
-                reorderFeedback.move(from.index, to.index)
+                if (from.index in displayPlaylist.indices && to.index in displayPlaylist.indices && from.index != to.index) {
+                  displayPlaylist = displayPlaylist.toMutableList().apply {
+                    add(to.index, removeAt(from.index))
+                  }.toImmutableList()
+                  reorderFeedback.move(from.index, to.index)
+                }
               }
             }
 
@@ -469,17 +459,21 @@ fun PlaylistSheet(
             state = lazyListState,
             modifier = Modifier.fillMaxWidth(),
             contentPadding = PaddingValues(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(AppConnectedShapeTokens.spacing),
           ) {
             items(displayPlaylist.size, key = { index -> displayPlaylist[index].index }) { index ->
               val item = displayPlaylist[index]
+              val rowShape = connectedShape(index, displayPlaylist.size, ConnectedLayout.Vertical)
               if (showDragHandle) {
                 ReorderableItem(reorderableLazyListState, key = item.index) { isDragging ->
                   val isDraggingPrev = remember { mutableStateOf(false) }
                   LaunchedEffect(isDragging) {
                     if (isDraggingPrev.value && !isDragging) {
                       if (dragStartIndex != -1 && dragEndIndex != -1 && dragStartIndex != dragEndIndex) {
+                        pendingOrder = displayPlaylist.map { it.uri.toString() }
                         onReorder.invoke(dragStartIndex, dragEndIndex)
                       }
+                      dragInProgress = false
                       dragStartIndex = -1
                       dragEndIndex = -1
                     }
@@ -490,16 +484,23 @@ fun PlaylistSheet(
                     item = item,
                     modifier = Modifier.shadow(
                       dragElevation(isDragging, app.gyrolet.mpvrx.ui.theme.AppMotion.playerReducedMotion()),
-                      MaterialTheme.shapes.medium,
+                      rowShape,
                       clip = false,
                     ),
                     thumbnailRepository = thumbnailRepository,
-                    onClick = { onItemClick(item) },
+                    onClick = { onItemClick(item.copy(index = index)) },
                     skipThumbnail = false,
                     accentColor = accentColor,
                     isAudioOnly = isAudioOnly,
+                    displayPosition = index,
+                    shape = rowShape,
                     dragHandle = {
-                      DragHandle(scope = this, isDragging = isDragging, feedback = reorderFeedback)
+                      DragHandle(
+                        scope = this,
+                        isDragging = isDragging,
+                        feedback = reorderFeedback,
+                        onDragStart = { dragInProgress = true },
+                      )
                     },
                   )
                 }
@@ -507,10 +508,12 @@ fun PlaylistSheet(
                 PlaylistTrackListItem(
                   item = item,
                   thumbnailRepository = thumbnailRepository,
-                  onClick = { onItemClick(item) },
+                  onClick = { onItemClick(item.copy(index = index)) },
                   skipThumbnail = false,
                   accentColor = accentColor,
                   isAudioOnly = isAudioOnly,
+                  displayPosition = index,
+                  shape = rowShape,
                 )
               }
             }
@@ -525,11 +528,13 @@ fun PlaylistSheet(
                 horizontal = if (isListMode) MaterialTheme.spacing.medium else 0.dp,
                 vertical = MaterialTheme.spacing.small,
               ),
-            horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.small),
+            horizontalArrangement = Arrangement.spacedBy(AppConnectedShapeTokens.spacing),
           ) {
-              items(playlist, key = { it.index }) { item ->
+            items(playlist.size, key = { playlist[it].index }) { index ->
+              val item = playlist[index]
               PlaylistTrackGridItem(
                 item = item,
+                shape = connectedShape(index, playlist.size, ConnectedLayout.Horizontal),
                 thumbnailRepository = thumbnailRepository,
                 onClick = {
                   onItemClick(item)
@@ -542,7 +547,6 @@ fun PlaylistSheet(
         }
       }
     }
-  }
 
   if (showAddToPlaylistDialog && playlist.isNotEmpty()) {
     val queueVideos = remember(playlist) { playlist.map { it.toVideo() } }
@@ -560,6 +564,7 @@ private fun DragHandle(
   scope: ReorderableCollectionItemScope,
   isDragging: Boolean,
   feedback: ReorderFeedback,
+  onDragStart: () -> Unit = {},
   modifier: Modifier = Modifier,
 ) {
   val alpha by animateFloatAsState(
@@ -577,9 +582,17 @@ private fun DragHandle(
       with(scope) {
         modifier
           .size(40.dp)
+          .clip(RoundedCornerShape(14.dp))
+          .background(
+            if (isDragging) MaterialTheme.colorScheme.primaryContainer
+            else MaterialTheme.colorScheme.surfaceContainerHighest,
+          )
           .draggableHandle(
             interactionSource = feedback.interactions,
-            onDragStarted = { feedback.start() },
+            onDragStarted = {
+              onDragStart()
+              feedback.start()
+            },
           )
       },
     contentAlignment = Alignment.Center,
@@ -607,6 +620,8 @@ fun PlaylistTrackListItem(
   accentColor: Color,
   isAudioOnly: Boolean = false,
   modifier: Modifier = Modifier,
+  shape: Shape = RoundedCornerShape(12.dp),
+  displayPosition: Int = item.index,
   dragHandle: @Composable () -> Unit = {},
 ) {
   val isAudioItem = item.isAudio || isAudioOnly
@@ -615,37 +630,21 @@ fun PlaylistTrackListItem(
       if (item.isAudio != isAudioItem) item.copy(isAudio = isAudioItem) else item
     }
 
-  // Use theme colors dynamically
-  val accentSecondary = MaterialTheme.colorScheme.tertiary
-
-  val borderModifier =
-    if (effectiveItem.isPlaying) {
-      Modifier.border(
-        width = 2.dp,
-        brush = Brush.linearGradient(listOf(accentColor, accentSecondary)),
-        shape = RoundedCornerShape(12.dp),
-      )
-    } else {
-      Modifier
-    }
-
   Surface(
     modifier =
       modifier
         .fillMaxWidth()
         .padding(
           horizontal = MaterialTheme.spacing.medium,
-          vertical = MaterialTheme.spacing.extraSmall,
-        ).clip(RoundedCornerShape(12.dp))
-        .then(borderModifier)
+          vertical = 0.dp,
+        ).clip(shape)
         .clickable(onClick = onClick),
-    color =
-      if (effectiveItem.isPlaying) {
-        MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f)
-      } else {
-        Color.Transparent
-      },
-    shape = RoundedCornerShape(12.dp),
+    color = if (effectiveItem.isPlaying) {
+      animatedPlayerSheetSelectionColor(true, label = "playlistItemSelection")
+    } else {
+      MaterialTheme.colorScheme.surfaceContainerLow
+    },
+    shape = shape,
   ) {
     Row(
       modifier =
@@ -699,7 +698,7 @@ fun PlaylistTrackListItem(
               ).padding(horizontal = 8.dp, vertical = 4.dp),
         ) {
           Text(
-            text = "${item.index + 1}",
+            text = "${displayPosition + 1}",
             style =
               MaterialTheme.typography.labelMedium.copy(
                 fontWeight = FontWeight.Bold,
@@ -839,6 +838,7 @@ fun PlaylistTrackGridItem(
   skipThumbnail: Boolean = false,
   isAudioOnly: Boolean = false,
   modifier: Modifier = Modifier,
+  shape: Shape = RoundedCornerShape(12.dp),
 ) {
   val isAudioItem = item.isAudio || isAudioOnly
   val effectiveItem =
@@ -846,31 +846,21 @@ fun PlaylistTrackGridItem(
       if (item.isAudio != isAudioItem) item.copy(isAudio = isAudioItem) else item
     }
 
-  // Use theme colors dynamically
   val accentColor = MaterialTheme.colorScheme.primary
-  val accentSecondary = MaterialTheme.colorScheme.tertiary
-
-  val borderModifier =
-    if (effectiveItem.isPlaying) {
-      Modifier.border(
-        width = 2.dp,
-        brush = Brush.linearGradient(listOf(accentColor, accentSecondary)),
-        shape = RoundedCornerShape(12.dp),
-      )
-    } else {
-      Modifier
-    }
 
   // YouTube-style vertical card
   Surface(
     modifier =
       modifier
         .width(200.dp)
-        .clip(RoundedCornerShape(12.dp))
-        .then(borderModifier)
+        .clip(shape)
         .clickable(onClick = onClick),
-    color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f),
-    shape = RoundedCornerShape(12.dp),
+    color = if (effectiveItem.isPlaying) {
+      animatedPlayerSheetSelectionColor(true, label = "playlistItemSelection")
+    } else {
+      MaterialTheme.colorScheme.surfaceContainerLow
+    },
+    shape = shape,
   ) {
     Column(
       modifier = Modifier.padding(MaterialTheme.spacing.smaller),

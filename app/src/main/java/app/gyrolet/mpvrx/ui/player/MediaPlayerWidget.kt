@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.Bitmap
+import android.graphics.BitmapShader
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
@@ -85,7 +86,7 @@ class MediaPlayerWidget : AppWidgetProvider() {
 
   companion object {
     private const val TAG = "MediaPlayerWidget"
-    private const val ACTION_REFRESH = "app.gyrolet.mpvrx.action.REFRESH_MEDIA_WIDGET"
+    internal const val ACTION_REFRESH = "app.gyrolet.mpvrx.action.REFRESH_MEDIA_WIDGET"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val updates = java.util.concurrent.atomic.AtomicLong()
 
@@ -107,6 +108,18 @@ class MediaPlayerWidget : AppWidgetProvider() {
 
     private data class ArtworkKey(val uri: String, val size: WidgetSize)
 
+    private data class PillArtworkKey(
+      val uri: String,
+      val width: Int,
+      val height: Int,
+      val artSize: Int,
+    )
+
+    private data class PillArtwork(
+      val body: Bitmap,
+      val disc: Bitmap,
+    )
+
     private data class WidgetPalette(
       val dark: Boolean,
       val background: Int,
@@ -119,10 +132,34 @@ class MediaPlayerWidget : AppWidgetProvider() {
       override fun sizeOf(key: ArtworkKey, value: Bitmap): Int = value.byteCount
     }
 
+    private val pillArtworkCache = object : LruCache<PillArtworkKey, PillArtwork>(6 * 1024 * 1024) {
+      override fun sizeOf(key: PillArtworkKey, value: PillArtwork): Int =
+        value.body.byteCount + value.disc.byteCount
+    }
+
+    private val pillUpdates = java.util.concurrent.atomic.AtomicLong()
+
     fun requestUpdate(context: Context) {
       val manager = AppWidgetManager.getInstance(context)
-      if (manager.getAppWidgetIds(ComponentName(context, MediaPlayerWidget::class.java)).isEmpty()) return
-      context.sendBroadcast(Intent(context, MediaPlayerWidget::class.java).setAction(ACTION_REFRESH))
+      val standardIds = manager.getAppWidgetIds(ComponentName(context, MediaPlayerWidget::class.java))
+      val pillIds = manager.getAppWidgetIds(ComponentName(context, MediaPlayerPillWidget::class.java))
+      if (standardIds.isNotEmpty()) {
+        context.sendBroadcast(Intent(context, MediaPlayerWidget::class.java).setAction(ACTION_REFRESH))
+      }
+      if (pillIds.isNotEmpty()) {
+        context.sendBroadcast(Intent(context, MediaPlayerPillWidget::class.java).setAction(ACTION_REFRESH))
+      }
+    }
+
+    internal fun requestPillUpdate(context: Context) {
+      val manager = AppWidgetManager.getInstance(context)
+      if (manager.getAppWidgetIds(ComponentName(context, MediaPlayerPillWidget::class.java)).isEmpty()) return
+      context.sendBroadcast(Intent(context, MediaPlayerPillWidget::class.java).setAction(ACTION_REFRESH))
+    }
+
+    internal fun clearPillCache() {
+      pillUpdates.incrementAndGet()
+      pillArtworkCache.evictAll()
     }
 
     private suspend fun render(context: Context) {
@@ -141,7 +178,7 @@ class MediaPlayerWidget : AppWidgetProvider() {
           ?: it.title?.takeIf(String::isNotBlank)
       }
       val artist = item?.let {
-        PlaybackSession.getPropertyString("metadata/artist")?.takeIf(String::isNotBlank)
+        PlaybackSession.getPropertyString("metadata/by-key/artist")?.takeIf(String::isNotBlank)
           ?: it.artist?.takeIf(String::isNotBlank)
       }
       val playing = item != null && !session.paused
@@ -213,11 +250,6 @@ class MediaPlayerWidget : AppWidgetProvider() {
           "setBackgroundResource",
           if (palette.dark) R.drawable.media_widget_background_dark else R.drawable.media_widget_background_light,
         )
-        views.setInt(
-          R.id.media_widget_scrim,
-          "setBackgroundResource",
-          if (palette.dark) R.drawable.media_widget_scrim_dark else R.drawable.media_widget_scrim_light,
-        )
         views.setImageViewResource(R.id.media_widget_placeholder_halo, haloDrawable(palette.dark, size.wide))
         views.setInt(R.id.media_widget_placeholder_halo, "setColorFilter", palette.accent)
         views.setInt(R.id.media_widget_placeholder_halo, "setImageAlpha", if (item == null) 220 else 150)
@@ -284,34 +316,128 @@ class MediaPlayerWidget : AppWidgetProvider() {
         }
       }
 
-      val uri = item?.artworkUri?.takeIf(String::isNotBlank)
-      var publishedEarly = false
-      var composed = false
-      if (uri != null) {
-        val cached = allSizes.map { artworkCache.get(ArtworkKey(uri, it)) }
-        val missing = allSizes.filterIndexed { index, _ -> cached[index] == null }
-        // Only a completely cold artwork cache justifies publishing the placeholder before the
-        // decode finishes. The collector that drives this re-arms several times per open, and a
-        // second updateAppWidget for cached artwork is a wasted binder round-trip: the sizes that
-        // do have artwork already show it, and the rest arrive with the publish at the end.
-        if (missing.isNotEmpty() && cached.none { it != null }) {
-          publish()
-          publishedEarly = true
+      publish()
+      val uri = item?.artworkUri?.takeIf(String::isNotBlank) ?: return
+      val missing = allSizes.filter { artworkCache.get(ArtworkKey(uri, it)) == null }
+      if (missing.isEmpty()) return
+      val artwork = withContext(Dispatchers.IO) { EmbeddedArtworkResolver.decodeArtworkUri(context, uri) } ?: return
+      withContext(Dispatchers.Default) {
+        for (size in missing) {
+          if (updates.get() != update) break
+          artworkCache.put(ArtworkKey(uri, size), composeArtwork(artwork, size))
         }
-        if (missing.isNotEmpty()) {
-          val artwork = withContext(Dispatchers.IO) { EmbeddedArtworkResolver.decodeArtworkUri(context, uri) }
-          if (artwork != null) {
-            withContext(Dispatchers.Default) {
-              for (size in missing) {
-                if (updates.get() != update) break
-                artworkCache.put(ArtworkKey(uri, size), composeArtwork(artwork, size))
-                composed = true
-              }
+      }
+      publish()
+    }
+
+    internal suspend fun renderPill(context: Context) {
+      val update = pillUpdates.incrementAndGet()
+      val manager = AppWidgetManager.getInstance(context)
+      val ids = manager.getAppWidgetIds(ComponentName(context, MediaPlayerPillWidget::class.java))
+      if (ids.isEmpty()) return
+
+      val session = PlaybackSession.state.value
+      val item = session.currentItem.takeIf {
+        session.phase in setOf(PlaybackPhase.LOADING, PlaybackPhase.READY, PlaybackPhase.BACKGROUND)
+      }
+      val queue = PlaybackSession.queue.value
+      val title = item?.let {
+        PlaybackSession.getPropertyString("media-title")?.takeIf(String::isNotBlank)
+          ?: it.title?.takeIf(String::isNotBlank)
+      } ?: context.getString(R.string.media_widget_empty)
+      val playing = item != null && !session.paused
+      val palette = resolvePalette(context)
+      val open = PendingIntent.getActivity(
+        context,
+        7350,
+        openIntent(context, item, title),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+      )
+      val density = context.resources.displayMetrics.density
+      val pillHeightPx = context.resources.getDimensionPixelSize(R.dimen.media_widget_pill_height)
+      val pillArtPx = context.resources.getDimensionPixelSize(R.dimen.media_widget_pill_art)
+      val uri = item?.artworkUri?.takeIf(String::isNotBlank)
+
+      fun servicePendingIntent(requestCode: Int, action: String): PendingIntent =
+        PendingIntent.getForegroundService(
+          context,
+          requestCode,
+          Intent(context, MediaPlaybackService::class.java).setAction(action),
+          PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+      for (id in ids) {
+        if (pillUpdates.get() != update) return
+        val options = manager.getAppWidgetOptions(id)
+        val widthDp =
+          options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH)
+            .takeIf { it > 0 }
+            ?: options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH).takeIf { it > 0 }
+            ?: 250
+        val widthPx = (widthDp * density).roundToInt().coerceIn(1, 1024)
+        val key = uri?.let { PillArtworkKey(it, widthPx, pillHeightPx, pillArtPx) }
+        val cached = key?.let(pillArtworkCache::get)
+        val fallbackBody = composePillFallback(widthPx, pillHeightPx)
+
+        fun pillViews(artwork: PillArtwork?): RemoteViews {
+          val views = RemoteViews(context.packageName, R.layout.media_player_pill_widget)
+          views.setImageViewBitmap(R.id.media_widget_pill_background, artwork?.body ?: fallbackBody)
+          if (artwork?.disc != null) {
+            views.setImageViewBitmap(R.id.media_widget_pill_artwork, artwork.disc)
+          } else {
+            views.setImageViewResource(R.id.media_widget_pill_artwork, R.drawable.media_widget_pill_art_placeholder)
+          }
+          views.setTextViewText(R.id.media_widget_pill_title, title)
+          views.setImageViewResource(
+            R.id.media_widget_pill_play,
+            if (playing) R.drawable.media_widget_pause else R.drawable.media_widget_play,
+          )
+          views.setContentDescription(
+            R.id.media_widget_pill_play,
+            context.getString(if (playing) R.string.audiobook_pause else R.string.ui_play),
+          )
+          views.setOnClickPendingIntent(R.id.media_widget_pill_root, open)
+
+          val previousAvailable = item != null && PlaybackQueueReducer.peekPrevious(queue) != null
+          val nextAvailable = item != null && PlaybackQueueReducer.peekNext(queue) != null
+          val shuffleAvailable = item != null && item.audiobook == null
+          val controls =
+            listOf(
+              Triple(R.id.media_widget_pill_favorite, item != null, MediaPlaybackService.ACTION_NOTIFICATION_FAVORITE),
+              Triple(R.id.media_widget_pill_previous, previousAvailable, MediaPlaybackService.ACTION_NOTIFICATION_PREVIOUS),
+              Triple(R.id.media_widget_pill_play, item != null, MediaPlaybackService.ACTION_NOTIFICATION_PLAY_PAUSE),
+              Triple(R.id.media_widget_pill_next, nextAvailable, MediaPlaybackService.ACTION_NOTIFICATION_NEXT),
+              Triple(R.id.media_widget_pill_shuffle, shuffleAvailable, MediaPlaybackService.ACTION_NOTIFICATION_SHUFFLE),
+            )
+          controls.forEachIndexed { index, (viewId, available, action) ->
+            views.setOnClickPendingIntent(
+              viewId,
+              if (available) servicePendingIntent(7360 + index, action) else open,
+            )
+            views.setBoolean(viewId, "setEnabled", available)
+            views.setInt(viewId, "setImageAlpha", if (available) 255 else 72)
+            views.setInt(viewId, "setBackgroundResource", R.drawable.media_widget_control_background_dark)
+            val tint =
+              if (viewId == R.id.media_widget_pill_shuffle && queue.shuffleEnabled) palette.accent else Color.WHITE
+            views.setInt(viewId, "setColorFilter", tint)
+          }
+          return views
+        }
+
+        runCatching { manager.updateAppWidget(id, pillViews(cached)) }
+        if (cached == null && uri != null) {
+          val source = withContext(Dispatchers.IO) { EmbeddedArtworkResolver.decodeArtworkUri(context, uri) }
+          if (source != null && pillUpdates.get() == update) {
+            val composed = withContext(Dispatchers.Default) {
+              composePillArtwork(source, widthPx, pillHeightPx, pillArtPx)
+            }
+            pillArtworkCache.put(checkNotNull(key), composed)
+            if (pillUpdates.get() == update) {
+              runCatching { manager.updateAppWidget(id, pillViews(composed)) }
             }
           }
         }
       }
-      if (!publishedEarly || composed) publish()
     }
 
     private fun openIntent(context: Context, item: PlaybackItem?, title: String?): Intent {
@@ -415,67 +541,286 @@ class MediaPlayerWidget : AppWidgetProvider() {
       return bitmap
     }
 
-    private fun composeArtwork(source: Bitmap, size: WidgetSize): Bitmap {
-      val cover = if (source.config == Bitmap.Config.HARDWARE) {
-        checkNotNull(source.copy(Bitmap.Config.ARGB_8888, false))
-      } else {
-        source
+    private fun composePillFallback(width: Int, height: Int): Bitmap {
+      val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+      val canvas = Canvas(bitmap)
+      canvas.drawRect(
+        0f,
+        0f,
+        width.toFloat(),
+        height.toFloat(),
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+          shader =
+            LinearGradient(
+              0f,
+              0f,
+              0f,
+              height.toFloat(),
+              intArrayOf(0xFF2E3446.toInt(), 0xFF1B2130.toInt(), 0xFF07090E.toInt()),
+              floatArrayOf(0f, 0.45f, 1f),
+              Shader.TileMode.CLAMP,
+            )
+        },
+      )
+      canvas.drawRect(
+        0f,
+        0f,
+        width.toFloat(),
+        height.toFloat(),
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+          shader = LinearGradient(0f, 0f, 0f, height.toFloat(), 0x40000000, 0x70000000, Shader.TileMode.CLAMP)
+        },
+      )
+      return roundedBitmap(bitmap, height / 2f, 210).also {
+        if (it !== bitmap) bitmap.recycle()
       }
-      val result = Bitmap.createBitmap(size.width, size.height, Bitmap.Config.ARGB_8888)
-      val canvas = Canvas(result)
+    }
+
+    private fun composePillArtwork(source: Bitmap, width: Int, height: Int, artSize: Int): PillArtwork {
+      val cover =
+        if (source.config == Bitmap.Config.HARDWARE) {
+          checkNotNull(source.copy(Bitmap.Config.ARGB_8888, false))
+        } else {
+          source
+        }
       val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-      val scale = maxOf(size.width.toFloat() / cover.width, size.height.toFloat() / cover.height)
-      val left = (size.width - cover.width * scale) / 2f
-      val top = (size.height - cover.height * scale) / 2f
-      canvas.drawBitmap(cover, null, RectF(left, top, left + cover.width * scale, top + cover.height * scale), paint)
-      if (cover !== source) cover.recycle()
-      val regionHeight = (size.band * 2).coerceAtMost(size.height)
-      val regionTop = size.height - regionHeight
-      val small = Bitmap.createBitmap(
-        (size.width / 6).coerceAtLeast(1),
-        (regionHeight / 6).coerceAtLeast(1),
-        Bitmap.Config.ARGB_8888,
-      )
-      Canvas(small).drawBitmap(
-        result,
-        Rect(0, regionTop, size.width, size.height),
-        Rect(0, 0, small.width, small.height),
-        paint,
-      )
-      val pixels = IntArray(small.width * small.height)
-      small.getPixels(pixels, 0, small.width, 0, 0, small.width, small.height)
+      val workingWidth = minOf(64, width).coerceAtLeast(8)
+      val workingHeight = (workingWidth * height / width.coerceAtLeast(1)).coerceAtLeast(4)
+      val small = Bitmap.createBitmap(workingWidth, workingHeight, Bitmap.Config.ARGB_8888)
+      drawCenterCrop(Canvas(small), cover, workingWidth, workingHeight, paint)
+      val pixels = IntArray(workingWidth * workingHeight)
+      small.getPixels(pixels, 0, workingWidth, 0, 0, workingWidth, workingHeight)
       val channels = FloatArray(pixels.size * 3)
       pixels.forEachIndexed { index, color ->
         channels[index * 3] = Color.red(color).toFloat()
         channels[index * 3 + 1] = Color.green(color).toFloat()
         channels[index * 3 + 2] = Color.blue(color).toFloat()
       }
-      ambientBoxBlur(channels, FloatArray(channels.size), small.width, small.height, radius = 3, passes = 3)
+      ambientBoxBlur(
+        channels,
+        FloatArray(channels.size),
+        workingWidth,
+        workingHeight,
+        radius = (workingWidth * 0.10f).roundToInt().coerceAtLeast(1),
+        passes = 3,
+      )
       for (index in pixels.indices) {
-        pixels[index] = Color.rgb(
-          channels[index * 3].roundToInt(),
-          channels[index * 3 + 1].roundToInt(),
-          channels[index * 3 + 2].roundToInt(),
+        pixels[index] =
+          Color.rgb(
+            channels[index * 3].roundToInt().coerceIn(0, 255),
+            channels[index * 3 + 1].roundToInt().coerceIn(0, 255),
+            channels[index * 3 + 2].roundToInt().coerceIn(0, 255),
+          )
+      }
+      small.setPixels(pixels, 0, workingWidth, 0, 0, workingWidth, workingHeight)
+
+      val rawBody = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+      Canvas(rawBody).apply {
+        drawBitmap(small, null, Rect(0, 0, width, height), paint)
+        drawRect(
+          0f,
+          0f,
+          width.toFloat(),
+          height.toFloat(),
+          Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(0f, 0f, 0f, height.toFloat(), 0x40000000, 0x70000000, Shader.TileMode.CLAMP)
+          },
         )
       }
-      small.setPixels(pixels, 0, small.width, 0, 0, small.width, small.height)
-      val bounds = RectF(0f, regionTop.toFloat(), size.width.toFloat(), size.height.toFloat())
-      val layer = canvas.saveLayer(bounds, null)
-      canvas.drawBitmap(small, null, bounds, paint)
-      paint.shader = LinearGradient(
-        0f,
-        bounds.top,
-        0f,
-        bounds.bottom,
-        Color.TRANSPARENT,
-        Color.BLACK,
-        Shader.TileMode.CLAMP,
-      )
-      paint.xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN)
-      canvas.drawRect(bounds, paint)
-      canvas.restoreToCount(layer)
       small.recycle()
+      val body = roundedBitmap(rawBody, height / 2f, 210)
+      if (body !== rawBody) rawBody.recycle()
+
+      val square = Bitmap.createBitmap(artSize, artSize, Bitmap.Config.ARGB_8888)
+      drawCenterCrop(Canvas(square), cover, artSize, artSize, paint)
+      val disc = roundedBitmap(square, artSize / 2f, 255)
+      if (disc !== square) square.recycle()
+      if (cover !== source) cover.recycle()
+      return PillArtwork(body = body, disc = disc)
+    }
+
+    private fun roundedBitmap(source: Bitmap, radius: Float, alpha: Int): Bitmap {
+      val out = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
+      Canvas(out).drawRoundRect(
+        RectF(0f, 0f, source.width.toFloat(), source.height.toFloat()),
+        radius,
+        radius,
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+          this.alpha = alpha
+          shader = BitmapShader(source, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+        },
+      )
+      return out
+    }
+
+    private fun drawCenterCrop(canvas: Canvas, source: Bitmap, width: Int, height: Int, paint: Paint) {
+      val scale = maxOf(width.toFloat() / source.width, height.toFloat() / source.height)
+      val sourceWidth = width / scale
+      val sourceHeight = height / scale
+      val left = (source.width - sourceWidth) / 2f
+      val top = (source.height - sourceHeight) / 2f
+      canvas.drawBitmap(
+        source,
+        Rect(
+          left.toInt(),
+          top.toInt(),
+          (left + sourceWidth).toInt().coerceAtMost(source.width),
+          (top + sourceHeight).toInt().coerceAtMost(source.height),
+        ),
+        Rect(0, 0, width, height),
+        paint,
+      )
+    }
+
+    private fun composeArtwork(source: Bitmap, size: WidgetSize): Bitmap {
+      val cover =
+        if (source.config == Bitmap.Config.HARDWARE) {
+          checkNotNull(source.copy(Bitmap.Config.ARGB_8888, false))
+        } else {
+          source
+        }
+      val result = Bitmap.createBitmap(size.width, size.height, Bitmap.Config.ARGB_8888)
+      val canvas = Canvas(result)
+      val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+      drawCenterCrop(canvas, cover, size.width, size.height, paint)
+      if (cover !== source) cover.recycle()
+
+      val regionHeight = (size.band * 2).coerceIn(1, size.height)
+      val regionTop = size.height - regionHeight
+      val workingWidth = (size.width / 4).coerceAtLeast(2)
+      val workingHeight = (regionHeight * workingWidth / size.width.coerceAtLeast(1)).coerceAtLeast(2)
+      val base = Bitmap.createBitmap(workingWidth, workingHeight, Bitmap.Config.ARGB_8888)
+      Canvas(base).drawBitmap(
+        result,
+        Rect(0, regionTop, size.width, size.height),
+        Rect(0, 0, workingWidth, workingHeight),
+        paint,
+      )
+      val basePixels = IntArray(workingWidth * workingHeight)
+      base.getPixels(basePixels, 0, workingWidth, 0, 0, workingWidth, workingHeight)
+      base.recycle()
+      val baseChannels = FloatArray(basePixels.size * 3)
+      basePixels.forEachIndexed { index, color ->
+        baseChannels[index * 3] = Color.red(color).toFloat()
+        baseChannels[index * 3 + 1] = Color.green(color).toFloat()
+        baseChannels[index * 3 + 2] = Color.blue(color).toFloat()
+      }
+
+      val bounds = RectF(0f, regionTop.toFloat(), size.width.toFloat(), size.height.toFloat())
+      val stops = floatArrayOf(0.28f, 0.50f, 0.70f, 0.86f)
+      val strengths = floatArrayOf(0.035f, 0.070f, 0.110f, 0.155f)
+      val bandInWorkingPixels = size.band * workingHeight.toFloat() / regionHeight
+      strengths.forEachIndexed { index, strength ->
+        val channels = baseChannels.copyOf()
+        ambientBoxBlur(
+          channels,
+          FloatArray(channels.size),
+          workingWidth,
+          workingHeight,
+          radius = (bandInWorkingPixels * strength).roundToInt().coerceAtLeast(1),
+          passes = 3,
+        )
+        val pixels = IntArray(basePixels.size)
+        for (pixelIndex in pixels.indices) {
+          pixels[pixelIndex] =
+            Color.rgb(
+              channels[pixelIndex * 3].roundToInt().coerceIn(0, 255),
+              channels[pixelIndex * 3 + 1].roundToInt().coerceIn(0, 255),
+              channels[pixelIndex * 3 + 2].roundToInt().coerceIn(0, 255),
+            )
+        }
+        val level = Bitmap.createBitmap(workingWidth, workingHeight, Bitmap.Config.ARGB_8888)
+        level.setPixels(pixels, 0, workingWidth, 0, 0, workingWidth, workingHeight)
+        val layerPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        val layer = canvas.saveLayer(bounds, null)
+        canvas.drawBitmap(level, null, bounds, layerPaint)
+        val fadeStart = regionTop + stops[index] * regionHeight
+        val fadeEnd = regionTop + (stops[index] + 0.26f).coerceAtMost(1f) * regionHeight
+        layerPaint.shader =
+          LinearGradient(
+            0f,
+            fadeStart,
+            0f,
+            maxOf(fadeEnd, fadeStart + 1f),
+            Color.TRANSPARENT,
+            Color.BLACK,
+            Shader.TileMode.CLAMP,
+          )
+        layerPaint.xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN)
+        canvas.drawRect(bounds, layerPaint)
+        canvas.restoreToCount(layer)
+        level.recycle()
+      }
+
+      val scrimTop = (size.height - size.band * 1.2f).coerceAtLeast(0f)
+      canvas.drawRect(
+        0f,
+        scrimTop,
+        size.width.toFloat(),
+        size.height.toFloat(),
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+          shader =
+            LinearGradient(
+              0f,
+              scrimTop,
+              0f,
+              size.height.toFloat(),
+              intArrayOf(Color.TRANSPARENT, 0x40000000, 0xB8000000.toInt()),
+              floatArrayOf(0f, 0.45f, 1f),
+              Shader.TileMode.CLAMP,
+            )
+        },
+      )
       return result
     }
+  }
+}
+
+class MediaPlayerPillWidget : AppWidgetProvider() {
+  override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
+    MediaPlayerWidget.requestPillUpdate(context)
+  }
+
+  override fun onAppWidgetOptionsChanged(
+    context: Context,
+    appWidgetManager: AppWidgetManager,
+    appWidgetId: Int,
+    newOptions: Bundle,
+  ) {
+    MediaPlayerWidget.requestPillUpdate(context)
+  }
+
+  override fun onDisabled(context: Context) {
+    MediaPlayerWidget.clearPillCache()
+  }
+
+  override fun onReceive(context: Context, intent: Intent) {
+    if (intent.action != MediaPlayerWidget.ACTION_REFRESH) {
+      super.onReceive(context, intent)
+      return
+    }
+    val pending = goAsync()
+    val rendering =
+      scope.launch {
+        try {
+          MediaPlayerWidget.renderPill(context.applicationContext)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+          throw cancelled
+        } catch (error: Exception) {
+          android.util.Log.w(TAG, "Unable to update media pill widget", error)
+        }
+      }
+    scope.launch {
+      try {
+        withTimeoutOrNull(8_000L) { rendering.join() }
+      } finally {
+        pending.finish()
+      }
+    }
+  }
+
+  companion object {
+    private const val TAG = "MediaPlayerPillWidget"
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
   }
 }

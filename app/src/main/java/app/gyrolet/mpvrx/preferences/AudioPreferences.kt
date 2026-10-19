@@ -71,6 +71,8 @@ class AudioPreferences(
     },
   )
 
+  /** Fetch from external lyric providers automatically only when local lyrics are absent. */
+  val lyricsAutoFetchOnline = preferenceStore.getBoolean("lyrics_auto_fetch_online", true)
   val lyricsAutoTranslate = preferenceStore.getBoolean("lyrics_auto_translate", false)
   val lyricsTargetLanguage = preferenceStore.getString("lyrics_target_language", "en")
   val lyricsTranslationDisplayMode = preferenceStore.getEnum("lyrics_translation_display_mode", LyricsTranslationDisplayMode.DualLine)

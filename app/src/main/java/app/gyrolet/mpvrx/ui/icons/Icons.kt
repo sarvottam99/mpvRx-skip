@@ -1,13 +1,6 @@
 package app.gyrolet.mpvrx.ui.icons
 
 import androidx.annotation.DrawableRes
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathFillType
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.vector.group
-import androidx.compose.ui.graphics.vector.path
-import androidx.compose.ui.unit.dp
 import com.composables.icons.materialsymbols.MaterialSymbols
 import com.composables.icons.materialsymbols.roundedfilled.*
 import com.composables.icons.materialsymbols.roundedfilled.R as MaterialSymbolsR
@@ -17,6 +10,7 @@ object Icons {
   private object Shared {
     val AccessTime by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Schedule) }
     val AccountBalance by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Account_balance) }
+    val AccountCircle by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Account_circle) }
     val AccountTree by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Account_tree) }
     val Add by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Add) }
     val AddCircle by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Add_circle) }
@@ -42,6 +36,7 @@ object Icons {
     val Aperture by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Shutter_speed) }
     val AvTimer by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Av_timer) }
     val Block by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Block) }
+    val Bolt by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Bolt) }
     val BlurOff by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Blur_off) }
     val BlurOn by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Blur_on) }
     val Bookmarks by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Bookmarks) }
@@ -76,6 +71,7 @@ object Icons {
     val ContentCopy by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Content_copy) }
     val ContentPaste by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Content_paste) }
     val CreateNewFolder by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Create_new_folder) }
+    val Crown by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Crown) }
     val CurrencyRupee by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Currency_rupee) }
     val Delete by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Delete) }
     val DeveloperBoard by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Developer_board) }
@@ -168,7 +164,7 @@ object Icons {
     val Lock by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Lock) }
     val LockOpen by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Lock_open) }
     val ListAlt by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.List_alt) }
-    val Lyrics by lazy(LazyThreadSafetyMode.NONE) { AppIcon(LyricsVector) }
+    val Lyrics by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Lyrics) }
     val Memory by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Memory) }
     val Mic by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Mic) }
     val Person by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Person) }
@@ -202,7 +198,7 @@ object Icons {
     val SelectAll by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Select_all) }
     val HelpOutline by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Help) }
     val PlaylistAdd by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Playlist_add) }
-    val PlaylistPlay get() = PlayArrow
+    val PlaylistPlay by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Playlist_play) }
     val Subscriptions by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Subscriptions) }
     val PushPin by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Push_pin) }
     val QueueMusic by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Queue_music) }
@@ -216,6 +212,8 @@ object Icons {
     val ResetIso by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Reset_iso) }
     val Restore by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Undo) }
     val RoundedCorner by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Rounded_corner) }
+    val RotateLeft by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Rotate_left) }
+    val RotateRight by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Rotate_right) }
     val ScreenRotation by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Screen_rotation) }
     val Screenshot by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Screenshot) }
     val SdCard by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Sd_card) }
@@ -232,9 +230,12 @@ object Icons {
     val SortByAlpha by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Sort_by_alpha) }
     val Star by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Star) }
     val Favorite by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Favorite) }
-    val FavoriteBorder by lazy(LazyThreadSafetyMode.NONE) { AppIcon(FavoriteBorderVector) }
+    val FavoriteBorder by lazy(LazyThreadSafetyMode.NONE) {
+      AppIcon(app.gyrolet.mpvrx.R.drawable.materialsymbols_ic_favorite_rounded)
+    }
     val Tv by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Tv) }
     val Theaters by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Theaters) }
+    val Trophy by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Trophy) }
     val FilterList by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Filter_list) }
     val Whatshot by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Whatshot) }
     val Hd by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Hd) }
@@ -255,6 +256,7 @@ object Icons {
     val Tune by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Tune) }
     val Update by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Update) }
     val Usb by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Usb) }
+    val Verified by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Verified) }
     val VideoLibrary by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Video_library) }
     val ViewAgenda by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.View_agenda) }
     val ViewArray by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.View_array) }
@@ -274,12 +276,13 @@ object Icons {
     val WbSunny by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Wb_sunny) }
     val ZoomIn by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Zoom_in) }
     val ZoomOutMap by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Zoom_out_map) }
-    val PostProcessing by lazy(LazyThreadSafetyMode.NONE) { AppIcon(PostProcessingVector) }
+    val PostProcessing by lazy(LazyThreadSafetyMode.NONE) { AppIcon(MaterialSymbols.RoundedFilled.Auto_awesome) }
   }
 
   object RoundedFilled {
     val AccessTime get() = Shared.AccessTime
     val AccountBalance get() = Shared.AccountBalance
+    val AccountCircle get() = Shared.AccountCircle
     val AccountTree get() = Shared.AccountTree
     val Add get() = Shared.Add
     val AddCircle get() = Shared.AddCircle
@@ -301,6 +304,7 @@ object Icons {
     val Aperture get() = Shared.Aperture
     val AvTimer get() = Shared.AvTimer
     val Block get() = Shared.Block
+    val Bolt get() = Shared.Bolt
     val BlurOff get() = Shared.BlurOff
     val BlurOn get() = Shared.BlurOn
     val Bookmarks get() = Shared.Bookmarks
@@ -335,6 +339,7 @@ object Icons {
     val ContentCopy get() = Shared.ContentCopy
     val ContentPaste get() = Shared.ContentPaste
     val CreateNewFolder get() = Shared.CreateNewFolder
+    val Crown get() = Shared.Crown
     val CurrencyRupee get() = Shared.CurrencyRupee
     val Delete get() = Shared.Delete
     val DeveloperBoard get() = Shared.DeveloperBoard
@@ -445,6 +450,8 @@ object Icons {
     val ResetIso get() = Shared.ResetIso
     val Restore get() = Shared.Restore
     val RoundedCorner get() = Shared.RoundedCorner
+    val RotateLeft get() = Shared.RotateLeft
+    val RotateRight get() = Shared.RotateRight
     val ScreenRotation get() = Shared.ScreenRotation
     val Screenshot get() = Shared.Screenshot
     val SdCard get() = Shared.SdCard
@@ -462,6 +469,7 @@ object Icons {
     val FavoriteBorder get() = Shared.FavoriteBorder
     val Tv get() = Shared.Tv
     val Theaters get() = Shared.Theaters
+    val Trophy get() = Shared.Trophy
     val FilterList get() = Shared.FilterList
     val Whatshot get() = Shared.Whatshot
     val Hd get() = Shared.Hd
@@ -480,6 +488,7 @@ object Icons {
     val Tune get() = Shared.Tune
     val Update get() = Shared.Update
     val Usb get() = Shared.Usb
+    val Verified get() = Shared.Verified
     val VideoLibrary get() = Shared.VideoLibrary
     val ViewAgenda get() = Shared.ViewAgenda
     val ViewArray get() = Shared.ViewArray
@@ -538,203 +547,4 @@ object Icons {
 
     @DrawableRes val Close = MaterialSymbolsR.drawable.materialsymbols_ic_close_rounded_filled
   }
-}
-
-private val FavoriteBorderVector: ImageVector by lazy(LazyThreadSafetyMode.NONE) {
-  ImageVector.Builder(
-    name = "FavoriteBorder",
-    defaultWidth = 24.dp,
-    defaultHeight = 24.dp,
-    viewportWidth = 960f,
-    viewportHeight = 960f,
-  ).apply {
-    group(
-      translationY = 960f,
-    ) {
-      path(
-        fill = SolidColor(Color.Black),
-        fillAlpha = 1.0f,
-        stroke = null,
-        strokeAlpha = 1.0f,
-        strokeLineWidth = 1.0f,
-        pathFillType = PathFillType.NonZero,
-      ) {
-        moveTo(451.5f, -152f)
-        quadToRelative(-14.5f, -5f, -25.5f, -16f)
-        lineToRelative(-69f, -63f)
-        quadToRelative(-106f, -97f, -191.5f, -192.5f)
-        reflectiveQuadTo(80f, -634f)
-        quadToRelative(0f, -94f, 63f, -157f)
-        reflectiveQuadToRelative(157f, -63f)
-        quadToRelative(53f, 0f, 100f, 22.5f)
-        reflectiveQuadToRelative(80f, 61.5f)
-        quadToRelative(33f, -39f, 80f, -61.5f)
-        reflectiveQuadTo(660f, -854f)
-        quadToRelative(94f, 0f, 157f, 63f)
-        reflectiveQuadToRelative(63f, 157f)
-        quadToRelative(0f, 115f, -85f, 211f)
-        reflectiveQuadTo(602f, -230f)
-        lineToRelative(-68f, 62f)
-        quadToRelative(-11f, 11f, -25.5f, 16f)
-        reflectiveQuadToRelative(-28.5f, 5f)
-        quadToRelative(-14f, 0f, -28.5f, -5f)
-        close()
-        moveTo(442f, -690f)
-        quadToRelative(-29f, -41f, -62f, -62.5f)
-        reflectiveQuadTo(300f, -774f)
-        quadToRelative(-60f, 0f, -100f, 40f)
-        reflectiveQuadToRelative(-40f, 100f)
-        quadToRelative(0f, 52f, 37f, 110.5f)
-        reflectiveQuadTo(285.5f, -410f)
-        quadToRelative(51.5f, 55f, 106f, 103f)
-        reflectiveQuadToRelative(88.5f, 79f)
-        quadToRelative(34f, -31f, 88.5f, -79f)
-        reflectiveQuadToRelative(106f, -103f)
-        quadTo(726f, -465f, 763f, -523.5f)
-        reflectiveQuadTo(800f, -634f)
-        quadToRelative(0f, -60f, -40f, -100f)
-        reflectiveQuadToRelative(-100f, -40f)
-        quadToRelative(-47f, 0f, -80f, 21.5f)
-        reflectiveQuadTo(518f, -690f)
-        quadToRelative(-7f, 10f, -17f, 15f)
-        reflectiveQuadToRelative(-21f, 5f)
-        quadToRelative(-11f, 0f, -21f, -5f)
-        reflectiveQuadToRelative(-17f, -15f)
-        close()
-        moveToRelative(38f, 189f)
-        close()
-      }
-    }
-  }.build()
-}
-
-private val LyricsVector: ImageVector by lazy(LazyThreadSafetyMode.NONE) {
-  ImageVector.Builder(
-    name = "Lyrics",
-    defaultWidth = 24.dp,
-    defaultHeight = 24.dp,
-    viewportWidth = 24f,
-    viewportHeight = 24f,
-  ).apply {
-    path(
-      fill = SolidColor(Color.Black),
-      fillAlpha = 1.0f,
-      stroke = null,
-      strokeAlpha = 1.0f,
-      strokeLineWidth = 1.0f,
-      pathFillType = PathFillType.EvenOdd,
-    ) {
-      // Speech bubble message box (full standard 24x24 icon scale)
-      moveTo(5.5f, 3.0f)
-      horizontalLineTo(18.5f)
-      curveTo(20.43f, 3.0f, 22.0f, 4.57f, 22.0f, 6.5f)
-      verticalLineTo(14.5f)
-      curveTo(22.0f, 16.43f, 20.43f, 18.0f, 18.5f, 18.0f)
-      horizontalLineTo(8.0f)
-      lineTo(3.2f, 21.6f)
-      curveTo(2.6f, 22.05f, 2.0f, 21.6f, 2.0f, 20.8f)
-      verticalLineTo(6.5f)
-      curveTo(2.0f, 4.57f, 3.57f, 3.0f, 5.5f, 3.0f)
-      close()
-
-      // Left quotation mark (bulb top-right, tail curving down-left)
-      moveTo(9.0f, 6.5f)
-      curveTo(10.2f, 6.5f, 11.0f, 7.3f, 11.0f, 8.5f)
-      curveTo(11.0f, 11.0f, 9.2f, 13.5f, 6.6f, 14.8f)
-      curveTo(6.1f, 15.0f, 5.7f, 14.4f, 6.0f, 13.9f)
-      curveTo(7.4f, 12.3f, 8.0f, 11.0f, 7.7f, 9.7f)
-      curveTo(7.3f, 9.7f, 7.0f, 9.2f, 7.0f, 8.5f)
-      curveTo(7.0f, 7.3f, 7.8f, 6.5f, 9.0f, 6.5f)
-      close()
-
-      // Right quotation mark (bulb top-right, tail curving down-left)
-      moveTo(14.5f, 6.5f)
-      curveTo(15.7f, 6.5f, 16.5f, 7.3f, 16.5f, 8.5f)
-      curveTo(16.5f, 11.0f, 14.7f, 13.5f, 12.1f, 14.8f)
-      curveTo(11.6f, 15.0f, 11.2f, 14.4f, 11.5f, 13.9f)
-      curveTo(12.9f, 12.3f, 13.5f, 11.0f, 13.2f, 9.7f)
-      curveTo(12.8f, 9.7f, 12.5f, 9.2f, 12.5f, 8.5f)
-      curveTo(12.5f, 7.3f, 13.3f, 6.5f, 14.5f, 6.5f)
-      close()
-    }
-  }.build()
-}
-
-/**
- * Post-Processing icon: a camera lens aperture ring with two 4-point sparkle stars,
- * representing visual effects / shader post-processing.
- * Hand-crafted 24×24 Material-style vector.
- */
-private val PostProcessingVector: ImageVector by lazy(LazyThreadSafetyMode.NONE) {
-  ImageVector.Builder(
-    name = "PostProcessing",
-    defaultWidth = 24.dp,
-    defaultHeight = 24.dp,
-    viewportWidth = 24f,
-    viewportHeight = 24f,
-  ).apply {
-    path(
-      fill = SolidColor(Color.Black),
-      fillAlpha = 1.0f,
-      stroke = null,
-      strokeAlpha = 1.0f,
-      strokeLineWidth = 1.0f,
-      pathFillType = PathFillType.EvenOdd,
-    ) {
-      // Outer aperture ring — annulus (donut) via EvenOdd fill
-      // Outer circle: centre (11, 13), radius 9
-      moveTo(11.0f, 4.0f)
-      curveTo(6.03f, 4.0f, 2.0f, 8.03f, 2.0f, 13.0f)
-      curveTo(2.0f, 17.97f, 6.03f, 22.0f, 11.0f, 22.0f)
-      curveTo(15.97f, 22.0f, 20.0f, 17.97f, 20.0f, 13.0f)
-      curveTo(20.0f, 8.03f, 15.97f, 4.0f, 11.0f, 4.0f)
-      close()
-      // Inner hole — centre (11, 13), radius 5.5
-      moveTo(11.0f, 7.5f)
-      curveTo(13.76f, 7.5f, 16.0f, 9.74f, 16.0f, 12.5f)
-      curveTo(16.0f, 15.26f, 13.76f, 17.5f, 11.0f, 17.5f)
-      curveTo(8.24f, 17.5f, 6.0f, 15.26f, 6.0f, 12.5f)
-      curveTo(6.0f, 9.74f, 8.24f, 7.5f, 11.0f, 7.5f)
-      close()
-    }
-    path(
-      fill = SolidColor(Color.Black),
-      fillAlpha = 1.0f,
-      stroke = null,
-      strokeAlpha = 1.0f,
-      strokeLineWidth = 1.0f,
-      pathFillType = PathFillType.NonZero,
-    ) {
-      // Large 4-point sparkle star — top-right corner (17.5, 4.5), arm half-length 3.5 / 1.0
-      // Top arm
-      moveTo(17.5f, 1.0f)
-      lineTo(18.2f, 3.8f)
-      lineTo(21.0f, 4.5f)
-      lineTo(18.2f, 5.2f)
-      lineTo(17.5f, 8.0f)
-      lineTo(16.8f, 5.2f)
-      lineTo(14.0f, 4.5f)
-      lineTo(16.8f, 3.8f)
-      close()
-    }
-    path(
-      fill = SolidColor(Color.Black),
-      fillAlpha = 1.0f,
-      stroke = null,
-      strokeAlpha = 1.0f,
-      strokeLineWidth = 1.0f,
-      pathFillType = PathFillType.NonZero,
-    ) {
-      // Small 4-point sparkle dot — beside large star (21.5, 1.5), arm half-length 1.5 / 0.5
-      moveTo(21.5f, 0.5f)
-      lineTo(21.9f, 1.6f)
-      lineTo(23.0f, 2.0f)
-      lineTo(21.9f, 2.4f)
-      lineTo(21.5f, 3.5f)
-      lineTo(21.1f, 2.4f)
-      lineTo(20.0f, 2.0f)
-      lineTo(21.1f, 1.6f)
-      close()
-    }
-  }.build()
 }

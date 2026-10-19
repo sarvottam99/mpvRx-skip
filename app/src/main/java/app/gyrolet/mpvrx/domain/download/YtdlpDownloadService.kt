@@ -66,6 +66,15 @@ class YtdlpDownloadService : Service() {
     super.onDestroy()
   }
 
+  override fun onTimeout(
+    startId: Int,
+    fgsType: Int,
+  ) {
+    drainJob?.cancel()
+    engine.jobs.value.firstOrNull { it.state == YtdlpDownloadEngine.JobState.RUNNING }?.let { engine.cancel(it.id) }
+    stopSelf(startId)
+  }
+
   private fun startAsForeground(notification: android.app.Notification) {
     val type =
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -88,7 +97,7 @@ class YtdlpDownloadService : Service() {
     val progress = job?.progressPercent?.toInt() ?: 0
     val text =
       when {
-        running && job != null -> {
+        running -> {
           val queueSuffix = if (queued > 0) " (+$queued)" else ""
           "$progress% ${job.detail}$queueSuffix".trim()
         }

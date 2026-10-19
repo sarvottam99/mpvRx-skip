@@ -43,6 +43,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.graphics.ColorUtils
 import androidx.media.MediaBrowserServiceCompat
 import androidx.media.session.MediaButtonReceiver
+import app.gyrolet.mpvrx.BuildConfig
 import app.gyrolet.mpvrx.R
 import app.gyrolet.mpvrx.database.entities.PlaybackStateEntity
 import app.gyrolet.mpvrx.database.repository.PlaylistRepository
@@ -66,6 +67,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
@@ -107,6 +110,7 @@ class MediaPlaybackService :
     const val ACTION_NOTIFICATION_PREVIOUS = "app.gyrolet.mpvrx.action.NOTIFICATION_PREVIOUS"
     const val ACTION_NOTIFICATION_PLAY_PAUSE = "app.gyrolet.mpvrx.action.NOTIFICATION_PLAY_PAUSE"
     const val ACTION_NOTIFICATION_NEXT = "app.gyrolet.mpvrx.action.NOTIFICATION_NEXT"
+    const val ACTION_NOTIFICATION_SHUFFLE = "app.gyrolet.mpvrx.action.NOTIFICATION_SHUFFLE"
     const val ACTION_NOTIFICATION_FAVORITE = "app.gyrolet.mpvrx.action.NOTIFICATION_FAVORITE"
     const val ACTION_NOTIFICATION_MEDIA_FAVORITE = "app.gyrolet.mpvrx.action.NOTIFICATION_MEDIA_FAVORITE"
     const val ACTION_NOTIFICATION_CLOSE = "app.gyrolet.mpvrx.action.NOTIFICATION_CLOSE"
@@ -121,6 +125,13 @@ class MediaPlaybackService :
 
     @Volatile
     private var activeInstance: MediaPlaybackService? = null
+
+    private val _foregroundActive = MutableStateFlow(false)
+    internal val foregroundActive = _foregroundActive.asStateFlow()
+
+    private fun publishForegroundActive() {
+      _foregroundActive.value = isForegroundActive()
+    }
 
     /**
      * True only while playback is detached from the foreground Activity.
@@ -161,7 +172,9 @@ class MediaPlaybackService :
           } else {
             service.handingBackToActivity = false
           }
+          service.updatePlaybackWakeLock()
         }
+        publishForegroundActive()
       }
 
     internal fun relinquishMediaSessionToActivity() {
@@ -185,6 +198,7 @@ class MediaPlaybackService :
       activeInstance?.let { service ->
         service.handingBackToActivity = true
         service.abandonAudioOwnership()
+        service.updatePlaybackWakeLock()
       }
     }
 
@@ -282,6 +296,7 @@ class MediaPlaybackService :
   @Volatile private var isCurrentFavorite = false
   private var usesAudioBackgroundPlayback = false
   private var externalDisplayWakeLock: PowerManager.WakeLock? = null
+  private var playbackWakeLock: PowerManager.WakeLock? = null
   private val audioManager by lazy { getSystemService(AUDIO_SERVICE) as AudioManager }
 
   // Mutated from the framework's audio-focus callback thread as well as serviceScope and the
@@ -294,14 +309,24 @@ class MediaPlaybackService :
 
   @Volatile
   private var handingBackToActivity = false
+    set(value) {
+      field = value
+      publishForegroundActive()
+    }
 
   @Volatile private var resumeAfterFocusGain = false
 
   @Volatile private var volumeBeforeDuck: Double? = null
   private var noisyReceiverRegistered = false
   private var playbackObserversStarted = false
+  private var handledEofGeneration: Long? = null
   @Volatile
   private var foregroundReady = false
+    set(value) {
+      field = value
+      updatePlaybackWakeLock()
+      publishForegroundActive()
+    }
   private val audioFocusChangeListener =
     AudioManager.OnAudioFocusChangeListener { change ->
       if (mpvAccessReleased || handingBackToActivity) return@OnAudioFocusChangeListener
@@ -368,6 +393,27 @@ class MediaPlaybackService :
     }
   }
 
+  /** The foreground notification alone does not keep the CPU running with the screen off. */
+  @Synchronized
+  private fun updatePlaybackWakeLock() {
+    val state = PlaybackSession.state.value
+    val shouldHold = foregroundReady && !mpvAccessReleased && !activityForeground &&
+      !handingBackToActivity && !state.paused && state.currentItem != null &&
+      state.phase in setOf(PlaybackPhase.LOADING, PlaybackPhase.READY, PlaybackPhase.BACKGROUND)
+    runCatching {
+      if (shouldHold) {
+        val wakeLock = playbackWakeLock ?: (getSystemService(POWER_SERVICE) as PowerManager)
+          .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$TAG:background-playback")
+          .apply { setReferenceCounted(false) }
+          .also { playbackWakeLock = it }
+        // A movie can outlive any fixed timeout; pause/stop/handoff/shutdown release this lock.
+        if (!wakeLock.isHeld) wakeLock.acquire()
+      } else {
+        playbackWakeLock?.let { if (it.isHeld) it.release() }
+      }
+    }.onFailure { error -> Log.e(TAG, "Could not update background playback wake lock", error) }
+  }
+
   private fun deactivateMediaSession() {
     foregroundReady = false
     if (::mediaSession.isInitialized) mediaSession.isActive = false
@@ -397,6 +443,11 @@ class MediaPlaybackService :
       ContextCompat.RECEIVER_NOT_EXPORTED,
     )
     noisyReceiverRegistered = true
+
+    serviceScope.launch {
+      // Includes pause, EOF, error, stop and native shutdown; no periodic wake-up timer.
+      PlaybackSession.state.collect { updatePlaybackWakeLock() }
+    }
 
     serviceScope.launch {
       combine(
@@ -445,7 +496,7 @@ class MediaPlaybackService :
       PlaybackSession.addObserver(this)
       PlaybackSession.observeProperty("pause", MPVLib.MpvFormat.MPV_FORMAT_FLAG)
       PlaybackSession.observeProperty("media-title", MPVLib.MpvFormat.MPV_FORMAT_STRING)
-      PlaybackSession.observeProperty("metadata/artist", MPVLib.MpvFormat.MPV_FORMAT_STRING)
+      PlaybackSession.observeProperty("metadata/by-key/artist", MPVLib.MpvFormat.MPV_FORMAT_STRING)
       PlaybackSession.observeProperty("time-pos", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
       PlaybackSession.observeProperty("duration", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
       PlaybackSession.observeProperty("speed", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE)
@@ -503,6 +554,14 @@ class MediaPlaybackService :
           playNextFromSession()
           if (foregroundReady) return START_NOT_STICKY
         }
+        ACTION_NOTIFICATION_SHUFFLE -> {
+          if (canHandleTransportAction()) {
+            val queueState = PlaybackSession.queue.value
+            PlaybackSession.setShuffleEnabled(!queueState.shuffleEnabled)
+            refreshTransportControls()
+          }
+          if (foregroundReady) return START_NOT_STICKY
+        }
         ACTION_NOTIFICATION_FAVORITE -> {
           toggleCurrentItemFavorite()
           if (foregroundReady) return START_NOT_STICKY
@@ -549,7 +608,7 @@ class MediaPlaybackService :
     // Fallback: Read current state from MPV if not provided via intent
     if (mediaTitle.isBlank()) {
       mediaTitle = FileTypeUtils.stripExtension(PlaybackSession.getPropertyString("media-title") ?: "")
-      mediaArtist = PlaybackSession.getPropertyString("metadata/artist") ?: ""
+      mediaArtist = PlaybackSession.getPropertyString("metadata/by-key/artist") ?: ""
     }
 
     paused = PlaybackSession.getPropertyBoolean("pause") == true
@@ -752,24 +811,6 @@ class MediaPlaybackService :
     PlaybackSession.playPrevious()?.let(::applySessionItem) ?: refreshTransportControls()
   }
 
-  private fun handleMediaPreviousAction() {
-    when (gesturePreferences.mediaPreviousGesture.get()) {
-      SingleActionGesture.Seek -> seekByConfiguredInterval(direction = -1)
-      SingleActionGesture.PlayPause -> togglePlaybackFromNotification()
-      SingleActionGesture.Custom -> PlaybackSession.command("keypress", CustomKeyCodes.MediaPrevious.keyCode)
-      SingleActionGesture.None -> Unit
-    }
-  }
-
-  private fun handleMediaNextAction() {
-    when (gesturePreferences.mediaNextGesture.get()) {
-      SingleActionGesture.Seek -> seekByConfiguredInterval(direction = 1)
-      SingleActionGesture.PlayPause -> togglePlaybackFromNotification()
-      SingleActionGesture.Custom -> PlaybackSession.command("keypress", CustomKeyCodes.MediaNext.keyCode)
-      SingleActionGesture.None -> Unit
-    }
-  }
-
   private fun handleMediaPlayAction(shouldPlay: Boolean) {
     when (gesturePreferences.mediaPlayGesture.get()) {
       SingleActionGesture.PlayPause -> {
@@ -782,15 +823,6 @@ class MediaPlaybackService :
       SingleActionGesture.None,
       -> Unit
     }
-  }
-
-  private fun seekByConfiguredInterval(direction: Int) {
-    val duration = PlaybackSession.getPropertyInt("duration") ?: 0
-    val seconds = gesturePreferences.doubleTapToSeekDuration.get() * direction
-    val shouldUsePreciseSeeking = playerPreferences.usePreciseSeeking.get() || duration < 120
-    val seekMode = if (shouldUsePreciseSeeking) "relative+exact" else "relative+keyframes"
-    PlaybackSession.command("seek", seconds.toString(), seekMode)
-    refreshTransportControls()
   }
 
   private fun applySessionItem(item: PlaybackItem) {
@@ -1005,6 +1037,7 @@ class MediaPlaybackService :
   private fun refreshTransportControls() {
     updateMediaSessionPlaybackState()
     updateNotification()
+    MediaPlayerWidget.requestUpdate(this)
   }
 
   private fun togglePlaybackFromNotification() {
@@ -1045,8 +1078,24 @@ class MediaPlaybackService :
     PlaybackSession.stop(clearQueue = false)
   }
 
-  private fun handleDetachedEndOfFile() {
-    if (activityForeground || PlaybackSession.state.value.surfaceAttached || !foregroundReady) return
+  private fun handleDetachedEndOfFile(expectedGeneration: Long, naturalEnd: Boolean = false) {
+    // A retained TextureView, mini player or external display is not an Activity playback owner.
+    // Only the foreground handoff decides whether the Activity or service advances the queue.
+    if (!canHandleDetachedTransport() || !foregroundReady) return
+    val state = PlaybackSession.state.value
+    if (state.generation != expectedGeneration || handledEofGeneration == expectedGeneration) return
+    if (state.phase !in setOf(PlaybackPhase.READY, PlaybackPhase.BACKGROUND) &&
+      !(naturalEnd && state.phase == PlaybackPhase.IDLE)
+    ) return
+    if (!naturalEnd) {
+      if (PlaybackSession.getPropertyBoolean("eof-reached") != true) return
+      // Read the live timeline here; the notification's throttled/coroutine-updated fields can
+      // still describe the previous position when the EOF property event arrives.
+      val duration = PlaybackSession.getPropertyDouble("duration") ?: mediaDurationSeconds
+      val position = PlaybackSession.getPropertyDouble("time-pos") ?: currentPositionSeconds
+      if (duration > 0.0 && position < duration - 2.0) return
+    }
+    handledEofGeneration = expectedGeneration
     if (AudiobookPlayback.handleEndOfFile()) return
     val queueState = PlaybackSession.queue.value
     val autoplay = queueState.currentItem?.audiobook != null ||
@@ -1553,7 +1602,7 @@ class MediaPlaybackService :
         .setContentIntent(buildContentIntent())
         .setDeleteIntent(buildTransportIntent(ACTION_NOTIFICATION_STOP, 1005))
         .setOngoing(!paused)
-        .setRequestPromotedOngoing(!paused)
+        .setRequestPromotedOngoing(!BuildConfig.IS_PLAY_STORE_BUILD && !paused)
         .setAutoCancel(false)
         .setSilent(true)
         .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
@@ -1694,11 +1743,14 @@ class MediaPlaybackService :
       }
       "eof-reached" -> {
         // keep-open never emits a natural END_FILE, so detached advance must key off this flag.
-        if (value &&
-          mediaDurationSeconds > 0.0 &&
-          currentPositionSeconds >= mediaDurationSeconds - 2.0
-        ) {
-          serviceScope.launch { handleDetachedEndOfFile() }
+        val generation = PlaybackSession.state.value.generation
+        serviceScope.launch {
+          if (value) {
+            handleDetachedEndOfFile(generation)
+          } else if (handledEofGeneration == generation) {
+            // Repeat-one and a user seek can reach EOF again within the same media generation.
+            handledEofGeneration = null
+          }
         }
       }
     }
@@ -1719,7 +1771,7 @@ class MediaPlaybackService :
           }
         }
       }
-      "metadata/artist" -> {
+      "metadata/by-key/artist" -> {
         serviceScope.launch {
           if (mediaArtist == value) return@launch
           mediaArtist = value
@@ -1797,7 +1849,8 @@ class MediaPlaybackService :
 
     if (eventId == MPVLib.MpvEvent.MPV_EVENT_END_FILE) {
       if (PlaybackSession.isNaturalEndFile(data)) {
-        serviceScope.launch { handleDetachedEndOfFile() }
+        val generation = PlaybackSession.state.value.generation
+        serviceScope.launch { handleDetachedEndOfFile(generation, naturalEnd = true) }
       }
 
       // The current file has finished (or been quit). Release the static
@@ -1955,6 +2008,7 @@ class MediaPlaybackService :
   private fun releaseMpvAccessBeforeShutdown() {
     if (mpvAccessReleased) return
     mpvAccessReleased = true
+    updatePlaybackWakeLock()
 
     runCatching { savePlaybackStateNow() }
       .onFailure { error -> Log.e(TAG, "Error saving playback state before MPV shutdown", error) }

@@ -25,8 +25,18 @@ object MusicLibraryScanner {
   private val ALBUM_ART_BASE_URI = Uri.parse("content://media/external/audio/albumart")
   private val albumTagCache = LruCache<String, String>(4096)
 
-  suspend fun scanSongs(context: Context): List<MusicSong> = withContext(Dispatchers.IO) {
+  private data class PendingAlbumTag(
+    val songIndex: Int,
+    val indexedAlbum: String?,
+    val mediaStoreAlbumId: Long,
+  )
+
+  suspend fun scanSongs(
+    context: Context,
+    onSongsIndexed: (suspend (List<MusicSong>) -> Unit)? = null,
+  ): List<MusicSong> = withContext(Dispatchers.IO) {
     val songs = mutableListOf<MusicSong>()
+    val pendingAlbumTags = mutableListOf<PendingAlbumTag>()
     val projection = arrayOf(
       MediaStore.Audio.Media._ID,
       MediaStore.Audio.Media.TITLE,
@@ -77,13 +87,16 @@ object MusicLibraryScanner {
           val path = cursor.getString(dataCol)
           val size = cursor.getLong(sizeCol)
           val duration = cursor.getLong(durationCol)
+          val dateModified = cursor.getLong(dateModifiedCol)
 
           // On Android 10+ the DATA column may be null or stale; use content URI as fallback.
           val contentUri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
           val effectivePath = path ?: contentUri.toString()
           val file = path?.let { File(it) }
-          val fileExists = try { file?.exists() == true } catch (_: Exception) { false }
-          if (!fileExists && size <= 0L && duration <= 0L) continue
+          if (size <= 0L && duration <= 0L) {
+            val fileExists = try { file?.exists() == true } catch (_: Exception) { false }
+            if (!fileExists) continue
+          }
           if (app.gyrolet.mpvrx.domain.audiobook.AudiobookMarkerUtils.isAudiobookPath(path ?: effectivePath)) continue
 
           val title = cursor.getString(titleCol)?.takeIf { it.isNotBlank() } ?: (file?.nameWithoutExtension ?: id.toString())
@@ -92,13 +105,27 @@ object MusicLibraryScanner {
           val folderName = file?.parentFile?.name ?: relativePathCol.takeIf { it >= 0 }?.let { column ->
             cursor.getString(column)?.let { File(it).name }
           }
-          val album = resolveAlbumTag(context, contentUri, indexedAlbum, folderName, cursor.getLong(dateModifiedCol), size)
-          val albumId = if (album?.equals(indexedAlbum, ignoreCase = true) == true) cursor.getLong(albumIdCol) else 0L
+          val needsAlbumVerification =
+            indexedAlbum == null || folderName == null || indexedAlbum.equals(folderName, ignoreCase = true)
+          val cachedAlbumTag = if (needsAlbumVerification) {
+            albumTagCache.get(albumTagCacheKey(contentUri, indexedAlbum, dateModified, size))
+          } else null
+          val album = if (needsAlbumVerification) cachedAlbumTag?.takeIf(String::isNotBlank) else indexedAlbum
+          val mediaStoreAlbumId = cursor.getLong(albumIdCol)
+          val albumId = if (album?.equals(indexedAlbum, ignoreCase = true) == true) mediaStoreAlbumId else 0L
           val dateAdded = cursor.getLong(dateAddedCol)
           val track = cursor.getInt(trackCol)
           val year = cursor.getInt(yearCol)
 
-          val albumArtUri = if (albumId > 0) ContentUris.withAppendedId(ALBUM_ART_BASE_URI, albumId) else null
+          if (needsAlbumVerification && cachedAlbumTag == null) {
+            pendingAlbumTags.add(PendingAlbumTag(songs.size, indexedAlbum, mediaStoreAlbumId))
+          }
+
+          // Keep MediaStore's artwork identity even when we intentionally avoid its album ID for
+          // grouping because the embedded album tag disagrees with the index. Dropping the raw ID
+          // here made otherwise valid cover art disappear for those songs.
+          val albumArtUri =
+            if (mediaStoreAlbumId > 0) ContentUris.withAppendedId(ALBUM_ART_BASE_URI, mediaStoreAlbumId) else null
 
           songs.add(
             MusicSong(
@@ -116,7 +143,7 @@ object MusicLibraryScanner {
               albumArtUri = albumArtUri,
               size = size,
               hasAlbumTag = album != null,
-              dateModified = cursor.getLong(dateModifiedCol),
+              dateModified = dateModified,
             )
           )
         }
@@ -127,21 +154,35 @@ object MusicLibraryScanner {
       Log.e(TAG, "Error scanning songs from MediaStore", e)
     }
 
+    if (pendingAlbumTags.isNotEmpty()) {
+      currentCoroutineContext().ensureActive()
+      onSongsIndexed?.invoke(songs.toList())
+      for (pending in pendingAlbumTags) {
+        currentCoroutineContext().ensureActive()
+        val song = songs[pending.songIndex]
+        val album = resolveAlbumTag(context, song.uri, pending.indexedAlbum, song.dateModified, song.size)
+        songs[pending.songIndex] = song.copy(
+          album = album ?: "Unknown Album",
+          albumId = if (album?.equals(pending.indexedAlbum, ignoreCase = true) == true) pending.mediaStoreAlbumId else 0L,
+          hasAlbumTag = album != null,
+        )
+      }
+    }
+
     songs
   }
+
+  private fun albumTagCacheKey(uri: Uri, indexedAlbum: String?, dateModified: Long, size: Long): String =
+    "$uri:$dateModified:$size:${indexedAlbum.orEmpty()}"
 
   private fun resolveAlbumTag(
     context: Context,
     uri: Uri,
     indexedAlbum: String?,
-    folderName: String?,
     dateModified: Long,
     size: Long,
   ): String? {
-    if (indexedAlbum != null && folderName != null && !indexedAlbum.equals(folderName, ignoreCase = true)) {
-      return indexedAlbum
-    }
-    val cacheKey = "$uri:$dateModified:$size:${indexedAlbum.orEmpty()}"
+    val cacheKey = albumTagCacheKey(uri, indexedAlbum, dateModified, size)
     albumTagCache.get(cacheKey)?.let { return it.takeIf(String::isNotBlank) }
     val retriever = MediaMetadataRetriever()
     return try {
@@ -153,50 +194,10 @@ object MusicLibraryScanner {
     } catch (error: CancellationException) {
       throw error
     } catch (_: Exception) {
-      indexedAlbum
+      null
     } finally {
       retriever.release()
     }
   }
 
-  suspend fun scanAlbums(context: Context, songs: List<MusicSong>): List<MusicAlbum> = withContext(Dispatchers.IO) {
-    if (songs.isNotEmpty()) {
-      // Group songs by albumId/album title for exact matching
-      songs.filter { it.hasAlbumTag }.groupBy { requireNotNull(it.albumKey) }
-        .map { (albumId, albumSongs) ->
-          val firstSong = albumSongs.first()
-          MusicAlbum(
-            id = albumId,
-            title = firstSong.album,
-            artist = firstSong.artist,
-            songCount = albumSongs.size,
-            year = albumSongs.maxOfOrNull { it.year } ?: 0,
-            albumArtUri = firstSong.albumArtUri,
-            artworkSong = firstSong,
-          )
-        }
-        .sortedBy { it.title.lowercase() }
-    } else {
-      emptyList()
-    }
-  }
-
-  suspend fun scanArtists(context: Context, songs: List<MusicSong>): List<MusicArtist> = withContext(Dispatchers.IO) {
-    if (songs.isNotEmpty()) {
-      songs.groupBy { it.artist.lowercase().trim() }
-        .map { (_, artistSongs) ->
-          val firstSong = artistSongs.first()
-          val albumCount = artistSongs.mapNotNull { it.albumKey }.distinct().size
-          MusicArtist(
-            id = firstSong.artist.hashCode().toLong(),
-            name = firstSong.artist,
-            songCount = artistSongs.size,
-            albumCount = albumCount
-          )
-        }
-        .sortedBy { it.name.lowercase() }
-    } else {
-      emptyList()
-    }
-  }
 }

@@ -12,6 +12,7 @@ package app.gyrolet.mpvrx.ui.player
 import androidx.annotation.StringRes
 import app.gyrolet.mpvrx.R
 import app.gyrolet.mpvrx.domain.hdr.HdrToysProfile
+import app.gyrolet.mpvrx.preferences.MpvConfigOverridePolicy
 
 /**
  * Available HDR screen output modes.
@@ -178,12 +179,6 @@ fun applyHdrScreenOutputOptions(
   pipelineReady: Boolean,
   boostSdrToHdr: Boolean = false,
 ) {
-  // OFF is mpv's own default colour profile, and these are init-time options: mpv.conf is parsed
-  // by the following MPVLib.init() and still wins over anything written here. On a core that was
-  // just created the ten writes below can only restate mpv's defaults, so skip them. Any core that
-  // has already been initialized (a re-applied option set) keeps the full write path, and so does
-  // the runtime-transition path in applyHdrScreenOutputProperties, which is untouched here.
-  if (mode == HdrScreenMode.OFF && !boostSdrToHdr && PlaybackSession.isNativeCorePendingInit) return
   hdrScreenOutputSettings(mode, pipelineReady, boostSdrToHdr).forEach { (property, value) ->
     PlaybackSession.setOptionString(property, value)
   }
@@ -201,7 +196,20 @@ fun applyHdrScreenOutputProperties(
   pipelineReady: Boolean,
   boostSdrToHdr: Boolean = false,
 ) {
-  hdrScreenOutputSettings(mode, pipelineReady, boostSdrToHdr).forEach { (property, value) ->
-    PlaybackSession.setPropertyString(property, value)
+  val changedOptions =
+    hdrScreenOutputSettings(mode, pipelineReady, boostSdrToHdr)
+      .filter { (property, value) ->
+        !MpvConfigOverridePolicy.isOwnedByMpvConf(property) &&
+          PlaybackSession.getPropertyString(property) != value
+      }
+  if (changedOptions.isEmpty()) return
+
+  // All ten HDR options are documented mpv properties. A single load-config-file command keeps
+  // the color profile changes together instead of repeatedly crossing JNI and triggering VO
+  // reconfiguration between unrelated intermediate HDR/SDR configurations.
+  val config = changedOptions.joinToString("\n") { (property, value) ->
+    require(value.none { it == '\n' || it == '\r' || it == '\u0000' })
+    "$property=%${value.toByteArray(Charsets.UTF_8).size}%$value"
   }
+  PlaybackSession.command("load-config-file", "memory://$config")
 }

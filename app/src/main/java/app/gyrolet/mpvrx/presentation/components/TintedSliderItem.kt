@@ -16,17 +16,18 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
+import app.gyrolet.mpvrx.ui.components.AppSlider as Slider
 import androidx.compose.material3.SliderColors
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
 import app.gyrolet.mpvrx.ui.player.controls.components.tvFocusHighlight
 import app.gyrolet.mpvrx.ui.theme.spacing
 import app.gyrolet.mpvrx.ui.utils.rememberAdjustmentHaptics
@@ -45,9 +46,12 @@ fun TintedSliderItem(
   modifier: Modifier = Modifier,
   min: Int = 0,
   enabled: Boolean = true,
+  // A continuous Liquid Glass track avoids the discrete 254-step slider for colors.
+  continuous: Boolean = false,
   icon: @Composable () -> Unit = {},
 ) {
-  val haptics = rememberAdjustmentHaptics(min.toFloat(), max.toFloat(), (max - min - 1).coerceAtLeast(0))
+  val steps = if (continuous) 0 else (max - min - 1).coerceAtLeast(0)
+  val haptics = rememberAdjustmentHaptics(min.toFloat(), max.toFloat(), steps)
 
   Row(
     modifier =
@@ -65,20 +69,7 @@ fun TintedSliderItem(
       modifier = Modifier.weight(1f),
       verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.extraSmall),
     ) {
-      Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-      ) {
-        Text(
-          text = label,
-          style = MaterialTheme.typography.bodyMedium,
-        )
-        Text(
-          text = valueText,
-          style = MaterialTheme.typography.bodyMedium,
-        )
-      }
+      SliderItemHeader(label = label, valueText = valueText)
 
       TintedSlider(
         value = value.toFloat(),
@@ -89,9 +80,15 @@ fun TintedSliderItem(
             haptics.move(value.toFloat(), newValue.toFloat())
           }
         },
-        modifier = Modifier.fillMaxWidth(),
+        modifier =
+          Modifier
+            .fillMaxWidth()
+            .semantics {
+              contentDescription = label
+              stateDescription = valueText
+            },
         valueRange = min.toFloat()..max.toFloat(),
-        steps = (max - min - 1).coerceAtLeast(0),
+        steps = steps,
         tint = tint,
         enabled = enabled,
       )
@@ -109,14 +106,14 @@ fun TintedSlider(
   @IntRange steps: Int = 0,
   onValueChangeFinished: (() -> Unit)? = null,
   tint: Color = MaterialTheme.colorScheme.primaryContainer,
-  interactionSource: MutableInteractionSource = MutableInteractionSource(),
+  interactionSource: MutableInteractionSource = remember { MutableInteractionSource() },
 ) {
   Slider(
     value = value,
     onValueChange = onValueChange,
     modifier =
       modifier.tvFocusHighlight(
-        RoundedCornerShape(12.dp),
+        MaterialTheme.shapes.medium,
         enabled = enabled,
         focusedScale = 1.01f,
       ),

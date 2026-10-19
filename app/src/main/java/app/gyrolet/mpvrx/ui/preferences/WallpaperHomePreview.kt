@@ -52,6 +52,7 @@ import app.gyrolet.mpvrx.preferences.MediaLayoutMode
 import app.gyrolet.mpvrx.preferences.preference.collectAsState
 import app.gyrolet.mpvrx.ui.browser.ExpressivePillNavigationBar
 import app.gyrolet.mpvrx.ui.browser.MainScreen
+import app.gyrolet.mpvrx.ui.browser.mainNavigationTabs
 import app.gyrolet.mpvrx.ui.browser.cards.FolderCard
 import app.gyrolet.mpvrx.ui.browser.components.BrowserTopBar
 import app.gyrolet.mpvrx.ui.icons.Icon
@@ -85,26 +86,21 @@ internal fun WallpaperHomePreviewDialog(
   val appearancePreferences = koinInject<AppearancePreferences>()
   val browserPreferences = koinInject<BrowserPreferences>()
   val showMusicTab by appearancePreferences.showMusicTab.collectAsState()
-  val showRecentsTab by appearancePreferences.showRecentsTab.collectAsState()
-  val showPlaylistsTab by appearancePreferences.showPlaylistsTab.collectAsState()
+  val showProfileTab by appearancePreferences.showProfileTab.collectAsState()
   val showNetworkTab by appearancePreferences.showNetworkTab.collectAsState()
   val showJellyfinTab by appearancePreferences.showJellyfinTab.collectAsState()
   val showQuickPlayFab by appearancePreferences.showQuickPlayFab.collectAsState()
   val layoutMode by browserPreferences.folderViewFolderLayoutMode.collectAsState()
 
-  // Same tab order as MainScreen: Home is always first, the pill only shows with 2+ tabs.
+  // Same tab order as MainScreen; the pill only shows with 2+ tabs.
   val navigationTabs =
-    remember(showMusicTab, showRecentsTab, showPlaylistsTab, showNetworkTab, showJellyfinTab) {
-      val tabs =
-        buildList {
-          add(MainScreen.MainTab.HOME)
-          if (showMusicTab) add(MainScreen.MainTab.MUSIC)
-          if (showRecentsTab) add(MainScreen.MainTab.RECENTS)
-          if (showPlaylistsTab) add(MainScreen.MainTab.PLAYLISTS)
-          if (showNetworkTab) add(MainScreen.MainTab.NETWORK)
-          if (showJellyfinTab) add(MainScreen.MainTab.JELLYFIN)
-        }
-      tabs.takeIf { it.size > 1 }.orEmpty()
+    remember(showMusicTab, showProfileTab, showNetworkTab, showJellyfinTab) {
+      mainNavigationTabs(
+        showMusic = showMusicTab,
+        showProfile = showProfileTab,
+        showNetwork = showNetworkTab,
+        showJellyfin = showJellyfinTab,
+      ).takeIf { it.size > 1 }.orEmpty()
     }
   val contentBottomPadding = if (navigationTabs.isEmpty()) 0.dp else 88.dp
   val folders = remember { previewFolders() }

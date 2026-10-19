@@ -78,8 +78,11 @@ import app.gyrolet.mpvrx.preferences.preference.collectAsState
 import app.gyrolet.mpvrx.presentation.Screen
 import app.gyrolet.mpvrx.presentation.components.pullrefresh.PullRefreshBox
 import app.gyrolet.mpvrx.ui.browser.cards.NetworkFolderCard
+import app.gyrolet.mpvrx.ui.browser.cards.MediaSelectionListGap
+import app.gyrolet.mpvrx.ui.browser.cards.MediaSelectionGridGap
 import app.gyrolet.mpvrx.ui.browser.cards.NetworkImageCard
 import app.gyrolet.mpvrx.ui.browser.cards.NetworkVideoCard
+import app.gyrolet.mpvrx.ui.browser.cards.mediaSelectionNeighbors
 import app.gyrolet.mpvrx.ui.imageviewer.ImageViewerItem
 import app.gyrolet.mpvrx.ui.imageviewer.ImageViewerScreen
 import app.gyrolet.mpvrx.ui.browser.components.BrowserTopBar
@@ -163,6 +166,14 @@ data class NetworkBrowserScreen(
     val isLoading by viewModel.isLoading.collectAsState()
     val error by viewModel.error.collectAsState()
 
+    // Keep the last successful directory listing in place on transient failures, but
+    // report the failed operation rather than silently swallowing its error.
+    LaunchedEffect(error, files.isNotEmpty()) {
+      if (error != null && files.isNotEmpty()) {
+        Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
+      }
+    }
+
     // UI State
     val isRefreshing = remember { mutableStateOf(false) }
     val sortDialogOpen = rememberSaveable { mutableStateOf(false) }
@@ -173,8 +184,9 @@ data class NetworkBrowserScreen(
       if (isSearching) focusRequester.requestFocus()
     }
 
-    // Load files when connectionId or currentPath changes
-    LaunchedEffect(connectionId, currentPath) {
+    // Each resolved path has its own ViewModel. Reload when that particular
+    // owner changes, including when Navigation 3 restores a previous entry.
+    LaunchedEffect(viewModel) {
       viewModel.loadFiles()
     }
 
@@ -588,7 +600,7 @@ private fun NetworkBrowserContent(
       }
     }
 
-    error != null -> {
+    error != null && files.isEmpty() -> {
       Box(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,
@@ -633,6 +645,7 @@ private fun NetworkBrowserContent(
         remember(filteredFiles, includeAudio) {
           filteredFiles.filter { it.isPlayableNetworkMedia(includeAudio) || it.isNetworkPlaylistFile() }
         }
+      val videoIndices = remember(videos) { videos.mapIndexed { index, file -> file.path to index }.toMap() }
       val images =
         remember(filteredFiles, includeImages) {
           if (includeImages) filteredFiles.filter { it.isNetworkImageFile() } else emptyList()
@@ -727,8 +740,8 @@ private fun NetworkBrowserContent(
                   top = 8.dp,
                   bottom = navigationBarHeight,
                 ),
-              horizontalArrangement = Arrangement.spacedBy(2.dp),
-              verticalArrangement = Arrangement.spacedBy(2.dp),
+              horizontalArrangement = Arrangement.spacedBy(MediaSelectionGridGap),
+              verticalArrangement = Arrangement.spacedBy(MediaSelectionGridGap),
             ) {
               browserSection(gridColumns, folders, folderHeaderText, topPadding = 8.dp) { folder ->
                 NetworkFolderCard(
@@ -745,6 +758,9 @@ private fun NetworkBrowserContent(
                     onClick = { onVideoClick(video) },
                     onLongClick = onVideoLongClick?.let { handler -> { handler(video) } },
                     isSelected = isVideoSelected(video),
+                    selectionNeighbors = mediaSelectionNeighbors(
+                      videoIndices[video.path] ?: -1, videos.size, gridColumns,
+                    ) { neighbor -> isVideoSelected(videos[neighbor]) },
                     isGridMode = true,
                     mediaType = mediaTypeBadgeFor(video, includeImages, isImage = false),
                   )
@@ -766,6 +782,7 @@ private fun NetworkBrowserContent(
             LazyColumn(
               state = listState,
               modifier = Modifier.fillMaxSize(),
+              verticalArrangement = Arrangement.spacedBy(MediaSelectionListGap),
               contentPadding =
                 PaddingValues(
                   start = 8.dp,
@@ -789,6 +806,9 @@ private fun NetworkBrowserContent(
                     onClick = { onVideoClick(video) },
                     onLongClick = onVideoLongClick?.let { handler -> { handler(video) } },
                     isSelected = isVideoSelected(video),
+                    selectionNeighbors = mediaSelectionNeighbors(
+                      videoIndices[video.path] ?: -1, videos.size, 1,
+                    ) { neighbor -> isVideoSelected(videos[neighbor]) },
                     isGridMode = false,
                     mediaType = mediaTypeBadgeFor(video, includeImages, isImage = false),
                   )

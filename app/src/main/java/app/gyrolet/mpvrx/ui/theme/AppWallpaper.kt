@@ -14,6 +14,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
@@ -43,6 +44,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.material3.MaterialTheme
 import app.gyrolet.mpvrx.preferences.AppearancePreferences
 import app.gyrolet.mpvrx.preferences.preference.collectAsState
+import app.gyrolet.mpvrx.ui.background.AnimatedBackground
+import app.gyrolet.mpvrx.ui.background.BackdropGate
+import app.gyrolet.mpvrx.ui.background.BackgroundType
+import app.gyrolet.mpvrx.ui.background.rememberActiveBackground
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.koin.compose.koinInject
@@ -97,7 +102,7 @@ fun AppWallpaperHost(content: @Composable () -> Unit) {
     }.value
   val contentAlpha by animateFloatAsState(
     targetValue = if (initialWallpaperResolved) 1f else 0f,
-    animationSpec = tween(durationMillis = 180),
+    animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
     label = "wallpaperContentAlpha",
   )
   DisposableEffect(wallpaper) {
@@ -112,6 +117,11 @@ fun AppWallpaperHost(content: @Composable () -> Unit) {
     }
   }
   val wallpaperActive = wallpaper != null
+  // Animated backdrop: drawn over the wallpaper only when the user allows it, and screens go
+  // transparent for it exactly as they do for a wallpaper.
+  val activeBackground = rememberActiveBackground()
+  val animationShown =
+    activeBackground.type != BackgroundType.NONE && (!wallpaperActive || activeBackground.overWallpaper)
   val isLightTheme = MaterialTheme.colorScheme.background.luminance() >= 0.5f
   val wallpaperLuminance =
     produceState(initialValue = 0.4f, wallpaper) {
@@ -124,22 +134,35 @@ fun AppWallpaperHost(content: @Composable () -> Unit) {
     modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
   ) {
     wallpaper?.let { bitmap ->
-      WallpaperImage(
-        bitmap = bitmap,
-        zoom = wallpaperZoom,
-        offsetX = wallpaperOffsetX,
-        offsetY = wallpaperOffsetY,
-        scaleMode = wallpaperScaleMode,
-        blurRadius = wallpaperBlur,
-        imageAlpha = wallpaperAlpha,
-        modifier = Modifier.fillMaxSize(),
-      )
-      Box(
-        modifier = Modifier.fillMaxSize().background(rememberWallpaperScrimColor(bitmap)),
-      )
+      // Fade the wallpaper in together with the content so the launch hands off from the splash
+      // as one crossfade instead of the wallpaper hard-cutting in before the content.
+      Box(modifier = Modifier.fillMaxSize().graphicsLayer { alpha = contentAlpha }) {
+        WallpaperImage(
+          bitmap = bitmap,
+          zoom = wallpaperZoom,
+          offsetX = wallpaperOffsetX,
+          offsetY = wallpaperOffsetY,
+          scaleMode = wallpaperScaleMode,
+          blurRadius = wallpaperBlur,
+          imageAlpha = wallpaperAlpha,
+          modifier = Modifier.fillMaxSize(),
+        )
+        Box(
+          modifier = Modifier.fillMaxSize().background(rememberWallpaperScrimColor(bitmap)),
+        )
+      }
+    }
+    if (animationShown) {
+      Box(modifier = Modifier.fillMaxSize().graphicsLayer { alpha = contentAlpha }) {
+        AnimatedBackground(
+          type = activeBackground.type,
+          parallax = activeBackground.parallax,
+          paused = BackdropGate.covers > 0,
+        )
+      }
     }
     CompositionLocalProvider(
-      LocalAppWallpaperActive provides wallpaperActive,
+      LocalAppWallpaperActive provides (wallpaperActive || animationShown),
       LocalLightTextOnWallpaper provides lightTextOnWallpaper,
     ) {
       Box(modifier = Modifier.fillMaxSize().graphicsLayer { alpha = contentAlpha }) {

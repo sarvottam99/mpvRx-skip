@@ -20,31 +20,37 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.gyrolet.mpvrx.ui.theme.AppMotion
+import app.gyrolet.mpvrx.ui.liquidglass.liquidGlassEffects
+import app.gyrolet.mpvrx.ui.liquidglass.rememberLiquidGlassSettings
+import app.gyrolet.mpvrx.preferences.AppearancePreferences
+import app.gyrolet.mpvrx.preferences.preference.collectAsState
+import androidx.compose.runtime.getValue
+import org.koin.compose.koinInject
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.isRenderEffectSupported
-import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.lens
-import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
+import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
+import com.kyant.shapes.Capsule
+import com.kyant.shapes.RoundedRectangle
 
-private val LocalLiquidGlassBackdrop = staticCompositionLocalOf<LayerBackdrop?> { null }
+typealias LiquidGlassBackdrop = LayerBackdrop
+
+internal val LocalLiquidGlassBackdrop = staticCompositionLocalOf<LiquidGlassBackdrop?> { null }
 
 @Composable
-fun rememberLiquidGlassBackdrop(): LayerBackdrop = rememberLayerBackdrop()
+fun rememberLiquidGlassBackdrop(): LiquidGlassBackdrop = rememberLayerBackdrop()
 
 fun Modifier.captureLiquidGlassBackdrop(
-  backdrop: LayerBackdrop?,
+  backdrop: LiquidGlassBackdrop?,
   enabled: Boolean = true,
-): Modifier =
-  if (enabled && backdrop != null && isRenderEffectSupported()) layerBackdrop(backdrop) else this
+): Modifier = if (enabled && backdrop != null) layerBackdrop(backdrop) else this
 
 @Composable
 fun ProvideLiquidGlassBackdrop(
-  backdrop: LayerBackdrop,
+  backdrop: LiquidGlassBackdrop,
   enabled: Boolean = true,
   content: @Composable () -> Unit,
 ) {
@@ -59,7 +65,7 @@ enum class LiquidGlassStyle {
   Navigation,
 }
 
-/** A Compose-native glass panel with a readable opaque fallback below Android 12. */
+/** Kyant-backed liquid glass surface shared by mini players and floating action bars. */
 @Composable
 fun LiquidGlassSurface(
   shape: Shape,
@@ -68,48 +74,73 @@ fun LiquidGlassSurface(
   glassColor: Color,
   fallbackColor: Color,
   contentColor: Color = MaterialTheme.colorScheme.onSurface,
-  backdrop: LayerBackdrop? = LocalLiquidGlassBackdrop.current,
+  backdrop: LiquidGlassBackdrop? = LocalLiquidGlassBackdrop.current,
+  glowStrength: Float = 1f,
+  cornerRadius: Dp? = null,
   content: @Composable BoxScope.() -> Unit,
 ) {
+  val glassSettings = rememberLiquidGlassSettings()
+  val preferences = koinInject<AppearancePreferences>()
+  val glassEnabled by preferences.liquidGlassEnabled.collectAsState()
+  val renderGlass = glassEnabled && backdrop != null
   val reducedMotion = AppMotion.shouldReduceMotion()
-  val blurRadius = if (style == LiquidGlassStyle.MiniPlayer) 12.dp else 8.dp
-  val refractionHeight = if (style == LiquidGlassStyle.MiniPlayer) 14.dp else 12.dp
-  val refractionAmount = if (style == LiquidGlassStyle.MiniPlayer) 26.dp else 22.dp
+  val blurRadius = when (style) {
+    LiquidGlassStyle.MiniPlayer -> 12.dp
+    LiquidGlassStyle.Navigation -> 8.dp
+  }
+  val refractionHeight = when (style) {
+    LiquidGlassStyle.MiniPlayer -> 18.dp
+    LiquidGlassStyle.Navigation -> 14.dp
+  }
+  val refractionAmount = when (style) {
+    LiquidGlassStyle.MiniPlayer -> 26.dp
+    LiquidGlassStyle.Navigation -> 22.dp
+  }
   val shadowElevation: Dp = if (style == LiquidGlassStyle.MiniPlayer) 10.dp else 8.dp
 
   val surfaceModifier =
-    if (backdrop != null && isRenderEffectSupported()) {
-      modifier.drawBackdrop(
-        backdrop = backdrop,
-        shape = { shape },
-        effects = {
-          vibrancy()
-          blur(blurRadius.toPx())
-          if (!reducedMotion) {
-            lens(
-              refractionHeight = refractionHeight.toPx(),
-              refractionAmount = refractionAmount.toPx(),
-              depthEffect = true,
-              chromaticAberration = true,
+    if (renderGlass) {
+      modifier
+        .drawBackdrop(
+          backdrop = checkNotNull(backdrop),
+          shape = {
+            when {
+              cornerRadius != null -> RoundedRectangle(cornerRadius)
+              style == LiquidGlassStyle.MiniPlayer -> shape
+              else -> Capsule()
+            }
+          },
+          effects = {
+            liquidGlassEffects(
+              glassSettings, blurRadius.toPx(), refractionHeight.toPx(), refractionAmount.toPx(),
+              vibrant = true,
+              refractionEnabled = !reducedMotion,
             )
-          }
-        },
-        highlight = {
-          if (reducedMotion) Highlight.Plain.copy(alpha = 0.35f) else Highlight.Default
-        },
-        shadow = {
-          Shadow(
-            radius = shadowElevation,
-            color = Color.Black.copy(alpha = 0.16f),
-          )
-        },
-        onDrawSurface = { drawRect(glassColor) },
-      )
+          },
+          highlight = {
+            glassSettings.highlight(Highlight.Ambient.copy(alpha = (if (reducedMotion) 0.28f else 0.52f) * glowStrength))
+          },
+          shadow = {
+            Shadow(
+              radius = shadowElevation,
+              color = Color.Black.copy(alpha = 0.16f * glowStrength),
+            )
+          },
+          innerShadow = {
+            InnerShadow(
+              radius = 2.dp,
+              color = Color.White.copy(alpha = 0.14f * glowStrength),
+            )
+          },
+          onDrawSurface = {
+            drawRect(glassSettings.surfaceColor(glassColor))
+          },
+        )
     } else {
       modifier
         .shadow(shadowElevation, shape)
         .clip(shape)
-        .background(fallbackColor)
+        .background(if (renderGlass) glassSettings.surfaceColor(glassColor) else fallbackColor)
     }
 
   CompositionLocalProvider(LocalContentColor provides contentColor) {

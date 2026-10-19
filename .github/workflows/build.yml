@@ -92,7 +92,7 @@ jobs:
 
   build:
     needs: prepare-mkvbridge
-    name: Build ${{ matrix.distribution.name }} APKs
+    name: Build ${{ matrix.distribution.name }} ${{ matrix.distribution.package == 'aab' && 'bundle' || 'APKs' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
@@ -104,16 +104,31 @@ jobs:
             gradle: Standard
             dir: standard
             abis: universal arm64-v8a armeabi-v7a x86 x86_64
+            package: apk
           - id: fongmi
             name: FongMi
             gradle: Fongmi
             dir: fongmi
             abis: universal
+            package: apk
           - id: no_vulkan
             name: No Vulkan
             gradle: NoVulkan
             dir: noVulkan
             abis: universal
+            package: apk
+          - id: playstore
+            name: Play Store
+            gradle: Playstore
+            dir: playstore
+            abis: universal
+            package: apk
+          - id: playstore_bundle
+            name: Play Store
+            gradle: Playstore
+            dir: playstore
+            abis: ''
+            package: aab
     env:
       DISTRIBUTION: ${{ matrix.distribution.id }}
       GRADLE_FLAVOR: ${{ matrix.distribution.gradle }}
@@ -126,12 +141,6 @@ jobs:
         with:
           # BuildConfig.GIT_COUNT and preview build identities rely on the real repository history.
           fetch-depth: 0
-
-      - name: Download mkvbridge AAR
-        uses: actions/download-artifact@v7
-        with:
-          name: mkvbridge-aar
-          path: app/libs
 
       - name: Generate build metadata
         id: metadata
@@ -154,12 +163,56 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Build release APKs
+        if: ${{ matrix.distribution.package == 'apk' }}
         shell: bash
         run: |
           set -euo pipefail
           ./gradlew "assemble${GRADLE_FLAVOR}Release" --stacktrace --no-daemon --max-workers=2
 
+      - name: Build release bundle
+        if: ${{ matrix.distribution.package == 'aab' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew "bundle${GRADLE_FLAVOR}Release" --stacktrace --no-daemon --max-workers=2
+
+      - name: Sign bundle when signing secrets are available
+        if: ${{ matrix.distribution.package == 'aab' }}
+        shell: bash
+        env:
+          SIGNING_KEYSTORE: ${{ secrets.SIGNING_KEYSTORE }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          bundle="app/build/outputs/bundle/${APK_DIR}Release/app-${APK_DIR}-release.aab"
+          test -f "$bundle"
+
+          if [[ -z "$SIGNING_KEYSTORE" ]]; then
+            echo "SIGNING_KEYSTORE is unavailable (expected for untrusted fork PRs); keeping the CI bundle unsigned."
+            exit 0
+          fi
+
+          if [[ -z "$SIGNING_KEY_ALIAS" || -z "$SIGNING_STORE_PASSWORD" || -z "$KEY_PASSWORD" ]]; then
+            echo "SIGNING_KEYSTORE exists but one or more required signing secrets are missing."
+            exit 1
+          fi
+
+          printf '%s' "$SIGNING_KEYSTORE" | base64 --decode > release.keystore
+          trap 'rm -f release.keystore' EXIT
+
+          # App bundles are signed with jarsigner; apksigner only handles APKs.
+          jarsigner \
+            -keystore release.keystore \
+            -storepass "$SIGNING_STORE_PASSWORD" \
+            -keypass "$KEY_PASSWORD" \
+            "$bundle" \
+            "$SIGNING_KEY_ALIAS"
+          jarsigner -verify "$bundle"
+
       - name: Sign APKs when signing secrets are available
+        if: ${{ matrix.distribution.package == 'apk' }}
         shell: bash
         env:
           SIGNING_KEYSTORE: ${{ secrets.SIGNING_KEYSTORE }}
@@ -264,6 +317,18 @@ jobs:
                 exit 1
               fi
               ;;
+            playstore)
+              release_dir="app/build/outputs/apk/playstore/release"
+              if ! compgen -G "$release_dir/app-playstore-universal-release*.apk" >/dev/null; then
+                echo "No universal Play Store release APK found"
+                exit 1
+              fi
+              if find "$release_dir" -maxdepth 1 -type f -name "app-playstore-*-release*.apk" ! -name "app-playstore-universal-release*.apk" | grep -q .; then
+                echo "The Play Store flavor produced an unexpected ABI-specific APK"
+                find "$release_dir" -maxdepth 1 -type f -name '*.apk' -print
+                exit 1
+              fi
+              ;;
           esac
 
       - name: Upload arm64-v8a APK
@@ -332,6 +397,26 @@ jobs:
         with:
           name: app-no-vulkan-release-${{ steps.metadata.outputs.short_sha }}
           path: app/build/outputs/apk/noVulkan/release/app-noVulkan-universal-release*.apk
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload Play Store universal APK
+        if: ${{ matrix.distribution.id == 'playstore' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: app-playstore-release-${{ steps.metadata.outputs.short_sha }}
+          path: app/build/outputs/apk/playstore/release/app-playstore-universal-release*.apk
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload Play Store bundle
+        if: ${{ matrix.distribution.id == 'playstore_bundle' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: app-playstore-bundle-release-${{ steps.metadata.outputs.short_sha }}
+          path: app/build/outputs/bundle/playstoreRelease/app-playstore-release.aab
           if-no-files-found: error
           retention-days: 14
           compression-level: 0

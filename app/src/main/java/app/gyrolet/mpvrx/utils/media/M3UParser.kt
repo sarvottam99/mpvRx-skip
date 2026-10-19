@@ -243,9 +243,6 @@ object M3UParser {
       error("Failed to parse playlist content")
     }
 
-  fun isLikelyHlsMediaManifest(content: String): Boolean =
-    content.lineSequence().any { rawLine -> normalizeLine(rawLine).startsWith("#EXT-X-", ignoreCase = true) }
-
   fun shouldPlayHlsDirectly(result: M3UParseResult): Boolean =
     result is M3UParseResult.Error && result.message == HLS_ERROR
 

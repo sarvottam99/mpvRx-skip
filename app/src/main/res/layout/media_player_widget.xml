@@ -31,13 +31,6 @@
         android:src="@drawable/media_widget_music_note"
         android:tint="@color/media_widget_foreground_light" />
 
-    <ImageView
-        android:id="@+id/media_widget_scrim"
-        android:layout_width="match_parent"
-        android:layout_height="144dp"
-        android:layout_gravity="bottom"
-        android:background="@drawable/media_widget_scrim_light"
-        android:contentDescription="@null" />
 
     <LinearLayout
         android:layout_width="match_parent"

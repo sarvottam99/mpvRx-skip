@@ -309,7 +309,7 @@ class PlaylistDetailViewModel(
               val fileExists = file.exists()
               val isAudioFile = FileTypeUtils.isAudioFile(file)
               val matchedVideo = allVideos.find { video -> video.path == item.filePath }
-              val video = matchedVideo ?: run {
+              val video = matchedVideo?.let { if (isAudioFile && !it.isAudio) it.copy(isAudio = true) else it } ?: run {
                 Video(
                   id = item.id.toLong(),
                   title = item.fileName,
@@ -350,20 +350,6 @@ class PlaylistDetailViewModel(
       Log.e(TAG, "Error refreshing playlist videos", e)
     } finally {
       _isLoading.value = false
-    }
-  }
-
-  suspend fun updatePlaylistName(newName: String) {
-    _playlist.value?.let { playlist ->
-      playlistRepository.updatePlaylist(playlist.copy(name = newName))
-    }
-  }
-
-  suspend fun removeVideoFromPlaylist(video: Video) {
-    val items = playlistRepository.getPlaylistItems(playlistId)
-    val itemToRemove = items.find { it.filePath == video.path }
-    itemToRemove?.let {
-      playlistRepository.removeItemFromPlaylist(it)
     }
   }
 

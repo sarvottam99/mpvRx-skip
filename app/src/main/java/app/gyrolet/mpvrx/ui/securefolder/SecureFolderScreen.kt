@@ -26,11 +26,8 @@ import app.gyrolet.mpvrx.utils.storage.VideoScanUtils
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
@@ -55,7 +52,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.gyrolet.mpvrx.R
-import app.gyrolet.mpvrx.database.entities.SecureMediaEntity
 import app.gyrolet.mpvrx.database.repository.VideoMetadataCacheRepository
 import app.gyrolet.mpvrx.domain.media.model.Video
 import app.gyrolet.mpvrx.preferences.AppearancePreferences
@@ -78,7 +74,6 @@ import app.gyrolet.mpvrx.ui.utils.popSafely
 import app.gyrolet.mpvrx.utils.media.MediaInfoOps
 import app.gyrolet.mpvrx.utils.media.MediaUtils
 import app.gyrolet.mpvrx.utils.sort.SortUtils
-import android.widget.Toast
 import kotlinx.serialization.Serializable
 import org.koin.compose.koinInject
 import java.io.File
@@ -99,8 +94,6 @@ data object SecureFolderScreen : Screen {
     val viewModel: SecureFolderViewModel =
       viewModel(factory = SecureFolderViewModel.factory(context.applicationContext as android.app.Application))
 
-    val pinChangedMessage = stringResource(R.string.secure_folder_pin_changed)
-    val securityQuestionChangedMessage = stringResource(R.string.secure_folder_security_question_changed)
 
     val browserPreferences = koinInject<BrowserPreferences>()
     val appearancePreferences = koinInject<AppearancePreferences>()
@@ -112,7 +105,6 @@ data object SecureFolderScreen : Screen {
     val isBusy by viewModel.isBusy.collectAsState()
     val operationProgress by viewModel.operationProgress.collectAsState()
     val operationResult by viewModel.operationResult.collectAsState()
-    val isEntryPointHidden by viewModel.preferences.isEntryPointHidden.collectAsState()
 
     // Preferences for sorting, layout mode and video card UI config
     val videoSortType by browserPreferences.videoSortType.collectAsState()
@@ -229,11 +221,7 @@ data object SecureFolderScreen : Screen {
     val gridState = rememberLazyGridState()
 
     var pendingAction by remember { mutableStateOf<PendingAction?>(null) }
-    var changePinOpen by remember { mutableStateOf(false) }
-    var changeSecurityQuestionOpen by remember { mutableStateOf(false) }
-    var hideEntryPointConfirmOpen by remember { mutableStateOf(false) }
     var sortDialogOpen by rememberSaveable { mutableStateOf(false) }
-    var isScrollbarDragging by remember { mutableStateOf(false) }
 
     LaunchedEffect(operationResult) {
       operationResult?.let {
@@ -273,87 +261,6 @@ data object SecureFolderScreen : Screen {
               viewModel.deleteSelectedForever()
             } else {
               pendingAction = PendingAction.DELETE
-            }
-          },
-          additionalActions = {
-            if (!isInSelectionMode) {
-              var menuExpanded by remember { mutableStateOf(false) }
-              Box {
-                IconButton(onClick = { menuExpanded = true }) {
-                  Icon(
-                    Icons.RoundedFilled.MoreVert,
-                    contentDescription = null,
-                    modifier = Modifier.size(24.dp),
-                    tint = MaterialTheme.colorScheme.secondary,
-                  )
-                }
-                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                  DropdownMenuItem(
-                    text = {
-                      Text(
-                        if (isEntryPointHidden) {
-                          stringResource(R.string.secure_folder_show_in_preferences)
-                        } else {
-                          stringResource(R.string.secure_folder_hide_from_preferences)
-                        }
-                      )
-                    },
-                    leadingIcon = {
-                      Icon(
-                        if (isEntryPointHidden) Icons.RoundedFilled.Visibility else Icons.RoundedFilled.VisibilityOff,
-                        contentDescription = null,
-                      )
-                    },
-                    onClick = {
-                      if (isEntryPointHidden) {
-                        viewModel.toggleEntryPointHidden()
-                      } else if (viewModel.preferences.dontAskBeforeHideEntryPoint.get()) {
-                        viewModel.toggleEntryPointHidden()
-                      } else {
-                        hideEntryPointConfirmOpen = true
-                      }
-                      menuExpanded = false
-                    },
-                  )
-                  DropdownMenuItem(
-                    text = { Text(stringResource(R.string.secure_folder_change_pin)) },
-                    leadingIcon = { Icon(Icons.RoundedFilled.Lock, contentDescription = null) },
-                    onClick = {
-                      changePinOpen = true
-                      menuExpanded = false
-                    },
-                  )
-                  DropdownMenuItem(
-                    text = { Text(stringResource(R.string.secure_folder_change_security_question)) },
-                    leadingIcon = { Icon(Icons.RoundedFilled.HelpOutline, contentDescription = null) },
-                    onClick = {
-                      changeSecurityQuestionOpen = true
-                      menuExpanded = false
-                    },
-                  )
-                  DropdownMenuItem(
-                    text = {
-                      Text(
-                        if (viewModel.isBiometricEnabled()) {
-                          stringResource(R.string.secure_folder_disable_fingerprint)
-                        } else {
-                          stringResource(R.string.secure_folder_enable_fingerprint)
-                        }
-                      )
-                    },
-                    leadingIcon = {
-                      Icon(
-                        Icons.RoundedFilled.Fingerprint,
-                        contentDescription = null,
-                      )
-                    },
-                    onClick = {
-                      viewModel.setBiometricEnabled(!viewModel.isBiometricEnabled())
-                      menuExpanded = false
-                    },
-                  )
-                }
-              }
             }
           },
         )
@@ -475,7 +382,6 @@ data object SecureFolderScreen : Screen {
                       thumbnailWidthPx = thumbWidthPx,
                       thumbnailHeightPx = thumbHeightPx,
                       allowThumbnailGeneration = true,
-                      allowThumbnailLoading = !isScrollbarDragging,
                       uiConfig = videoCardUiConfig,
                     )
                   }
@@ -487,7 +393,6 @@ data object SecureFolderScreen : Screen {
                     dragLabelProvider = { index ->
                       fastScrollGlyph(sortedSecureMediaVideos.getOrNull(index)?.second?.displayName)
                     },
-                    onDragStateChanged = { isDragging -> isScrollbarDragging = isDragging },
                     modifier =
                       Modifier
                         .align(Alignment.CenterEnd)
@@ -534,7 +439,6 @@ data object SecureFolderScreen : Screen {
                       },
                       isGridMode = false,
                       allowThumbnailGeneration = true,
-                      allowThumbnailLoading = !isScrollbarDragging,
                       uiConfig = videoCardUiConfig,
                     )
                   }
@@ -546,7 +450,6 @@ data object SecureFolderScreen : Screen {
                     dragLabelProvider = { index ->
                       fastScrollGlyph(sortedSecureMediaVideos.getOrNull(index)?.second?.displayName)
                     },
-                    onDragStateChanged = { isDragging -> isScrollbarDragging = isDragging },
                     modifier =
                       Modifier
                         .align(Alignment.CenterEnd)
@@ -590,37 +493,11 @@ data object SecureFolderScreen : Screen {
       onDismiss = { pendingAction = null },
     )
 
-    SecureConfirmDialog(
-      isOpen = hideEntryPointConfirmOpen,
-      title = stringResource(R.string.secure_folder_hide_entry_title),
-      subtitle = stringResource(R.string.secure_folder_hide_entry_subtitle),
-      dontAskAgain = viewModel.preferences.dontAskBeforeHideEntryPoint,
-      onConfirm = {
-        viewModel.toggleEntryPointHidden()
-        hideEntryPointConfirmOpen = false
-      },
-      onDismiss = { hideEntryPointConfirmOpen = false },
-    )
-
     SecureFolderProgressDialog(
       isOpen = isBusy,
       progress = operationProgress,
       label = stringResource(R.string.secure_folder_working_on_it),
       onCancel = { viewModel.cancelCurrentOperation() },
-    )
-
-    ChangePinDialog(
-      isOpen = changePinOpen,
-      preferences = viewModel.preferences,
-      onDismiss = { changePinOpen = false },
-      onChanged = { Toast.makeText(context, pinChangedMessage, Toast.LENGTH_SHORT).show() },
-    )
-
-    ChangeSecurityQuestionDialog(
-      isOpen = changeSecurityQuestionOpen,
-      preferences = viewModel.preferences,
-      onDismiss = { changeSecurityQuestionOpen = false },
-      onChanged = { Toast.makeText(context, securityQuestionChangedMessage, Toast.LENGTH_SHORT).show() },
     )
 
     VideoSortDialog(

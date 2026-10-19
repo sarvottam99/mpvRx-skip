@@ -16,4 +16,7 @@
     <color name="media_widget_pressed_dark">#30FFFFFF</color>
     <dimen name="media_widget_band_compact">88dp</dimen>
     <dimen name="media_widget_band_wide">64dp</dimen>
+    <dimen name="media_widget_pill_height">72dp</dimen>
+    <dimen name="media_widget_pill_art">56dp</dimen>
+    <dimen name="media_widget_pill_button">34dp</dimen>
 </resources>

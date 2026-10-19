@@ -38,6 +38,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
@@ -60,10 +61,12 @@ import app.gyrolet.mpvrx.ui.player.PlayerViewModel
 import app.gyrolet.mpvrx.ui.player.controls.CARDS_MAX_WIDTH
 import app.gyrolet.mpvrx.ui.player.controls.panelCardsColors
 import app.gyrolet.mpvrx.ui.player.defaultSubtitleFontDisplayName
-import app.gyrolet.mpvrx.ui.player.resolveSubtitleFontFamily
 import app.gyrolet.mpvrx.ui.theme.spacing
+import app.gyrolet.mpvrx.ui.theme.AppConnectedShapeTokens
 import app.gyrolet.mpvrx.ui.utils.currentMpvConfigOverrideOptions
+import app.gyrolet.mpvrx.utils.media.SubtitleFontChoice
 import app.gyrolet.mpvrx.utils.media.loadCustomFontEntries
+import app.gyrolet.mpvrx.utils.media.subtitleFontChoices
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -77,6 +80,7 @@ import org.koin.compose.koinInject
 fun SubtitleSettingsTypographyCard(
   viewModel: PlayerViewModel,
   modifier: Modifier = Modifier,
+  shape: Shape = MaterialTheme.shapes.large,
 ) {
   val context = LocalContext.current
   val resources = LocalResources.current
@@ -100,6 +104,8 @@ fun SubtitleSettingsTypographyCard(
   var isExpanded by remember { mutableStateOf(true) }
   val effectiveDefaultFont = DEFAULT_SUBTITLE_FONT_FAMILY
   var fonts by remember { mutableStateOf(listOf("Default")) }
+  var fontChoices by remember { mutableStateOf<List<SubtitleFontChoice>>(emptyList()) }
+  var preferredFontLabel by remember { mutableStateOf("") }
   var fontsLoadingIndicator: (@Composable () -> Unit)? by remember {
     val indicator: (@Composable () -> Unit) = {
       CircularProgressIndicator(Modifier.size(32.dp))
@@ -107,19 +113,17 @@ fun SubtitleSettingsTypographyCard(
     mutableStateOf(indicator)
   }
   LaunchedEffect(Unit) {
-    fonts =
+    fontChoices =
       withContext(Dispatchers.IO) {
-        val downloaded =
-          googleFontsRepository
-            .installedFonts(appearancePreferences.googleFontFamily.get())
-            .map { it.family }
-        val custom = loadCustomFontEntries(context).map { it.familyName }
-        listOf("Default") +
-          (downloaded + custom)
-            .filter { it != DEFAULT_SUBTITLE_FONT_FAMILY && it != LEGACY_DEFAULT_SUBTITLE_FONT_FAMILY }
-            .distinct()
-            .sorted()
+        val downloaded = googleFontsRepository
+          .installedFonts(appearancePreferences.googleFontFamily.get())
+          .map { it.family }
+        val custom = loadCustomFontEntries(context)
+          .filterNot { googleFontsRepository.isManagedMpvFont(it.file) }
+        subtitleFontChoices(downloaded, custom)
+          .filter { it.familyName != DEFAULT_SUBTITLE_FONT_FAMILY && it.familyName != LEGACY_DEFAULT_SUBTITLE_FONT_FAMILY }
       }
+    fonts = listOf("Default") + fontChoices.map { it.label }
     fontsLoadingIndicator = null
   }
 
@@ -136,8 +140,9 @@ fun SubtitleSettingsTypographyCard(
     },
     modifier = modifier.widthIn(max = CARDS_MAX_WIDTH),
     colors = panelCardsColors(),
+    shape = shape,
   ) {
-    Column {
+    Column(verticalArrangement = Arrangement.spacedBy(AppConnectedShapeTokens.spacing)) {
       AssOverrideWarningBanner(viewModel = viewModel, preferences = preferences)
 
       val isBold by PlaybackSession.propBoolean["sub-bold"].collectAsState()
@@ -160,8 +165,9 @@ fun SubtitleSettingsTypographyCard(
       var localShadowOffset by remember(shadowOffset) {
         mutableStateOf(shadowOffset ?: preferences.shadowOffset.get())
       }
-      Row(
-        Modifier
+      PanelConnectedTile(index = 0, itemCount = 6) {
+        Row(
+          Modifier
           .fillMaxWidth()
           .horizontalScroll(rememberScrollState())
           .padding(start = MaterialTheme.spacing.extraSmall, end = MaterialTheme.spacing.medium),
@@ -227,7 +233,9 @@ fun SubtitleSettingsTypographyCard(
           }
         }
       }
-      Row(
+      }
+      PanelConnectedTile(index = 1, itemCount = 6) {
+        Row(
         modifier = Modifier.padding(horizontal = MaterialTheme.spacing.medium),
         horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.medium),
         verticalAlignment = Alignment.CenterVertically,
@@ -238,11 +246,21 @@ fun SubtitleSettingsTypographyCard(
           modifier = Modifier.size(32.dp),
         )
         ExposedTextDropDownMenu(
-          selectedValue = font?.takeUnless { it == effectiveDefaultFont || it == LEGACY_DEFAULT_SUBTITLE_FONT_FAMILY }.orEmpty().ifEmpty { defaultSubtitleFontDisplayName(effectiveDefaultFont) },
+          selectedValue = run {
+            val family = font?.takeUnless {
+              it == effectiveDefaultFont || it == LEGACY_DEFAULT_SUBTITLE_FONT_FAMILY
+            }.orEmpty()
+            preferredFontLabel.takeIf { selected ->
+              fontChoices.any { it.label == selected && it.familyName == family }
+            } ?: fontChoices.firstOrNull { it.familyName == family }?.label
+              ?: family.ifEmpty { defaultSubtitleFontDisplayName(effectiveDefaultFont) }
+          },
           options = fonts.toImmutableList(),
           label = stringResource(R.string.player_sheets_sub_typography_font),
-          onValueChangedEvent = {
-            val storedFont = if (it == "Default") "" else it
+          onValueChangedEvent = { selected ->
+            preferredFontLabel = selected
+            val storedFont =
+              if (selected == "Default") "" else fontChoices.firstOrNull { it.label == selected }?.familyName ?: selected
             val actualFont = storedFont.ifBlank { effectiveDefaultFont }
             preferences.font.set(storedFont)
             PlaybackSession.setPropertyString("sub-font", actualFont)
@@ -251,21 +269,25 @@ fun SubtitleSettingsTypographyCard(
           enabled = !ownsAny(fontOptions),
         )
       }
-      SliderItem(
-        label = stringResource(R.string.player_sheets_sub_typography_font_size),
-        max = 100,
-        min = 1,
-        value = fontSize ?: preferences.fontSize.get(),
-        valueText = fontSize.toString(),
-        onChange = {
-          preferences.fontSize.set(it)
-          PlaybackSession.setPropertyInt("sub-font-size", it)
-        },
-        enabled = !ownsAny(fontSizeOptions),
-      ) {
-        Icon(Icons.RoundedFilled.FormatSize, null)
       }
-      ProvidePreferenceLocals(
+      PanelConnectedTile(index = 2, itemCount = 6) {
+        SliderItem(
+          label = stringResource(R.string.player_sheets_sub_typography_font_size),
+          max = 100,
+          min = 1,
+          value = fontSize ?: preferences.fontSize.get(),
+          valueText = fontSize.toString(),
+          onChange = {
+            preferences.fontSize.set(it)
+            PlaybackSession.setPropertyInt("sub-font-size", it)
+          },
+          enabled = !ownsAny(fontSizeOptions),
+        ) {
+          Icon(Icons.RoundedFilled.FormatSize, null)
+        }
+      }
+      PanelConnectedTile(index = 3, itemCount = 6) {
+        ProvidePreferenceLocals(
         theme = preferenceTheme(iconContainerMinWidth = 64.dp),
       ) {
         ListPreference(
@@ -283,36 +305,41 @@ fun SubtitleSettingsTypographyCard(
           icon = { Icon(Icons.RoundedFilled.BorderStyle, null) },
         )
       }
-      SliderItem(
-        stringResource(R.string.player_sheets_sub_typography_border_size),
-        value = borderSize ?: preferences.borderSize.get(),
-        valueText = (borderSize ?: preferences.borderSize.get()).toString(),
-        onChange = {
-          preferences.borderSize.set(it)
-          PlaybackSession.setPropertyInt("sub-border-size", it)
-          PlaybackSession.setPropertyInt("sub-outline-size", it)
-        },
-        max = 20,
-        enabled = !ownsAny(borderSizeOptions),
-        icon = { Icon(Icons.RoundedFilled.BorderColor, null) },
-      )
-      SliderItem(
-        stringResource(R.string.player_sheets_subtitles_shadow_offset),
-        value = localShadowOffset.coerceIn(-20, 20),
-        valueText =
-          localShadowOffset.coerceIn(-20, 20).let {
-            if (it > 0) "+$it" else it.toString()
+      }
+      PanelConnectedTile(index = 4, itemCount = 6) {
+        SliderItem(
+          stringResource(R.string.player_sheets_sub_typography_border_size),
+          value = borderSize ?: preferences.borderSize.get(),
+          valueText = (borderSize ?: preferences.borderSize.get()).toString(),
+          onChange = {
+            preferences.borderSize.set(it)
+            PlaybackSession.setPropertyInt("sub-border-size", it)
+            PlaybackSession.setPropertyInt("sub-outline-size", it)
           },
-        onChange = {
-          localShadowOffset = it
-          preferences.shadowOffset.set(it)
-          PlaybackSession.setPropertyInt("sub-shadow-offset", it)
-        },
-        min = -20,
-        max = 20,
-        enabled = !ownsAny(shadowOffsetOptions),
-        icon = { Icon(Icons.RoundedFilled.Shadow, null) },
-      )
+          max = 20,
+          enabled = !ownsAny(borderSizeOptions),
+          icon = { Icon(Icons.RoundedFilled.BorderColor, null) },
+        )
+      }
+      PanelConnectedTile(index = 5, itemCount = 6) {
+        SliderItem(
+          stringResource(R.string.player_sheets_subtitles_shadow_offset),
+          value = localShadowOffset.coerceIn(-20, 20),
+          valueText =
+            localShadowOffset.coerceIn(-20, 20).let {
+              if (it > 0) "+$it" else it.toString()
+            },
+          onChange = {
+            localShadowOffset = it
+            preferences.shadowOffset.set(it)
+            PlaybackSession.setPropertyInt("sub-shadow-offset", it)
+          },
+          min = -20,
+          max = 20,
+          enabled = !ownsAny(shadowOffsetOptions),
+          icon = { Icon(Icons.RoundedFilled.Shadow, null) },
+        )
+      }
     }
   }
 }

@@ -16,6 +16,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -24,11 +26,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import app.gyrolet.mpvrx.presentation.components.AppDropdownMenu as DropdownMenu
+import app.gyrolet.mpvrx.presentation.components.AppDropdownMenuItem as DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -37,6 +41,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarColors
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import app.gyrolet.mpvrx.ui.background.rememberSeasonalGreeting
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -63,6 +68,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.DpOffset
 import app.gyrolet.mpvrx.R
 import app.gyrolet.mpvrx.preferences.AppearancePreferences
 import app.gyrolet.mpvrx.preferences.preference.collectAsState
@@ -121,6 +127,7 @@ fun BrowserTopBar(
   colors: TopAppBarColors? = null,
   forceHeadlineSmall: Boolean = false,
   showBetaBadge: Boolean = false,
+  customTitle: (@Composable () -> Unit)? = null,
 ) {
   val reducedMotion = AppMotion.shouldReduceMotion()
   val haptics = rememberAppHaptics()
@@ -194,6 +201,7 @@ fun BrowserTopBar(
         colors = colors,
         forceHeadlineSmall = forceHeadlineSmall,
         showBetaBadge = showBetaBadge,
+        customTitle = customTitle,
       )
     }
   }
@@ -202,7 +210,7 @@ fun BrowserTopBar(
 /**
  * Normal mode top bar
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun NormalTopBar(
   title: String,
@@ -221,6 +229,7 @@ private fun NormalTopBar(
   colors: TopAppBarColors? = null,
   forceHeadlineSmall: Boolean = false,
   showBetaBadge: Boolean = false,
+  customTitle: (@Composable () -> Unit)? = null,
 ) {
   val preferences = koinInject<AppearancePreferences>()
   val wallpaperActive = LocalAppWallpaperActive.current
@@ -228,6 +237,7 @@ private fun NormalTopBar(
   val darkTheme = isSystemInDarkTheme()
   val themeTransition = LocalThemeTransitionState.current
   val coroutineScope = rememberCoroutineScope()
+  val seasonalGreeting = rememberSeasonalGreeting()
 
   // Track title bounds for animation position
   val titleBounds = remember { mutableStateOf(Rect.Zero) }
@@ -272,88 +282,104 @@ private fun NormalTopBar(
         actionIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant.onWallpaper(),
       ),
     title = {
-      val betaBadgeSuffix =
-        if (showBetaBadge) {
-          stringResource(R.string.ui_beta_badge_suffix)
-        } else {
-          ""
-        }
-      val titleModifier =
-        Modifier
-          .onGloballyPositioned { coordinates ->
-            titleBounds.value = coordinates.boundsInWindow()
-          }.pointerInput(onTitleLongPress, onTitleDoubleTap, darkMode, darkTheme, themeTransition) {
-            detectTapGestures(
-              onTap = { localOffset ->
-                // Don't allow theme change if animation is in progress
-                if (themeTransition?.isAnimating == true) return@detectTapGestures
+      if (customTitle != null) {
+        customTitle()
+      } else {
+        val betaBadgeSuffix =
+          if (showBetaBadge) {
+            stringResource(R.string.ui_beta_badge_suffix)
+          } else {
+            ""
+          }
+        val titleModifier =
+          Modifier
+            .onGloballyPositioned { coordinates ->
+              titleBounds.value = coordinates.boundsInWindow()
+            }.pointerInput(onTitleLongPress, onTitleDoubleTap, darkMode, darkTheme, themeTransition) {
+              detectTapGestures(
+                onTap = { localOffset ->
+                  // Don't allow theme change if animation is in progress
+                  if (themeTransition?.isAnimating == true) return@detectTapGestures
 
-                // Calculate window position for circular reveal
-                val windowOffset =
-                  Offset(
-                    titleBounds.value.left + localOffset.x,
-                    titleBounds.value.top + localOffset.y,
-                  )
-                themeTransition?.startTransition(windowOffset)
-                // Delay theme change to allow overlay to display first
-                coroutineScope.launch {
-                  delay(50)
-                  toggleDarkMode()
+                  // Calculate window position for circular reveal
+                  val windowOffset =
+                    Offset(
+                      titleBounds.value.left + localOffset.x,
+                      titleBounds.value.top + localOffset.y,
+                    )
+                  themeTransition?.startTransition(windowOffset)
+                  // Delay theme change to allow overlay to display first
+                  coroutineScope.launch {
+                    delay(50)
+                    toggleDarkMode()
+                  }
+                },
+                onDoubleTap =
+                  if (onTitleDoubleTap != null) {
+                    { onTitleDoubleTap() }
+                  } else {
+                    null
+                  },
+                onLongPress =
+                  if (onTitleLongPress != null) {
+                    { onTitleLongPress() }
+                  } else {
+                    null
+                  },
+              )
+            }
+
+        Row(
+          verticalAlignment = Alignment.CenterVertically,
+          modifier =
+            if (onBackClick == null) {
+              Modifier.padding(start = 8.dp)
+            } else {
+              Modifier
+            },
+        ) {
+          Text(
+            buildAnnotatedString {
+              append(title)
+              if (showBetaBadge) {
+                withStyle(
+                  SpanStyle(
+                    fontSize = MaterialTheme.typography.labelSmall.fontSize,
+                    fontWeight = FontWeight.SemiBold,
+                    baselineShift = BaselineShift.Superscript,
+                  ),
+                ) {
+                  append(betaBadgeSuffix)
                 }
+              }
+            },
+            // Match the Profile hero title: headline styles use the app's bundled
+            // expressive Google Sans Flex variable-display cut (or the user's chosen
+            // display font), without overriding accessibility or language fallbacks.
+            style =
+              if (forceHeadlineSmall) {
+                MaterialTheme.typography.headlineSmallEmphasized.copy(fontWeight = FontWeight.ExtraBold)
+              } else {
+                MaterialTheme.typography.headlineMediumEmphasized.copy(fontWeight = FontWeight.ExtraBold)
               },
-              onDoubleTap =
-                if (onTitleDoubleTap != null) {
-                  { onTitleDoubleTap() }
-                } else {
-                  null
-                },
-              onLongPress =
-                if (onTitleLongPress != null) {
-                  { onTitleLongPress() }
-                } else {
-                  null
-                },
+            color = MaterialTheme.colorScheme.primary.onWallpaper(),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = titleModifier.weight(1f, fill = false),
+          )
+          if (seasonalGreeting != null && onBackClick == null) {
+            Text(
+              text = stringResource(seasonalGreeting),
+              style = MaterialTheme.typography.labelLarge,
+              color = MaterialTheme.colorScheme.tertiary.onWallpaper(),
+              maxLines = 1,
+              overflow = TextOverflow.Ellipsis,
+              modifier = Modifier.padding(start = 10.dp),
             )
           }
-
-      Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier =
-          if (onBackClick == null) {
-            Modifier.padding(start = 8.dp)
-          } else {
-            Modifier
-          },
-      ) {
-        Text(
-          buildAnnotatedString {
-            append(title)
-            if (showBetaBadge) {
-              withStyle(
-                SpanStyle(
-                  fontSize = MaterialTheme.typography.labelSmall.fontSize,
-                  fontWeight = FontWeight.SemiBold,
-                  baselineShift = BaselineShift.Superscript,
-                ),
-              ) {
-                append(betaBadgeSuffix)
-              }
-            }
-          },
-          style =
-            if (forceHeadlineSmall || onBackClick != null) {
-              MaterialTheme.typography.headlineSmall
-            } else {
-              MaterialTheme.typography.headlineMedium
-            },
-          fontWeight = FontWeight.ExtraBold,
-          color = MaterialTheme.colorScheme.primary.onWallpaper(),
-          maxLines = 1,
-          overflow = TextOverflow.Ellipsis,
-          modifier = titleModifier,
-        )
-        if (titleTrailing != null) {
-          titleTrailing()
+          if (titleTrailing != null) {
+            titleTrailing()
+          }
         }
       }
     },
@@ -471,6 +497,8 @@ private fun SelectionTopBar(
   val wallpaperActive = LocalAppWallpaperActive.current
   val haptics = rememberAppHaptics()
   val reducedMotion = AppMotion.shouldReduceMotion()
+  val selectionDropdownShape = RoundedCornerShape(16.dp)
+  val selectionActionCount = listOfNotNull(onSelectAll, onInvertSelection, onDeselectAll).size
 
   TopAppBar(
     colors =
@@ -488,58 +516,70 @@ private fun SelectionTopBar(
         actionIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant.onWallpaper(),
       ),
     title = {
-      Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier =
-          Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .tvFocusHighlight(RoundedCornerShape(8.dp), focusedScale = 1.02f)
-            .clickable { showDropdown = true },
-      ) {
-        Box(Modifier.weight(1f, fill = false)) {
-          Text(
-            stringResource(R.string.selected_items, totalCount, totalCount),
-            style = MaterialTheme.typography.titleMedium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.alpha(0f).clearAndSetSemantics { },
-          )
-          AnimatedContent(
-            targetState = selectedCount,
-            transitionSpec = {
-              if (reducedMotion) {
-                (fadeIn(tween(0)) togetherWith fadeOut(tween(0))).using(null)
-              } else {
-                val direction = if (targetState > initialState) 1 else -1
-                ((fadeIn(tween(160)) + slideInVertically(tween(160)) { it * direction / 3 }) togetherWith
-                  (fadeOut(tween(100)) + slideOutVertically(tween(100)) { -it * direction / 3 })).using(null)
-              }
-            },
-            label = "selectionCount",
-          ) { count ->
+      Box {
+        Row(
+          verticalAlignment = Alignment.CenterVertically,
+          modifier =
+            Modifier
+              .clip(selectionDropdownShape)
+              .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = if (wallpaperActive) 0.78f else 1f))
+              .border(
+                1.dp,
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (wallpaperActive) 0.5f else 0.35f),
+                selectionDropdownShape,
+              )
+              .tvFocusHighlight(selectionDropdownShape, focusedScale = 1.02f)
+              .clickable { showDropdown = true }
+              .padding(horizontal = 10.dp, vertical = 8.dp),
+        ) {
+          Box(Modifier.weight(1f, fill = false)) {
             Text(
-              stringResource(R.string.selected_items, count, totalCount),
+              stringResource(R.string.selected_items, totalCount, totalCount),
               style = MaterialTheme.typography.titleMedium,
-              color = MaterialTheme.colorScheme.primary.onWallpaper(),
               maxLines = 1,
               overflow = TextOverflow.Ellipsis,
+              modifier = Modifier.alpha(0f).clearAndSetSemantics { },
             )
+            AnimatedContent(
+              targetState = selectedCount,
+              transitionSpec = {
+                if (reducedMotion) {
+                  (fadeIn(tween(0)) togetherWith fadeOut(tween(0))).using(null)
+                } else {
+                  val direction = if (targetState > initialState) 1 else -1
+                  ((fadeIn(tween(160)) + slideInVertically(tween(160)) { it * direction / 3 }) togetherWith
+                    (fadeOut(tween(100)) + slideOutVertically(tween(100)) { -it * direction / 3 })).using(null)
+                }
+              },
+              label = "selectionCount",
+            ) { count ->
+              Text(
+                stringResource(R.string.selected_items, count, totalCount),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary.onWallpaper(),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+              )
+            }
           }
+          Icon(
+            Icons.RoundedFilled.ArrowDropDown,
+            contentDescription = stringResource(R.string.selection_options),
+            modifier = Modifier.size(24.dp),
+            tint = MaterialTheme.colorScheme.primary.onWallpaper(),
+          )
         }
-        Icon(
-          Icons.RoundedFilled.ArrowDropDown,
-          contentDescription = stringResource(R.string.selection_options),
-          modifier = Modifier.size(24.dp),
-          tint = MaterialTheme.colorScheme.primary.onWallpaper(),
-        )
-
         DropdownMenu(
           expanded = showDropdown,
           onDismissRequest = { showDropdown = false },
+          offset = DpOffset(0.dp, 8.dp),
+          modifier = Modifier.widthIn(min = 208.dp, max = 300.dp),
         ) {
           if (onSelectAll != null) {
             DropdownMenuItem(
               text = { Text(stringResource(R.string.select_all)) },
+              index = 0,
+              itemCount = selectionActionCount,
               onClick = {
                 onSelectAll()
                 if (selectedCount != totalCount) haptics.selection(true)
@@ -550,6 +590,8 @@ private fun SelectionTopBar(
           if (onInvertSelection != null) {
             DropdownMenuItem(
               text = { Text(stringResource(R.string.invert_selection)) },
+              index = if (onSelectAll != null) 1 else 0,
+              itemCount = selectionActionCount,
               onClick = {
                 onInvertSelection()
                 if (totalCount > 0) haptics.confirm()
@@ -560,6 +602,8 @@ private fun SelectionTopBar(
           if (onDeselectAll != null) {
             DropdownMenuItem(
               text = { Text(stringResource(R.string.deselect_all)) },
+              index = (if (onSelectAll != null) 1 else 0) + (if (onInvertSelection != null) 1 else 0),
+              itemCount = selectionActionCount,
               onClick = {
                 onDeselectAll()
                 if (selectedCount > 0) haptics.selection(false)
@@ -671,7 +715,6 @@ private fun SelectionTopBar(
           )
         }
       }
-
 
       // Move to Secure Folder icon
       if (onMoveToSecure != null) {

@@ -15,16 +15,14 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -47,6 +45,9 @@ import app.gyrolet.mpvrx.presentation.components.OutlinedNumericChooser
 import app.gyrolet.mpvrx.ui.icons.Icon
 import app.gyrolet.mpvrx.ui.icons.Icons
 import app.gyrolet.mpvrx.ui.theme.spacing
+import app.gyrolet.mpvrx.ui.theme.AppConnectedControlShapeTokens
+import app.gyrolet.mpvrx.ui.theme.ConnectedLayout
+import app.gyrolet.mpvrx.ui.theme.rememberConnectedShape
 import app.gyrolet.mpvrx.ui.utils.currentMpvConfigOverrideOptions
 import kotlinx.coroutines.delay
 import org.koin.compose.koinInject
@@ -79,7 +80,10 @@ fun SubtitleDelayPanel(
   DraggablePanel(
     modifier = modifier,
     header = {
-      SubtitleDelayTitle(onClose = onDismissRequest)
+      DraggablePanelHeader(
+        title = stringResource(R.string.player_sheets_sub_delay_card_title),
+        onDismissRequest = onDismissRequest,
+      )
     },
   ) {
     val delay by PlaybackSession.propDouble[SUB_DELAY_PROPERTY].collectAsState()
@@ -163,7 +167,7 @@ fun DelayCardContent( // Renamed from DelayCard and removed the Card wrapper
   // Note: verticalScroll is now handled by DraggablePanel
   Column(
     Modifier.padding(MaterialTheme.spacing.medium),
-    verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.smaller),
+    verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.medium),
   ) {
     OutlinedNumericChooser(
       label = { Text(stringResource(R.string.player_sheets_sub_delay_card_delay)) },
@@ -183,23 +187,14 @@ fun DelayCardContent( // Renamed from DelayCard and removed the Card wrapper
       valueFormatter = { "%.1f".format(it) },
       enabled = delayControlEnabled,
     )
-    Text(
-      text = stringResource(R.string.player_sheets_delay_quick_sync_summary),
-      style = MaterialTheme.typography.bodySmall,
-      color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-    QuickSyncOffsets(
-      delay = delay,
-      enabled = delayControlEnabled,
-      onSelect = onDelayChange,
-    )
     Column(
       modifier = Modifier.animateContentSize(),
     ) { extraSettings() }
     // true (heard -> spotted), false (spotted -> heard)
     var isDirectionPositive by remember { mutableStateOf<Boolean?>(null) }
     Row(
-      horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.smaller),
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(AppConnectedControlShapeTokens.spacing),
     ) {
       var timerStart by remember { mutableStateOf<Long?>(null) }
       var finalDelay by remember { mutableStateOf(delay) }
@@ -224,7 +219,8 @@ fun DelayCardContent( // Renamed from DelayCard and removed the Card wrapper
         onClick = {
           isDirectionPositive = if (isDirectionPositive == null) delayType == DelayType.Audio else null
         },
-        modifier = Modifier.weight(1f),
+        modifier = Modifier.weight(1f).heightIn(min = 64.dp),
+        shape = rememberConnectedShape(0, 2, ConnectedLayout.Horizontal, tokens = AppConnectedControlShapeTokens),
         enabled = delayControlEnabled && isDirectionPositive != (delayType == DelayType.Audio),
       ) {
         Text(
@@ -241,7 +237,8 @@ fun DelayCardContent( // Renamed from DelayCard and removed the Card wrapper
         onClick = {
           isDirectionPositive = if (isDirectionPositive == null) delayType != DelayType.Audio else null
         },
-        modifier = Modifier.weight(1f),
+        modifier = Modifier.weight(1f).heightIn(min = 64.dp),
+        shape = rememberConnectedShape(1, 2, ConnectedLayout.Horizontal, tokens = AppConnectedControlShapeTokens),
         enabled = delayControlEnabled && isDirectionPositive != (delayType == DelayType.Subtitle),
       ) {
         Text(
@@ -256,59 +253,26 @@ fun DelayCardContent( // Renamed from DelayCard and removed the Card wrapper
       }
     }
     Row(
-      horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.smaller),
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(AppConnectedControlShapeTokens.spacing),
+      verticalAlignment = Alignment.CenterVertically,
     ) {
       Button(
         onClick = onApply,
-        modifier = Modifier.weight(1f),
+        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+        shape = rememberConnectedShape(0, 2, ConnectedLayout.Horizontal, tokens = AppConnectedControlShapeTokens),
         enabled = actionsEnabled && isDirectionPositive == null,
       ) {
         Text(stringResource(R.string.player_sheets_delay_set_as_default))
       }
       FilledIconButton(
         onClick = onReset,
+        modifier = Modifier.size(48.dp),
+        shape = rememberConnectedShape(1, 2, ConnectedLayout.Horizontal, tokens = AppConnectedControlShapeTokens),
         enabled = actionsEnabled && isDirectionPositive == null,
       ) {
-        Icon(Icons.RoundedFilled.Refresh, null)
+        Icon(Icons.RoundedFilled.Refresh, contentDescription = stringResource(R.string.generic_reset))
       }
-    }
-  }
-}
-
-/**
- * One tap offsets covering the delays that actually show up in practice.
- *
- * Each chip selects an absolute offset rather than nudging the current one, so repeated taps
- * are idempotent and the value the user sees is the value they picked. It also means a file
- * that was synced in a previous session only needs the same chip again, and the value is
- * stored per media so it is reapplied on the next playback.
- */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun QuickSyncOffsets(
-  delay: Float,
-  enabled: Boolean,
-  onSelect: (Float) -> Unit,
-) {
-  FlowRow(
-    modifier = Modifier.fillMaxWidth(),
-    horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.smaller),
-    verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.smaller),
-  ) {
-    QUICK_SYNC_OFFSETS.forEach { offset ->
-      FilterChip(
-        selected = delay == offset,
-        enabled = enabled,
-        onClick = { onSelect(offset) },
-        label = {
-          // The signed format would render the zero chip as "+0 s", so it gets its own string.
-          if (offset == 0f) {
-            Text(stringResource(R.string.player_sheets_delay_offset_zero_seconds))
-          } else {
-            Text(stringResource(R.string.player_sheets_delay_offset_seconds, offset.toInt()))
-          }
-        },
-      )
     }
   }
 }
@@ -343,5 +307,3 @@ enum class DelayType {
   Subtitle,
 }
 
-/** Offsets offered by [QuickSyncOffsets], in seconds. */
-private val QUICK_SYNC_OFFSETS = listOf(-3f, -2f, -1f, 0f, 1f, 2f, 3f)

@@ -8,7 +8,6 @@ import app.gyrolet.mpvrx.network.SharedHttpClient
 import app.gyrolet.mpvrx.network.awaitResponse
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
-import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
@@ -58,12 +57,6 @@ internal suspend fun lyricsGet(
   url: String,
   headers: Map<String, String> = emptyMap(),
 ): String? = lyricsCall(url, headers)
-
-/** [lyricsGet] against a host that needs longer than the usual deadline. */
-internal suspend fun lyricsGetPatient(
-  url: String,
-  headers: Map<String, String> = emptyMap(),
-): String? = lyricsCall(url, headers, patient = true)
 
 /** Body of a GET carrying an Apple-style bearer token and browser origin. */
 internal suspend fun lyricsGetAuthorized(
@@ -158,8 +151,3 @@ internal fun buildUrl(
   }
   return builder.build().toString()
 }
-
-internal fun HttpUrl.Builder.addIfNotBlank(
-  name: String,
-  value: String?,
-): HttpUrl.Builder = if (value.isNullOrBlank()) this else addQueryParameter(name, value)

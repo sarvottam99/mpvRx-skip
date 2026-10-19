@@ -39,12 +39,12 @@ import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
+import app.gyrolet.mpvrx.presentation.components.PlayerSheet
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Slider
+import app.gyrolet.mpvrx.ui.components.AppSlider as Slider
 import app.gyrolet.mpvrx.ui.components.IconSwitch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberBottomSheetState
@@ -158,48 +158,37 @@ fun EqualizerSheet(
 ) {
   val initialFocusRequester =
     rememberTvInitialFocusRequester(requestKey = state.isEnabled)
-  val sheetState =
-    rememberBottomSheetState(
-      initialValue = SheetValue.Hidden,
-      enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
-    )
-
-  ModalBottomSheet(
+  PlayerSheet(
     onDismissRequest = onDismissRequest,
-    sheetState = sheetState,
-    containerColor = MaterialTheme.colorScheme.surface,
-    scrimColor = BottomSheetDefaults.ScrimColor,
-    sheetMaxWidth = 640.dp,
-    dragHandle = { PlayerSheetDragHandle() },
     modifier = modifier.tvFocusGroup(),
   ) {
-    Row(
-      modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
-      horizontalArrangement = Arrangement.SpaceBetween,
-      verticalAlignment = Alignment.CenterVertically,
-    ) {
-      Text(
-        text = stringResource(R.string.btn_label_equalizer),
-        style = MaterialTheme.typography.titleLarge,
-        fontWeight = FontWeight.Bold,
-        color = MaterialTheme.colorScheme.onSurface,
-        modifier = Modifier.weight(1f),
-      )
-      IconSwitch(
-        checked = state.isEnabled,
-        onCheckedChange = onEnabledChanged,
-        modifier = Modifier.tvInitialFocus(initialFocusRequester)
-          .tvFocusHighlight(RoundedCornerShape(12.dp), focusedScale = 1.04f),
-      )
-    }
     Column(
       modifier =
         Modifier
           .fillMaxWidth()
-          .weight(1f, fill = false)
           .verticalScroll(rememberScrollState())
           .padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 16.dp),
     ) {
+      Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Text(
+          text = stringResource(R.string.btn_label_equalizer),
+          style = MaterialTheme.typography.titleLarge,
+          fontWeight = FontWeight.Bold,
+          color = MaterialTheme.colorScheme.onSurface,
+          modifier = Modifier.weight(1f),
+        )
+        IconSwitch(
+          checked = state.isEnabled,
+          onCheckedChange = onEnabledChanged,
+          modifier = Modifier.tvInitialFocus(initialFocusRequester)
+            .tvFocusHighlight(RoundedCornerShape(12.dp), focusedScale = 1.04f),
+        )
+      }
+
       SingleChoiceSegmentedButtonRow(
         modifier = Modifier.fillMaxWidth(),
       ) {
@@ -578,7 +567,7 @@ private fun BandColumn(
   onGainChanged: (Float) -> Unit,
   modifier: Modifier = Modifier,
 ) {
-  var sliderValue by remember(gainDb) { mutableFloatStateOf(gainDb.toFloat()) }
+  var sliderValue by remember(gainDb) { mutableFloatStateOf(gainDb) }
   val gainHaptics = app.gyrolet.mpvrx.ui.utils.rememberAdjustmentHaptics(EQ_MIN_DB, EQ_MAX_DB)
 
   Column(

@@ -62,6 +62,7 @@ class MusicLibraryViewModel : ViewModel(), KoinComponent {
   // Songs, Albums and Artists immediately without rescanning storage on every slider movement.
   private val _allSongs = MutableStateFlow<List<MusicSong>>(emptyList())
   private val filterMutex = Mutex()
+  private val refreshMutex = Mutex()
 
   private val _songs = MutableStateFlow<List<MusicSong>>(emptyList())
   val songs: StateFlow<List<MusicSong>> = _songs.asStateFlow()
@@ -191,11 +192,19 @@ class MusicLibraryViewModel : ViewModel(), KoinComponent {
   }.flowOn(Dispatchers.Default)
     .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-  suspend fun refreshLibrary(context: Context) {
+  suspend fun refreshLibrary(context: Context) = refreshMutex.withLock {
     _isLoading.value = true
     try {
-      app.gyrolet.mpvrx.domain.audiobook.AudiobookMarkerUtils.syncKnownAudiobooks(context, audiobookDao)
-      _allSongs.value = MusicLibraryScanner.scanSongs(context)
+      withContext(Dispatchers.IO) {
+        app.gyrolet.mpvrx.domain.audiobook.AudiobookMarkerUtils.syncKnownAudiobooks(context, audiobookDao)
+      }
+      _allSongs.value = MusicLibraryScanner.scanSongs(context) { indexedSongs ->
+        if (_allSongs.value.isEmpty()) {
+          _allSongs.value = indexedSongs
+          applyFilters()
+        }
+        _isLoading.value = false
+      }
       applyFilters()
     } catch (e: CancellationException) {
       throw e
@@ -290,22 +299,8 @@ class MusicLibraryViewModel : ViewModel(), KoinComponent {
     browserPreferences.musicSortField.set(field)
   }
 
-  fun toggleSortOrder() {
-    val nextOrder = if (sortOrder.value == MusicSortOrder.ASCENDING) {
-      MusicSortOrder.DESCENDING
-    } else {
-      MusicSortOrder.ASCENDING
-    }
-    browserPreferences.musicSortOrder.set(nextOrder)
-  }
-
   fun setSortOrder(order: MusicSortOrder) {
     browserPreferences.musicSortOrder.set(order)
-  }
-
-  fun toggleViewMode() {
-    val nextMode = if (viewMode.value == MusicViewMode.GRID) MusicViewMode.LIST else MusicViewMode.GRID
-    browserPreferences.musicViewMode.set(nextMode)
   }
 
   fun setViewMode(mode: MusicViewMode) {

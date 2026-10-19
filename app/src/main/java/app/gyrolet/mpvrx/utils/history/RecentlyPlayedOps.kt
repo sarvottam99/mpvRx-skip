@@ -121,25 +121,9 @@ object RecentlyPlayedOps {
     }
   }
 
-  suspend fun hasRecentlyPlayed(): Boolean =
-    withContext(Dispatchers.IO) {
-      if (!preferences.enableRecentlyPlayed.get()) return@withContext false
-      getLastPlayed() != null
-    }
-
   suspend fun getRecentlyPlayed(limit: Int = 50): List<RecentlyPlayedEntity> = repository.getRecentlyPlayed(limit)
 
   suspend fun getRecentlyPlayedCount(): Int = repository.getRecentlyPlayedCount()
-
-  @OptIn(ExperimentalCoroutinesApi::class)
-  fun observeLastPlayedEntity(): Flow<RecentlyPlayedEntity?> =
-    repository
-      .observeLastPlayed()
-      .mapLatest { _ ->
-        if (!preferences.enableRecentlyPlayed.get()) null
-        else getLastPlayedEntity()
-      }.distinctUntilChanged()
-      .flowOn(Dispatchers.IO)
 
   @OptIn(ExperimentalCoroutinesApi::class)
   fun observeLastPlayedPath(): Flow<String?> =
@@ -192,10 +176,11 @@ object RecentlyPlayedOps {
   suspend fun onVideoRenamed(
     oldPath: String,
     newPath: String,
+    displayName: String? = null,
   ) {
     if (oldPath.isBlank() || newPath.isBlank()) return
 
-    val newFileName = java.io.File(newPath).name
+    val newFileName = displayName ?: java.io.File(newPath).name
     kotlin
       .runCatching {
         repository.updateFilePath(oldPath, newPath, newFileName)

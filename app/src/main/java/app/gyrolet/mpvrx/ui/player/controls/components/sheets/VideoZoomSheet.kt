@@ -9,8 +9,9 @@
 
 package app.gyrolet.mpvrx.ui.player.controls.components.sheets
 
-import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -113,6 +114,8 @@ private fun ZoomVideoSheet(
   panControlEnabled: Boolean,
   modifier: Modifier = Modifier,
 ) {
+  val preferences = koinInject<PlayerPreferences>()
+  val overlaysFollowZoom by preferences.overlaysFollowVideoZoom.collectAsState()
   val isDefault = zoom == defaultZoom
   val isZero = zoom == 0f
 
@@ -218,6 +221,13 @@ private fun ZoomVideoSheet(
         )
       }
 
+      ZoomOverlaySwitch(
+        title = stringResource(R.string.player_zoom_overlays_follow),
+        summary = stringResource(R.string.player_zoom_overlays_follow_summary),
+        checked = overlaysFollowZoom,
+        onCheckedChange = { preferences.overlaysFollowVideoZoom.set(it) },
+      )
+
       // Action buttons
       Row(
         modifier = Modifier.fillMaxWidth(),
@@ -240,5 +250,28 @@ private fun ZoomVideoSheet(
         }
       }
     }
+  }
+}
+
+@Composable
+private fun ZoomOverlaySwitch(
+  title: String,
+  summary: String,
+  checked: Boolean,
+  onCheckedChange: (Boolean) -> Unit,
+) {
+  Row(
+    modifier = Modifier.fillMaxWidth()
+      .animatedPlayerSheetBackground(checked, MaterialTheme.shapes.medium)
+      .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange)
+      .padding(horizontal = 12.dp, vertical = 10.dp),
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(12.dp),
+  ) {
+    Column(Modifier.weight(1f)) {
+      Text(title, style = MaterialTheme.typography.bodyMedium)
+      Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    IconSwitch(checked = checked, onCheckedChange = null)
   }
 }

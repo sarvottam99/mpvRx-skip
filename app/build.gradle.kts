@@ -1,6 +1,31 @@
+import com.android.build.api.instrumentation.AsmClassVisitorFactory
+import com.android.build.api.instrumentation.ClassContext
+import com.android.build.api.instrumentation.ClassData
+import com.android.build.api.instrumentation.InstrumentationParameters
+import com.android.build.api.instrumentation.InstrumentationScope
 import com.android.build.api.variant.FilterConfiguration
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.objectweb.asm.ClassVisitor
+import org.objectweb.asm.Opcodes
+import org.objectweb.asm.commons.ClassRemapper
+import org.objectweb.asm.commons.Remapper
 import java.util.Properties
+
+// SMBJ-RPC uses a desktop-only exception for malformed replies. Remap the dependency's
+// references before D8/R8 so decoding failures stay catchable IOExceptions on Android.
+// This fixes the missing runtime type instead of suppressing R8's missing-class diagnostic.
+abstract class SmbRpcExceptionCompatibility : AsmClassVisitorFactory<InstrumentationParameters.None> {
+  override fun isInstrumentable(classData: ClassData): Boolean =
+    classData.className.startsWith("com.rapid7.client.dcerpc.")
+
+  override fun createClassVisitor(classContext: ClassContext, nextClassVisitor: ClassVisitor): ClassVisitor =
+    ClassRemapper(nextClassVisitor, object : Remapper(Opcodes.ASM9) {
+      override fun map(internalName: String): String =
+        if (internalName == "java/rmi/UnmarshalException") {
+          "app/gyrolet/mpvrx/data/network/client/SmbRpcDecodeException"
+        } else internalName
+    })
+}
 
 val localProperties =
   Properties().apply {
@@ -19,8 +44,14 @@ val activeAbis =
   } else {
     listOf("arm64-v8a", "armeabi-v7a") + x86Abis
   }
-val universalOnlyDistributions = setOf("noVulkan", "fongmi")
-val releaseVersionCode = 272
+val universalOnlyDistributions = setOf("noVulkan", "fongmi", "playstore")
+// Distributions outside Google Play. Play forbids downloaded executable code (yt-dlp) and torrent
+// streaming, so only these flavors enable yt-dlp and ship yt-dlp and libtorrent native payloads.
+val sideloadDistributions = setOf("standard", "noVulkan", "fongmi")
+// AGP cannot build an app bundle while ABI splits produce multiple APKs (issuetracker 402800800).
+val isBundleBuild =
+  gradle.startParameter.taskNames.any { it.substringAfterLast(':').startsWith("bundle") }
+val releaseVersionCode = 300
 val versionCodeBandSize = 10_000
 val stableVersionCode = releaseVersionCode * versionCodeBandSize + (versionCodeBandSize - 1)
 val previewVersionCode =
@@ -36,6 +67,15 @@ plugins {
   alias(libs.plugins.ktlint)
 }
 
+androidComponents {
+  onVariants(selector().all()) { variant ->
+    variant.instrumentation.transformClassesWith(
+      SmbRpcExceptionCompatibility::class.java,
+      InstrumentationScope.ALL,
+    ) {}
+  }
+}
+
 android {
   namespace = "app.gyrolet.mpvrx"
   compileSdk = 37
@@ -48,7 +88,7 @@ android {
     // Stable occupies the top of its version band. Preview uses the next band's commit-count
     // offset, so Stable -> Preview -> newer Preview -> next Stable is always an Android upgrade.
     versionCode = stableVersionCode
-    versionName = "2.7.2"
+    versionName = "3.0.0"
 
     vectorDrawables {
       useSupportLibrary = true
@@ -76,6 +116,7 @@ android {
   productFlavors {
     create("standard") {
       dimension = "distribution"
+      buildConfigField("boolean", "IS_PLAY_STORE_BUILD", "false")
       buildConfigField("boolean", "ENABLE_UPDATE_FEATURE", "true")
       buildConfigField("String", "UPDATE_APK_VARIANT", "\"standard\"")
       buildConfigField("boolean", "SCOPED_STORAGE_ONLY", "false")
@@ -83,8 +124,19 @@ android {
       buildConfigField("boolean", "MPV_SUPPORTS_MEDIACODEC_VULKAN", "false")
     }
 
+    create("playstore") {
+      dimension = "distribution"
+      buildConfigField("boolean", "IS_PLAY_STORE_BUILD", "true")
+      buildConfigField("boolean", "ENABLE_UPDATE_FEATURE", "false")
+      buildConfigField("String", "UPDATE_APK_VARIANT", "\"standard\"")
+      buildConfigField("boolean", "SCOPED_STORAGE_ONLY", "true")
+      buildConfigField("boolean", "MPV_SUPPORTS_VULKAN", "true")
+      buildConfigField("boolean", "MPV_SUPPORTS_MEDIACODEC_VULKAN", "false")
+    }
+
     create("noVulkan") {
       dimension = "distribution"
+      buildConfigField("boolean", "IS_PLAY_STORE_BUILD", "false")
       buildConfigField("boolean", "ENABLE_UPDATE_FEATURE", "true")
       buildConfigField("String", "UPDATE_APK_VARIANT", "\"no-vulkan\"")
       buildConfigField("boolean", "SCOPED_STORAGE_ONLY", "false")
@@ -94,11 +146,31 @@ android {
 
     create("fongmi") {
       dimension = "distribution"
+      buildConfigField("boolean", "IS_PLAY_STORE_BUILD", "false")
       buildConfigField("boolean", "ENABLE_UPDATE_FEATURE", "true")
       buildConfigField("String", "UPDATE_APK_VARIANT", "\"fongmi\"")
       buildConfigField("boolean", "SCOPED_STORAGE_ONLY", "false")
       buildConfigField("boolean", "MPV_SUPPORTS_VULKAN", "true")
       buildConfigField("boolean", "MPV_SUPPORTS_MEDIACODEC_VULKAN", "true")
+    }
+
+    configureEach {
+      val enableYtdlp = name in sideloadDistributions
+      buildConfigField("boolean", "ENABLE_YTDLP", enableYtdlp.toString())
+      externalNativeBuild {
+        cmake {
+          arguments += "-DMPVRX_ENABLE_YTDLP=${if (enableYtdlp) "ON" else "OFF"}"
+        }
+      }
+    }
+  }
+
+  sourceSets {
+    sideloadDistributions.forEach { flavor ->
+      getByName(flavor).apply {
+        assets.directories.add("src/ytdlp/assets")
+        jniLibs.directories.add("src/ytdlp/jniLibs")
+      }
     }
   }
 
@@ -109,7 +181,7 @@ android {
 
   splits {
     abi {
-      isEnable = true
+      isEnable = !isBundleBuild
       reset()
       include(*activeAbis.toTypedArray())
       isUniversalApk = activeAbis.size > 1
@@ -244,7 +316,6 @@ dependencies {
   implementation(libs.androidx.ui.graphics)
   implementation(libs.androidx.material3.android)
   implementation(libs.google.material)
-  implementation(libs.androidx.compose.material)
   implementation(libs.androidx.ui.tooling.preview)
   debugImplementation(libs.androidx.ui.tooling)
   debugImplementation(libs.leakcanary.android)
@@ -252,14 +323,11 @@ dependencies {
   implementation(libs.androidx.appcompat)
   implementation(libs.androidx.core.ktx)
   implementation(libs.androidx.core.splashscreen)
-  implementation(libs.crashx)
   implementation(libs.kmp.vibrate)
   implementation(libs.androidx.compose.constraintlayout)
-  implementation(libs.androidx.preference.ktx)
   implementation(libs.androidx.constraintlayout)
   implementation(libs.composables.material.symbols.rounded.filled.android)
   implementation(libs.composables.material.symbols.rounded.filled.cmp)
-  implementation(libs.androidx.compose.animation.graphics)
   implementation(libs.mediasession)
   implementation(libs.androidx.documentfile)
   implementation(libs.androidx.palette)
@@ -299,11 +367,19 @@ dependencies {
   implementation(libs.google.cast.framework)
 
   "standardImplementation"(variantOf(libs.mpvlib.standard) { artifactType("aar") })
+  "playstoreImplementation"(variantOf(libs.mpvlib.standard) { artifactType("aar") })
   "noVulkanImplementation"(variantOf(libs.mpvlib.no.vulkan) { artifactType("aar") })
   "fongmiImplementation"(variantOf(libs.mpvlib.fongmi) { artifactType("aar") })
 
   // Network protocol libraries
   implementation(libs.smbj)
+  implementation(libs.dcerpc) {
+    // Reuse the existing SMBJ/crypto stack and use Android's Guava flavor.
+    exclude(group = "com.hierynomus", module = "smbj")
+    exclude(group = "org.bouncycastle", module = "bcprov-jdk18on")
+    exclude(group = "com.google.guava", module = "guava")
+  }
+  implementation(libs.guava)
   implementation(libs.commons.net)
   implementation(libs.jsch)
   implementation(libs.sardine.android) {
@@ -311,20 +387,23 @@ dependencies {
   }
   implementation(libs.libarchive.android)
   implementation(libs.nanohttpd)
-  implementation(libs.lazycolumnscrollbar)
   implementation(libs.reorderable)
   implementation(libs.androidx.biometric)
   implementation(libs.telephoto.zoomable)
-  implementation(libs.backdrop)
   implementation(libs.haze.blur)
+  implementation(libs.kyant.backdrop)
+  implementation(libs.kyant.shapes)
 
-  // libtorrent4j's Java API plus the native library for every enabled APK ABI.
+  // libtorrent4j's Java API compiles everywhere; its native library for every enabled APK ABI
+  // ships only where torrent streaming exists.
   implementation(libs.libtorrent4j)
-  implementation(libs.libtorrent4j.android.arm64)
-  implementation(libs.libtorrent4j.android.arm)
-  if (enableX86) {
-    implementation(libs.libtorrent4j.android.x86)
-    implementation(libs.libtorrent4j.android.x8664)
+  sideloadDistributions.forEach { flavor ->
+    "${flavor}Implementation"(libs.libtorrent4j.android.arm64)
+    "${flavor}Implementation"(libs.libtorrent4j.android.arm)
+    if (enableX86) {
+      "${flavor}Implementation"(libs.libtorrent4j.android.x86)
+      "${flavor}Implementation"(libs.libtorrent4j.android.x8664)
+    }
   }
 }
 

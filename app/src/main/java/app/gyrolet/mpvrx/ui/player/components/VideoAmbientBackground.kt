@@ -13,7 +13,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.view.PixelCopy
-import android.view.SurfaceView
+import app.gyrolet.mpvrx.ui.player.MPVView
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -123,16 +123,19 @@ data class VideoAmbientFrame(
 
 @Composable
 fun rememberVideoAmbientFrame(
-  surfaceView: SurfaceView,
+  surfaceView: MPVView,
   active: Boolean,
   playbackGeneration: Long,
   hdrScreenMode: HdrScreenMode,
   orientation: Int,
   isSurfaceReadyProvider: () -> Boolean,
   isPlayingProvider: () -> Boolean,
+  retainFrameWhenInactive: Boolean = false,
   fallbackFrameProvider: suspend (Int) -> Bitmap?,
 ): VideoAmbientFrame {
-  var state by remember { mutableStateOf(VideoAmbientFrame()) }
+  var state by remember(surfaceView, playbackGeneration, hdrScreenMode, orientation) {
+    mutableStateOf(VideoAmbientFrame())
+  }
   val currentIsSurfaceReadyProvider by rememberUpdatedState(isSurfaceReadyProvider)
   val currentIsPlayingProvider by rememberUpdatedState(isPlayingProvider)
   val currentFallbackFrameProvider by rememberUpdatedState(fallbackFrameProvider)
@@ -145,14 +148,15 @@ fun rememberVideoAmbientFrame(
     playbackGeneration,
     hdrScreenMode,
     orientation,
+    retainFrameWhenInactive,
   ) {
-    state = VideoAmbientFrame()
+    if (!retainFrameWhenInactive) state = VideoAmbientFrame()
     if (!active) {
       return@LaunchedEffect
     }
 
     lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-      state = VideoAmbientFrame()
+      if (!retainFrameWhenInactive) state = VideoAmbientFrame()
       val pipeline = VideoAmbientPipeline()
       var unsupported = false
       try {
@@ -174,7 +178,7 @@ fun rememberVideoAmbientFrame(
         }
       } finally {
         pipeline.close()
-        if (!unsupported) state = VideoAmbientFrame()
+        if (!unsupported && !retainFrameWhenInactive) state = VideoAmbientFrame()
       }
     }
   }
@@ -220,7 +224,7 @@ private class VideoAmbientPipeline : AutoCloseable {
   @Volatile private var closed = false
 
   suspend fun runCapture(
-    surfaceView: SurfaceView,
+    surfaceView: MPVView,
     isSurfaceReady: () -> Boolean,
     isPlaying: () -> Boolean,
     fallbackFrame: suspend () -> Bitmap?,
@@ -529,24 +533,24 @@ internal fun ambientMeanAbsoluteDifference(
 }
 
 private suspend fun captureSurface(
-  surfaceView: SurfaceView,
+  surfaceView: MPVView,
   destination: Bitmap,
   handler: Handler,
 ): Int =
   suspendCancellableCoroutine { continuation ->
-    val surface = surfaceView.holder.surface
+    val surface = surfaceView.renderSurface
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
       continuation.resume(CAPTURE_UNSUPPORTED)
       return@suspendCancellableCoroutine
     }
-    if (!surface.isValid) {
+    if (surface?.isValid != true) {
       continuation.resume(CAPTURE_RETRY)
       return@suspendCancellableCoroutine
     }
 
     try {
       PixelCopy.request(
-        surfaceView,
+        surface,
         destination,
         { result ->
           if (continuation.isActive) {

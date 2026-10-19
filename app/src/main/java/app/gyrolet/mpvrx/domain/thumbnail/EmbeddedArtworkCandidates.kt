@@ -15,7 +15,6 @@ import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
-import java.io.ByteArrayOutputStream
 import java.io.File
 
 object EmbeddedArtworkCandidates {
@@ -49,16 +48,6 @@ object EmbeddedArtworkCandidates {
     }.distinct()
   }
 
-  /**
-   * Cheap existence probe for a sidecar image next to [videoPath]. Callers use it to skip opening a
-   * [MediaMetadataRetriever] when there is provably nothing to find; it stops at the first hit and
-   * never decodes.
-   */
-  fun hasSidecarArtwork(videoPath: String?): Boolean =
-    videoPath
-      ?.let(EmbeddedArtworkCandidates::forVideoPath)
-      ?.any { File(it).isFile } ?: false
-
   private fun String.isRemoteOrOpaqueUri(): Boolean =
     startsWith("http://", ignoreCase = true) ||
       startsWith("https://", ignoreCase = true) ||
@@ -71,9 +60,6 @@ object EmbeddedArtworkCandidates {
 }
 
 internal object EmbeddedArtworkResolver {
-  private const val ARTWORK_MAX_SIZE_PX = 1024
-  private const val MAX_ARTWORK_BYTES = 24 * 1024 * 1024
-
   fun decodeArtworkUri(
     context: Context,
     artworkUri: String?,
@@ -84,10 +70,25 @@ internal object EmbeddedArtworkResolver {
     return runCatching {
       val decoded =
         when (uri.scheme?.lowercase()) {
-          null, "" -> decodeFileSampled(artworkUri)
-          "file" -> uri.path?.let(::decodeFileSampled)
-          "content", "android.resource" -> decodeStreamSampled(context, uri)
-          "http", "https" -> decodeHttpSampled(artworkUri, uri)
+          null, "" -> BitmapFactory.decodeFile(artworkUri)
+          "file" -> BitmapFactory.decodeFile(uri.path)
+          "content", "android.resource" ->
+            context.contentResolver.openInputStream(uri)?.use { input -> BitmapFactory.decodeStream(input) }
+          "http", "https" -> {
+            val token = uri.getQueryParameter("token")
+            val connection = (java.net.URL(artworkUri).openConnection() as java.net.HttpURLConnection).apply {
+              connectTimeout = 8000
+              readTimeout = 8000
+              instanceFollowRedirects = true
+              setRequestProperty("User-Agent", "Mozilla/5.0 (Android) mpvRx")
+              if (!token.isNullOrBlank()) {
+                setRequestProperty("Authorization", "Bearer $token")
+              }
+            }
+            connection.inputStream.use { input ->
+              BitmapFactory.decodeStream(input)
+            }
+          }
           else -> null
         }
       decoded?.also {
@@ -99,9 +100,25 @@ internal object EmbeddedArtworkResolver {
   fun decodeEmbeddedArtwork(
     videoPath: String?,
     retriever: MediaMetadataRetriever,
+    pictureBytes: ByteArray? = runCatching { retriever.embeddedPicture }.getOrNull(),
   ): Bitmap? =
-    decodeRetrieverArtwork(retriever)
-      ?: MatroskaEmbeddedArtworkExtractor.decode(videoPath)
+    decodeRetrieverArtwork(retriever, pictureBytes)
+      ?: decodeContainerOrSidecar(videoPath)
+
+  fun decodeContainerOrSidecar(
+    videoPath: String?,
+    context: Context? = null,
+    videoUri: Uri? = null,
+    displayName: String? = null,
+  ): Bitmap? =
+    MatroskaEmbeddedArtworkExtractor.decode(videoPath)
+      ?: (if (context != null) {
+        videoUri?.takeIf { it.scheme == "content" }?.let { uri ->
+          MatroskaEmbeddedArtworkExtractor.decode(context, uri, displayName ?: videoPath)
+        }
+      } else {
+        null
+      })
       ?: decodeSidecar(videoPath)
 
   fun decodeSidecar(videoPath: String?): Bitmap? =
@@ -112,13 +129,28 @@ internal object EmbeddedArtworkResolver {
       ?.firstNotNullOfOrNull { candidate ->
         candidate
           .takeIf { it.isFile && it.canRead() }
-          ?.let { decodeFileSampled(it.path) }
+          ?.let { BitmapFactory.decodeFile(it.path) }
       }
 
-  fun decodeRetrieverArtwork(retriever: MediaMetadataRetriever): Bitmap? {
-    retriever.embeddedPicture
+  fun decodeRetrieverArtwork(
+    retriever: MediaMetadataRetriever,
+    pictureBytes: ByteArray? = runCatching { retriever.embeddedPicture }.getOrNull(),
+  ): Bitmap? {
+    pictureBytes
       ?.takeIf { it.isNotEmpty() }
-      ?.let { bytes -> decodeByteArraySampled(bytes) }
+      ?.let { bytes ->
+        runCatching {
+          val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+          BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+          BitmapFactory.decodeByteArray(
+            bytes, 0, bytes.size,
+            BitmapFactory.Options().apply {
+              inSampleSize = calculateThumbnailSampleSize(bounds.outWidth, bounds.outHeight)
+              inPreferredConfig = Bitmap.Config.RGB_565
+            },
+          )
+        }.getOrNull()
+      }
       ?.let { return it }
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -128,83 +160,5 @@ internal object EmbeddedArtworkResolver {
     }
 
     return null
-  }
-
-  /**
-   * Matches the cap RemoteImageLoader applies to its own decoder: anything decoded here is shared
-   * with RemoteImage through that loader's memory cache, so a larger bitmap was never used. A
-   * 4000x3000 cover goes from ~48MB to ~3MB. Config is left at the BitmapFactory default so
-   * existing transparency behaviour is unchanged.
-   */
-  private fun sampleOptions(bounds: BitmapFactory.Options): BitmapFactory.Options =
-    BitmapFactory.Options().apply {
-      inSampleSize = calculateThumbnailSampleSize(bounds.outWidth, bounds.outHeight, ARTWORK_MAX_SIZE_PX)
-    }
-
-  private fun decodeFileSampled(path: String): Bitmap? {
-    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeFile(path, bounds)
-    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-    return BitmapFactory.decodeFile(path, sampleOptions(bounds))
-  }
-
-  private fun decodeStreamSampled(
-    context: Context,
-    uri: Uri,
-  ): Bitmap? {
-    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    val boundsStream = context.contentResolver.openInputStream(uri) ?: return null
-    boundsStream.use { input ->
-      BitmapFactory.decodeStream(input, null, bounds)
-    }
-    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-    return context.contentResolver.openInputStream(uri)?.use { input ->
-      BitmapFactory.decodeStream(input, null, sampleOptions(bounds))
-    }
-  }
-
-  private fun decodeByteArraySampled(bytes: ByteArray): Bitmap? {
-    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-    return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, sampleOptions(bounds))
-  }
-
-  private fun decodeHttpSampled(
-    artworkUri: String,
-    uri: Uri,
-  ): Bitmap? {
-    val bytes = readBoundedArtworkBytes(artworkUri, uri) ?: return null
-    return decodeByteArraySampled(bytes)
-  }
-
-  /** Caps the buffered body so a huge or endless response cannot be fully materialised in memory. */
-  private fun readBoundedArtworkBytes(
-    artworkUri: String,
-    uri: Uri,
-  ): ByteArray? {
-    val token = uri.getQueryParameter("token")
-    val connection = (java.net.URL(artworkUri).openConnection() as java.net.HttpURLConnection).apply {
-      connectTimeout = 8000
-      readTimeout = 8000
-      instanceFollowRedirects = true
-      setRequestProperty("User-Agent", "Mozilla/5.0 (Android) mpvRx")
-      if (!token.isNullOrBlank()) {
-        setRequestProperty("Authorization", "Bearer $token")
-      }
-    }
-    return connection.inputStream.use { input ->
-      val buffer = ByteArrayOutputStream()
-      val chunk = ByteArray(16 * 1024)
-      var total = 0
-      while (true) {
-        val read = input.read(chunk)
-        if (read <= 0) break
-        total += read
-        if (total > MAX_ARTWORK_BYTES) return@use null
-        buffer.write(chunk, 0, read)
-      }
-      buffer.toByteArray()
-    }
   }
 }

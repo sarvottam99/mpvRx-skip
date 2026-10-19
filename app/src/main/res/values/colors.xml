@@ -1,11 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!--
-        Launch screen background.
-
-        These are the Default theme's own surfaces (AppTheme.Default backgroundLight/backgroundDark in
-        ui/theme/AppTheme.kt). Kept in sync deliberately: the system splash can only read a static
-        colour, so this is what shows between the launcher tap and the Compose splash taking over.
-    -->
-    <color name="splash_background">#F7F5F8</color>
+    <!-- Brand splash: black background with the purple gradient logo. -->
+    <color name="splash_background">#000000</color>
+    <color name="splash_background_classic">#F7F5F8</color>
 </resources>

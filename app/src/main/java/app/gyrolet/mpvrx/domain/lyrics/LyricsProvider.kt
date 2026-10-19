@@ -21,6 +21,11 @@ enum class LyricsProvider(
   val detail: String,
   val wordSynced: Boolean,
 ) {
+  LRC_RED(
+    label = "lrc.red",
+    detail = "Apple Music timings filed by recording, syllable by syllable",
+    wordSynced = true,
+  ),
   BINI_LYRICS(
     label = "BiniLyrics",
     detail = "Apple Music timings, matched against the recording itself",
@@ -104,6 +109,10 @@ enum class LyricsProvider(
   ;
 
   companion object {
+    /** Play builds may only call LRCLIB's public API; the others are unofficial or scraped endpoints. */
+    val available: List<LyricsProvider> =
+      if (app.gyrolet.mpvrx.BuildConfig.IS_PLAY_STORE_BUILD) listOf(LRCLIB) else LyricsProvider.entries
+
     /**
      * Contacted only when nothing above [GENIUS] has answered: it is a plain
      * web scrape, so it stays out of the way of the sources that can be asked

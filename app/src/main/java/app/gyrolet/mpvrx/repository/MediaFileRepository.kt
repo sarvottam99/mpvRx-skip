@@ -14,6 +14,7 @@ import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
+import app.gyrolet.mpvrx.BuildConfig
 import app.gyrolet.mpvrx.database.MpvRxDatabase
 import app.gyrolet.mpvrx.domain.browser.FileSystemItem
 import app.gyrolet.mpvrx.domain.browser.PathComponent
@@ -23,7 +24,9 @@ import app.gyrolet.mpvrx.domain.playbackstate.repository.PlaybackStateRepository
 import app.gyrolet.mpvrx.preferences.AppearancePreferences
 import app.gyrolet.mpvrx.preferences.BrowserPreferences
 import app.gyrolet.mpvrx.preferences.FoldersPreferences
+import app.gyrolet.mpvrx.preferences.HiddenScanScope
 import app.gyrolet.mpvrx.utils.media.MediaInfoOps
+import app.gyrolet.mpvrx.utils.media.ScopedHiddenFolderScanner
 import app.gyrolet.mpvrx.utils.storage.FileTypeUtils
 import app.gyrolet.mpvrx.utils.storage.FolderViewScanner
 import app.gyrolet.mpvrx.utils.storage.INTERNAL_STORAGE_LABEL
@@ -33,6 +36,8 @@ import app.gyrolet.mpvrx.utils.storage.TreeViewScanner
 import app.gyrolet.mpvrx.utils.storage.leafStorageName
 import app.gyrolet.mpvrx.utils.storage.VideoScanUtils
 import app.gyrolet.mpvrx.utils.storage.mediaPathKey
+import app.gyrolet.mpvrx.utils.storage.storagePathKey
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -40,8 +45,6 @@ import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import java.io.File
 import java.util.Locale
-import kotlin.math.log10
-import kotlin.math.pow
 
 /**
  * Unified repository for ALL media file operations
@@ -63,10 +66,20 @@ object MediaFileRepository : KoinComponent {
   private val playbackStateRepository: PlaybackStateRepository by inject()
   private val database: MpvRxDatabase by inject()
 
-  private fun currentScanOptions(includeAudioOverride: Boolean? = null): MediaScanOptions =
+  private fun currentScanOptions(
+    includeAudioOverride: Boolean? = null,
+    scope: HiddenScanScope = HiddenScanScope.FOLDERS,
+  ): MediaScanOptions =
     MediaScanOptions(
-      includeNoMediaFolders = foldersPreferences.includeNoMediaFolders.get(),
+      // Scoped builds discover unindexed folders only through explicit user-granted SAF trees.
+      includeNoMediaFolders = !BuildConfig.SCOPED_STORAGE_ONLY &&
+        foldersPreferences.includeNoMediaFolders.get() && foldersPreferences.isModeScanEnabled(scope) &&
+        foldersPreferences.scanMarkedFolders(scope),
+      includeDotFolders = !BuildConfig.SCOPED_STORAGE_ONLY &&
+        foldersPreferences.includeNoMediaFolders.get() && foldersPreferences.isModeScanEnabled(scope) &&
+        foldersPreferences.scanDotFolders(scope),
       hiddenFolderMarkerNames = foldersPreferences.hiddenFolderMarkerNames.get(),
+      ignoredHiddenMarkerNames = foldersPreferences.ignoredMarkers(scope),
       includeAudio = includeAudioOverride ?: browserPreferences.includeAudioBrowser.get(),
       minimumAudioDurationSeconds = browserPreferences.minimumAudioDurationSeconds.get(),
     )
@@ -111,6 +124,25 @@ object MediaFileRepository : KoinComponent {
   // FOLDER OPERATIONS (Album View)
   // =============================================================================
 
+  suspend fun getScopedHiddenVideoFolders(
+    context: Context,
+    includeAudioOverride: Boolean? = null,
+    scope: HiddenScanScope = HiddenScanScope.FOLDERS,
+  ): List<VideoFolder> =
+    if (BuildConfig.SCOPED_STORAGE_ONLY && foldersPreferences.hiddenScanEnabled(scope)) {
+      ScopedHiddenFolderScanner.getFolders(
+        context,
+        foldersPreferences.scopedHiddenFolderUris.get(),
+        includeAudioOverride ?: browserPreferences.includeAudioBrowser.get(),
+        includeMarkedFolders = foldersPreferences.scanMarkedFolders(scope),
+        includeDotFolders = foldersPreferences.scanDotFolders(scope),
+        markerNames = foldersPreferences.hiddenFolderMarkerNames.get(),
+        ignoredMarkerNames = foldersPreferences.ignoredMarkers(scope),
+      )
+    } else {
+      emptyList()
+    }
+
   /**
    * Scans all storage volumes to find all folders containing videos
    */
@@ -118,51 +150,76 @@ object MediaFileRepository : KoinComponent {
     context: Context,
     forceFileSystemCheck: Boolean = false,
     includeAudioOverride: Boolean? = null,
+    scope: HiddenScanScope = HiddenScanScope.FOLDERS,
   ): List<VideoFolder> =
     withContext(Dispatchers.IO) {
       try {
         val mediaStoreFolders =
           FolderViewScanner.getAllVideoFolders(
             context,
-            currentScanOptions(includeAudioOverride),
+            currentScanOptions(includeAudioOverride, scope),
             forceFileSystemCheck,
           )
         val indexedFolders =
           FolderViewScanner.getIndexedNoMediaFolders(
-            currentScanOptions(includeAudioOverride),
+            currentScanOptions(includeAudioOverride, scope),
             database.directoryScanDao(),
           )
-        (mediaStoreFolders + indexedFolders)
-          .distinctBy { it.path.lowercase(Locale.ROOT) }
+        val localFolders = mediaStoreFolders + indexedFolders
+        val scopedFolders = ScopedHiddenFolderScanner.withoutLocalDuplicates(
+          localFolders,
+          getScopedHiddenVideoFolders(context, includeAudioOverride, scope),
+        )
+        (localFolders + scopedFolders)
+          .distinctBy { if (ScopedHiddenFolderScanner.isScopedFolder(it.path)) it.path else it.path.lowercase(Locale.ROOT) }
           .sortedBy { it.name.lowercase(Locale.getDefault()) }
+      } catch (cancelled: CancellationException) {
+        throw cancelled
       } catch (e: Exception) {
         Log.e(TAG, "Error scanning for video folders", e)
         emptyList()
       }
     }
 
-  /** Fast MediaStore-only phase. Hidden folders arrive through the incremental flow below. */
+  /** Fast phase: MediaStore folders plus any granted Play Store folders. Other hidden folders arrive through the incremental flow below. */
   suspend fun getAllVideoFoldersFast(
     context: Context,
     onProgress: ((Int) -> Unit)? = null,
     forceFileSystemCheck: Boolean = false,
     includeAudioOverride: Boolean? = null,
+    scope: HiddenScanScope = HiddenScanScope.FOLDERS,
   ): List<VideoFolder> =
     withContext(Dispatchers.IO) {
-      val options = currentScanOptions(includeAudioOverride)
+      val options = currentScanOptions(includeAudioOverride, scope)
       val folders = FolderViewScanner
         .getAllVideoFolders(
           context = context,
           options = options,
           forceFileSystemCheck = forceFileSystemCheck,
         )
-      folders.distinctBy { it.path.lowercase(Locale.ROOT) }
+      val scopedFolders = ScopedHiddenFolderScanner.withoutLocalDuplicates(
+        folders,
+        getScopedHiddenVideoFolders(context, includeAudioOverride, scope),
+      )
+      (folders + scopedFolders)
+        .distinctBy { if (ScopedHiddenFolderScanner.isScopedFolder(it.path)) it.path else it.path.lowercase(Locale.ROOT) }
         .sortedBy { it.name.lowercase(Locale.getDefault()) }
         .also { onProgress?.invoke(it.size) }
     }
 
   suspend fun getIndexedNoMediaFolders(): List<VideoFolder> =
     FolderViewScanner.getIndexedNoMediaFolders(currentScanOptions(), database.directoryScanDao())
+
+  /** True when [path] is a hidden folder the scan indexed in a standard build. Play Store folders are separate. */
+  suspend fun isIndexedHiddenFolder(path: String): Boolean {
+    if (ScopedHiddenFolderScanner.isScopedFolder(path)) return false
+    val key = storagePathKey(path) ?: return false
+    return getIndexedNoMediaFolders().any { storagePathKey(it.path) == key }
+  }
+
+  /** The hidden roots currently tracked by Folder mode, independent of the Library tab. */
+  suspend fun getIndexedNoMediaRootPaths(): List<String> =
+    database.directoryScanDao().getNoMediaRoots(currentScanOptions().cacheKey)
 
   /**
    * Scans MediaStore for all audio (music) files and groups them by parent folder.
@@ -215,7 +272,7 @@ object MediaFileRepository : KoinComponent {
       } catch (e: Exception) {
         Log.e(TAG, "Error scanning for audio folders", e)
       }
-      aggregates.values
+      val indexedFolders = aggregates.values
         .map { agg ->
           VideoFolder(
             bucketId = agg.path,
@@ -226,7 +283,19 @@ object MediaFileRepository : KoinComponent {
             totalDuration = agg.duration,
             lastModified = agg.lastModified,
           )
-        }.sortedBy { it.name.lowercase(Locale.getDefault()) }
+        }
+      val selectedFolders = if (BuildConfig.SCOPED_STORAGE_ONLY && foldersPreferences.includeNoMediaFolders.get()) {
+        ScopedHiddenFolderScanner.getFolders(
+          context,
+          foldersPreferences.scopedHiddenFolderUris.get(),
+          includeAudio = true,
+          audioOnly = true,
+        )
+      } else {
+        emptyList()
+      }
+      (indexedFolders + ScopedHiddenFolderScanner.withoutLocalDuplicates(indexedFolders, selectedFolders))
+        .sortedBy { it.name.lowercase(Locale.getDefault()) }
     }
 
   /**
@@ -248,6 +317,7 @@ object MediaFileRepository : KoinComponent {
             "${MediaStore.Audio.Media.DISPLAY_NAME} LIKE ?"
         val projection =
           arrayOf(
+            MediaStore.Audio.Media._ID,
             MediaStore.Audio.Media.DATA,
             MediaStore.Audio.Media.TITLE,
             MediaStore.Audio.Media.DISPLAY_NAME,
@@ -265,6 +335,7 @@ object MediaFileRepository : KoinComponent {
             arrayOf(like, like, like, like),
             "${MediaStore.Audio.Media.TITLE} ASC",
           )?.use { cursor ->
+            val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
             val dataColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
             val titleColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
             val displayColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
@@ -274,9 +345,9 @@ object MediaFileRepository : KoinComponent {
             var guard = 0
             while (cursor.moveToNext() && guard < limit) {
               guard++
-              val path = cursor.getString(dataColumn)
+              val path = cursor.getString(dataColumn)?.takeIf { it.isNotBlank() } ?: continue
               val file = File(path)
-              if (!file.exists()) continue
+              if (!BuildConfig.SCOPED_STORAGE_ONLY && !file.exists()) continue
               if (app.gyrolet.mpvrx.domain.audiobook.AudiobookMarkerUtils.isAudiobookPath(path)) continue
               val durationMs = cursor.getLong(durationColumn)
               val title = cursor.getString(titleColumn) ?: file.nameWithoutExtension
@@ -289,11 +360,15 @@ object MediaFileRepository : KoinComponent {
                   title = title,
                   displayName = displayName,
                   path = path,
-                  uri = Uri.fromFile(file),
+                  uri = if (BuildConfig.SCOPED_STORAGE_ONLY) {
+                    Uri.withAppendedPath(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, cursor.getLong(idColumn).toString())
+                  } else {
+                    Uri.fromFile(file)
+                  },
                   duration = durationMs,
-                  durationFormatted = formatDuration(durationMs),
+                  durationFormatted = VideoScanUtils.formatDuration(durationMs),
                   size = cursor.getLong(sizeColumn),
-                  sizeFormatted = formatFileSize(cursor.getLong(sizeColumn)),
+                  sizeFormatted = VideoScanUtils.formatFileSize(cursor.getLong(sizeColumn)),
                   dateModified = cursor.getLong(dateColumn),
                   dateAdded = cursor.getLong(dateColumn),
                   mimeType = FileTypeUtils.getMimeTypeFromExtension(file.extension.lowercase()),
@@ -337,16 +412,6 @@ object MediaFileRepository : KoinComponent {
       forceDiscovery = forceDiscovery,
     )
 
-  /**
-   * No-op enrichment - MediaStore already provides all metadata
-   * Kept for backward compatibility
-   */
-  suspend fun enrichVideoFolders(
-    context: Context,
-    folders: List<VideoFolder>,
-    onProgress: ((Int, Int) -> Unit)? = null,
-  ): List<VideoFolder> = folders
-
   // =============================================================================
   // VIDEO FILE OPERATIONS
   // =============================================================================
@@ -360,15 +425,36 @@ object MediaFileRepository : KoinComponent {
     bucketId: String,
     forceFileSystemCheck: Boolean = false,
     includeAudioOverride: Boolean? = null,
+    scope: HiddenScanScope = HiddenScanScope.FOLDERS,
   ): List<Video> =
     withContext(Dispatchers.IO) {
       try {
-        VideoScanUtils.getVideosInFolder(
-          context,
-          bucketId,
-          currentScanOptions(includeAudioOverride),
-          forceFileSystemCheck,
-        )
+        if (BuildConfig.SCOPED_STORAGE_ONLY &&
+          foldersPreferences.hiddenScanEnabled(scope) &&
+          ScopedHiddenFolderScanner.isGrantedFolder(bucketId, foldersPreferences.scopedHiddenFolderUris.get())
+        ) {
+          ScopedHiddenFolderScanner.getVideos(
+            context,
+            bucketId,
+            includeAudioOverride ?: browserPreferences.includeAudioBrowser.get(),
+            foldersPreferences.scopedHiddenFolderUris.get(),
+          ).filter { video ->
+            // SAF exposes files invisible to MediaStore, including dot-prefixed media.
+            // Apply the same per-view filename policy after reading the selected grant.
+            foldersPreferences.scanDotFolders(scope) || !video.displayName.startsWith(".")
+          }
+        } else if (ScopedHiddenFolderScanner.isScopedFolder(bucketId)) {
+          emptyList()
+        } else {
+          VideoScanUtils.getVideosInFolder(
+            context,
+            bucketId,
+            currentScanOptions(includeAudioOverride, scope),
+            forceFileSystemCheck,
+          )
+        }
+      } catch (cancelled: CancellationException) {
+        throw cancelled
       } catch (e: Exception) {
         Log.e(TAG, "Error getting videos for bucket $bucketId", e)
         emptyList()
@@ -383,22 +469,32 @@ object MediaFileRepository : KoinComponent {
     context: Context,
     bucketIds: Set<String>,
     includeAudioOverride: Boolean? = null,
+    scope: HiddenScanScope = HiddenScanScope.FOLDERS,
   ): List<Video> =
     withContext(Dispatchers.IO) {
       val result = linkedMapOf<String, Video>()
       for (id in bucketIds) {
-        runCatching {
+        try {
           getVideosInFolder(
             context,
             id,
             includeAudioOverride = includeAudioOverride,
+            scope = scope,
           ).forEach { media ->
-            val key = mediaPathKey(media.path) ?: media.path
+            // A granted document and its MediaStore row are the same file; key both by real path.
+            val key = if (BuildConfig.SCOPED_STORAGE_ONLY && ScopedHiddenFolderScanner.isScopedFolder(media.path)) {
+              ScopedHiddenFolderScanner.localPathOf(media.uri)?.let(::mediaPathKey)
+                ?: ScopedHiddenFolderScanner.documentKey(media.uri)
+            } else mediaPathKey(media.path) ?: media.path
             val existing = result[key]
             if (existing == null || shouldReplaceMedia(existing, media)) {
               result[key] = media
             }
           }
+        } catch (cancelled: CancellationException) {
+          throw cancelled
+        } catch (error: Exception) {
+          Log.w(TAG, "Skipping failed media bucket", error)
         }
       }
       result.values.toList()
@@ -484,69 +580,9 @@ object MediaFileRepository : KoinComponent {
       path = path,
       uri = uri,
       duration = duration,
-      durationFormatted = formatDuration(duration),
+      durationFormatted = VideoScanUtils.formatDuration(duration),
       size = size,
-      sizeFormatted = formatFileSize(size),
-      dateModified = dateModified,
-      dateAdded = dateModified,
-      mimeType = mimeType,
-      bucketId = bucketId,
-      bucketDisplayName = bucketDisplayName,
-      width = width,
-      height = height,
-      fps = fps,
-      resolution = VideoScanUtils.formatResolutionWithFps(width, height, fps),
-      hasEmbeddedSubtitles = hasEmbeddedSubtitles,
-      subtitleCodec = subtitleCodec,
-    )
-  }
-
-  /**
-   * Creates a Video object from a file with pre-fetched metadata
-   * Use this when metadata has already been batch-extracted
-   */
-  private fun createVideoFromFileWithMetadata(
-    file: File,
-    bucketId: String,
-    bucketDisplayName: String,
-    metadata: MediaInfoOps.VideoMetadata?,
-  ): Video {
-    val path = file.absolutePath
-    val displayName = file.name
-    val title = file.nameWithoutExtension
-    val dateModified = file.lastModified() / 1000
-
-    val extension = file.extension.lowercase()
-    val mimeType = FileTypeUtils.getMimeTypeFromExtension(extension)
-    val uri = Uri.fromFile(file)
-
-    // Use pre-fetched metadata
-    var size = file.length()
-    var duration = 0L
-    var width = 0
-    var height = 0
-    var fps = 0f
-
-    metadata?.let {
-      if (it.sizeBytes > 0) size = it.sizeBytes
-      duration = it.durationMs
-      width = it.width
-      height = it.height
-      fps = it.fps
-    }
-    val hasEmbeddedSubtitles = metadata?.hasEmbeddedSubtitles ?: false
-    val subtitleCodec = metadata?.subtitleCodec ?: ""
-
-    return Video(
-      id = path.hashCode().toLong(),
-      title = title,
-      displayName = displayName,
-      path = path,
-      uri = uri,
-      duration = duration,
-      durationFormatted = formatDuration(duration),
-      size = size,
-      sizeFormatted = formatFileSize(size),
+      sizeFormatted = VideoScanUtils.formatFileSize(size),
       dateModified = dateModified,
       dateAdded = dateModified,
       mimeType = mimeType,
@@ -566,19 +602,16 @@ object MediaFileRepository : KoinComponent {
     includeAudioOverride: Boolean? = null,
   ): List<Video> =
     withContext(Dispatchers.IO) {
-      val folders = getAllVideoFolders(context, includeAudioOverride = includeAudioOverride)
+      val folders = getAllVideoFolders(
+        context, includeAudioOverride = includeAudioOverride, scope = HiddenScanScope.LIBRARY,
+      )
       val bucketIds = folders.map { it.bucketId }.toSet()
-      getVideosForBuckets(context, bucketIds, includeAudioOverride)
+      getVideosForBuckets(context, bucketIds, includeAudioOverride, scope = HiddenScanScope.LIBRARY)
     }
 
   // =============================================================================
   // FILE SYSTEM BROWSING (Tree View)
   // =============================================================================
-
-  /**
-   * Gets the default root path for the filesystem browser
-   */
-  fun getDefaultRootPath(): String = Environment.getExternalStorageDirectory().absolutePath
 
   /**
    * Parses a path into breadcrumb components
@@ -616,19 +649,24 @@ object MediaFileRepository : KoinComponent {
   ): Result<List<FileSystemItem>> =
     withContext(Dispatchers.IO) {
       try {
-        val scanOptions = currentScanOptions()
+        val scanOptions = currentScanOptions(scope = HiddenScanScope.TREE)
         val directory = File(path)
+        val indexedDirectory = if (BuildConfig.SCOPED_STORAGE_ONLY) {
+          TreeViewScanner.getFolderDataRecursive(context, path, scanOptions, forceFileSystemCheck)
+        } else {
+          null
+        }
 
         // Validation checks
-        if (!directory.exists()) {
+        if (!directory.exists() && indexedDirectory == null) {
           return@withContext Result.failure(Exception("Directory does not exist: $path"))
         }
 
-        if (!directory.canRead()) {
+        if (!BuildConfig.SCOPED_STORAGE_ONLY && !directory.canRead()) {
           return@withContext Result.failure(Exception("Cannot read directory: $path"))
         }
 
-        if (!directory.isDirectory) {
+        if (!directory.isDirectory && indexedDirectory == null) {
           return@withContext Result.failure(Exception("Path is not a directory: $path"))
         }
 
@@ -647,6 +685,7 @@ object MediaFileRepository : KoinComponent {
             thresholdDays = thresholdDays,
             maxAutoFlattenLevels = browserPreferences.treeFlattenDepth.get().maxLevels,
             newLabelOverrides = newLabelOverrides,
+            blacklistedPaths = foldersPreferences.blacklistedFolders.get(),
           )
         folders.forEach { folderData ->
           items.add(
@@ -703,7 +742,7 @@ object MediaFileRepository : KoinComponent {
 
         // Primary storage (internal)
         val primaryStorage = Environment.getExternalStorageDirectory()
-        if (primaryStorage.exists() && primaryStorage.canRead()) {
+        if (BuildConfig.SCOPED_STORAGE_ONLY || (primaryStorage.exists() && primaryStorage.canRead())) {
           val primaryPath = primaryStorage.absolutePath
 
           // Get recursive count for this storage root
@@ -711,7 +750,7 @@ object MediaFileRepository : KoinComponent {
             TreeViewScanner.getFolderDataRecursive(
               context,
               primaryPath,
-              currentScanOptions(),
+              currentScanOptions(scope = HiddenScanScope.TREE),
               forceFileSystemCheck,
               playedMediaTitles,
               showNewLabels,
@@ -739,7 +778,7 @@ object MediaFileRepository : KoinComponent {
           val volumePath = StorageVolumeUtils.getVolumePath(volume)
           if (volumePath != null) {
             val volumeDir = File(volumePath)
-            if (volumeDir.exists() && volumeDir.canRead()) {
+            if (BuildConfig.SCOPED_STORAGE_ONLY || (volumeDir.exists() && volumeDir.canRead())) {
               val volumeName = volume.getDescription(context)
 
               // Get recursive count for this storage root
@@ -747,7 +786,7 @@ object MediaFileRepository : KoinComponent {
                 TreeViewScanner.getFolderDataRecursive(
                   context,
                   volumePath,
-                  currentScanOptions(),
+                  currentScanOptions(scope = HiddenScanScope.TREE),
                   forceFileSystemCheck,
                   playedMediaTitles,
                   showNewLabels,
@@ -776,36 +815,4 @@ object MediaFileRepository : KoinComponent {
 
       roots
     }
-
-  // =============================================================================
-  // FORMATTING UTILITIES
-  // =============================================================================
-
-  private fun formatDuration(durationMs: Long): String {
-    if (durationMs <= 0) return "0s"
-
-    val seconds = durationMs / 1000
-    val hours = seconds / 3600
-    val minutes = (seconds % 3600) / 60
-    val secs = seconds % 60
-
-    return when {
-      hours > 0 -> String.format(Locale.getDefault(), "%d:%02d:%02d", hours, minutes, secs)
-      minutes > 0 -> String.format(Locale.getDefault(), "%d:%02d", minutes, secs)
-      else -> "${secs}s"
-    }
-  }
-
-  private fun formatFileSize(bytes: Long): String {
-    if (bytes <= 0) return "0 B"
-    val units = arrayOf("B", "KB", "MB", "GB", "TB")
-    val digitGroups = (log10(bytes.toDouble()) / log10(1024.0)).toInt()
-    return String.format(
-      Locale.getDefault(),
-      "%.1f %s",
-      bytes / 1024.0.pow(digitGroups.toDouble()),
-      units[digitGroups],
-    )
-  }
-
 }

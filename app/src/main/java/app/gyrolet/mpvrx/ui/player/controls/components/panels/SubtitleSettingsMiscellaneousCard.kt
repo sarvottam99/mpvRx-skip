@@ -10,6 +10,8 @@
 package app.gyrolet.mpvrx.ui.player.controls.components.panels
 
 import app.gyrolet.mpvrx.ui.player.PlaybackSession
+import app.gyrolet.mpvrx.ui.player.applySubtitleScales
+import app.gyrolet.mpvrx.ui.player.subtitleBlendMode
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -29,7 +31,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.res.stringResource
+import app.gyrolet.mpvrx.preferences.preference.collectAsState
 import app.gyrolet.mpvrx.R
 import app.gyrolet.mpvrx.preferences.PlayerPreferences
 import app.gyrolet.mpvrx.preferences.SubtitlesPreferences
@@ -44,12 +48,16 @@ import app.gyrolet.mpvrx.ui.player.controls.components.sheets.toFixed
 import app.gyrolet.mpvrx.ui.player.controls.panelCardsColors
 import app.gyrolet.mpvrx.ui.preferences.components.SwitchPreference
 import app.gyrolet.mpvrx.ui.theme.spacing
+import app.gyrolet.mpvrx.ui.theme.AppConnectedShapeTokens
 import app.gyrolet.mpvrx.ui.utils.currentMpvConfigOverrideOptions
 import me.zhanghai.compose.preference.ProvidePreferenceLocals
 import org.koin.compose.koinInject
 
 @Composable
-fun SubtitlesMiscellaneousCard(modifier: Modifier = Modifier) {
+fun SubtitlesMiscellaneousCard(
+  modifier: Modifier = Modifier,
+  shape: Shape = MaterialTheme.shapes.large,
+) {
   val preferences = koinInject<SubtitlesPreferences>()
   val playerPreferences = koinInject<PlayerPreferences>()
   val configOwnedOptions = currentMpvConfigOverrideOptions()
@@ -74,17 +82,23 @@ fun SubtitlesMiscellaneousCard(modifier: Modifier = Modifier) {
     onExpand = { isExpanded = !isExpanded },
     modifier.widthIn(max = CARDS_MAX_WIDTH),
     colors = panelCardsColors(),
+    shape = shape,
   ) {
     ProvidePreferenceLocals {
-      Column {
+      Column(verticalArrangement = Arrangement.spacedBy(AppConnectedShapeTokens.spacing)) {
         var overrideAssSubs by remember {
           mutableStateOf(preferences.overrideAssSubs.get())
         }
         LaunchedEffect(preferences.overrideAssSubs.get()) {
           overrideAssSubs = preferences.overrideAssSubs.get()
         }
+        val secondarySid by PlaybackSession.propInt["secondary-sid"].collectAsState()
+        val isSecondaryActive = (secondarySid ?: PlaybackSession.getPropertyString("secondary-sid")?.toIntOrNull() ?: 0) > 0
+        val connectedItemCount = if (isSecondaryActive) 10 else 8
         SwitchPreference(
           overrideAssSubs,
+          groupIndex = 0,
+          groupSize = connectedItemCount,
           enabled = layoutOptions.none(configOwnedOptions::contains),
           onValueChange = {
             overrideAssSubs = it
@@ -98,6 +112,8 @@ fun SubtitlesMiscellaneousCard(modifier: Modifier = Modifier) {
         }
         SwitchPreference(
           scaleByWindow,
+          groupIndex = 1,
+          groupSize = connectedItemCount,
           enabled = scaleByWindowOptions.none(configOwnedOptions::contains),
           onValueChange = {
             scaleByWindow = it
@@ -117,6 +133,8 @@ fun SubtitlesMiscellaneousCard(modifier: Modifier = Modifier) {
         }
         SwitchPreference(
           secondaryPinchZoom,
+          groupIndex = 2,
+          groupSize = connectedItemCount,
           enabled = scaleOptions.none(configOwnedOptions::contains),
           onValueChange = {
             secondaryPinchZoom = it
@@ -130,11 +148,13 @@ fun SubtitlesMiscellaneousCard(modifier: Modifier = Modifier) {
         }
         SwitchPreference(
           blendSubtitlesWithVideo,
+          groupIndex = 3,
+          groupSize = connectedItemCount,
           enabled = blendOptions.none(configOwnedOptions::contains),
           onValueChange = {
             blendSubtitlesWithVideo = it
             preferences.blendSubtitlesWithVideo.set(it)
-            val blendMode = if (it && playerPreferences.isAmbientEnabled.get()) "video" else "no"
+            val blendMode = subtitleBlendMode()
             PlaybackSession.setPropertyString("blend-subtitles", blendMode)
           },
           title = { Text(stringResource(R.string.player_sheets_sub_blend_with_video)) },
@@ -145,6 +165,8 @@ fun SubtitlesMiscellaneousCard(modifier: Modifier = Modifier) {
         }
         SwitchPreference(
           forceRtlSubtitles,
+          groupIndex = 4,
+          groupSize = connectedItemCount,
           enabled = bidiOptions.none(configOwnedOptions::contains),
           onValueChange = {
             forceRtlSubtitles = it
@@ -155,97 +177,101 @@ fun SubtitlesMiscellaneousCard(modifier: Modifier = Modifier) {
           title = { Text(stringResource(R.string.player_sheets_sub_force_rtl)) },
           summary = { Text(stringResource(R.string.player_sheets_sub_force_rtl_summary)) },
         )
-        val subScale by PlaybackSession.propFloat["sub-scale"].collectAsState()
+        val subScale by preferences.subScale.collectAsState()
         val subPos by PlaybackSession.propInt["sub-pos"].collectAsState()
-        val secondarySid by PlaybackSession.propInt["secondary-sid"].collectAsState()
-        val isSecondaryActive = (secondarySid ?: PlaybackSession.getPropertyInt("secondary-sid") ?: 0) > 0
-        val secondarySubScale by PlaybackSession.propFloat["secondary-sub-scale"].collectAsState()
+        val secondarySubScale by preferences.secondarySubScale.collectAsState()
         val secondarySubPos by PlaybackSession.propInt["secondary-sub-pos"].collectAsState()
-        SliderItem(
-          label = stringResource(
-            if (isSecondaryActive) R.string.player_sheets_sub_primary_scale else R.string.player_sheets_sub_scale,
-          ),
-          value = subScale ?: preferences.subScale.get(),
-          valueText = (subScale ?: preferences.subScale.get()).toFixed(2).toString(),
-          onChange = {
-            preferences.subScale.set(it)
-            PlaybackSession.setPropertyFloat("sub-scale", it)
-          },
-          max = 5f,
-          enabled = scaleOptions.none(configOwnedOptions::contains),
-          icon = {
-            Icon(
-              Icons.RoundedFilled.FormatSize,
-              null,
-            )
-          },
-        )
-        SliderItem(
-          label = stringResource(
-            if (isSecondaryActive) R.string.player_sheets_sub_primary_position else R.string.player_sheets_sub_position,
-          ),
-          value = subPos ?: preferences.subPos.get(),
-          valueText = (subPos ?: preferences.subPos.get()).toString(),
-          onChange = {
-            preferences.subPos.set(it)
-            applySubtitleLayout(it, preferences.overrideAssSubs.get())
-          },
-          max = 150,
-          enabled = layoutOptions.none(configOwnedOptions::contains),
-          icon = {
-            Icon(
-              Icons.RoundedFilled.AlignVerticalCenter,
-              null,
-            )
-          },
-        )
-        if (isSecondaryActive) {
+        PanelConnectedTile(index = 5, itemCount = connectedItemCount) {
           SliderItem(
-            label = stringResource(R.string.player_sheets_secondary_sub_scale),
-            value = secondarySubScale ?: preferences.secondarySubScale.get(),
-            valueText = (secondarySubScale ?: preferences.secondarySubScale.get()).toFixed(2).toString(),
+            label = stringResource(
+              if (isSecondaryActive) R.string.player_sheets_sub_primary_scale else R.string.player_sheets_sub_scale,
+            ),
+            value = subScale,
+            valueText = subScale.toFixed(2).toString(),
             onChange = {
-              preferences.secondarySubScale.set(it)
-              PlaybackSession.setPropertyFloat("secondary-sub-scale", it)
+              preferences.subScale.set(it)
+              applySubtitleScales()
             },
             max = 5f,
             enabled = scaleOptions.none(configOwnedOptions::contains),
             icon = {
-              Icon(Icons.RoundedFilled.FormatSize, null)
+              Icon(
+                Icons.RoundedFilled.FormatSize,
+                null,
+              )
             },
           )
+        }
+        PanelConnectedTile(index = 6, itemCount = connectedItemCount) {
           SliderItem(
-            label = stringResource(R.string.player_sheets_secondary_sub_position),
-            value = secondarySubPos ?: preferences.secondarySubPos.get(),
-            valueText = (secondarySubPos ?: preferences.secondarySubPos.get()).toString(),
+            label = stringResource(
+              if (isSecondaryActive) R.string.player_sheets_sub_primary_position else R.string.player_sheets_sub_position,
+            ),
+            value = subPos ?: preferences.subPos.get(),
+            valueText = (subPos ?: preferences.subPos.get()).toString(),
             onChange = {
-              preferences.secondarySubPos.set(it)
-              PlaybackSession.setPropertyInt("secondary-sub-pos", it)
+              preferences.subPos.set(it)
+              applySubtitleLayout(it, preferences.overrideAssSubs.get())
             },
             max = 150,
             enabled = layoutOptions.none(configOwnedOptions::contains),
             icon = {
-              Icon(Icons.RoundedFilled.AlignVerticalCenter, null)
+              Icon(
+                Icons.RoundedFilled.AlignVerticalCenter,
+                null,
+              )
             },
           )
         }
+        if (isSecondaryActive) {
+          PanelConnectedTile(index = 7, itemCount = connectedItemCount) {
+            SliderItem(
+              label = stringResource(R.string.player_sheets_secondary_sub_scale),
+              value = secondarySubScale,
+              valueText = secondarySubScale.toFixed(2).toString(),
+              onChange = {
+                preferences.secondarySubScale.set(it)
+                applySubtitleScales()
+              },
+              max = 5f,
+              enabled = scaleOptions.none(configOwnedOptions::contains),
+              icon = {
+                Icon(Icons.RoundedFilled.FormatSize, null)
+              },
+            )
+          }
+          PanelConnectedTile(index = 8, itemCount = connectedItemCount) {
+            SliderItem(
+              label = stringResource(R.string.player_sheets_secondary_sub_position),
+              value = secondarySubPos ?: preferences.secondarySubPos.get(),
+              valueText = (secondarySubPos ?: preferences.secondarySubPos.get()).toString(),
+              onChange = {
+                preferences.secondarySubPos.set(it)
+                PlaybackSession.setPropertyInt("secondary-sub-pos", it)
+              },
+              max = 150,
+              enabled = layoutOptions.none(configOwnedOptions::contains),
+              icon = {
+                Icon(Icons.RoundedFilled.AlignVerticalCenter, null)
+              },
+            )
+          }
+        }
+        PanelConnectedTile(index = connectedItemCount - 1, itemCount = connectedItemCount) {
         Row(
           modifier =
             Modifier
               .fillMaxWidth()
-              .padding(end = MaterialTheme.spacing.medium, bottom = MaterialTheme.spacing.medium),
+              .padding(horizontal = MaterialTheme.spacing.medium, vertical = MaterialTheme.spacing.smaller),
           horizontalArrangement = Arrangement.End,
         ) {
           TextButton(
             enabled = miscellaneousOptions.none(configOwnedOptions::contains),
             onClick = {
               val defaultSubPos = preferences.subPos.deleteAndGet()
-              preferences.subScale.deleteAndGet().let {
-                PlaybackSession.setPropertyFloat("sub-scale", it)
-              }
-              preferences.secondarySubScale.deleteAndGet().let {
-                PlaybackSession.setPropertyFloat("secondary-sub-scale", it)
-              }
+              preferences.subScale.delete()
+              preferences.secondarySubScale.delete()
+              applySubtitleScales()
               preferences.secondarySubPos.delete()
               val defaultOverride = preferences.overrideAssSubs.deleteAndGet()
               overrideAssSubs = defaultOverride
@@ -270,6 +296,7 @@ fun SubtitlesMiscellaneousCard(modifier: Modifier = Modifier) {
               Text(stringResource(R.string.generic_reset))
             }
           }
+        }
         }
       }
     }

@@ -17,6 +17,7 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -26,11 +27,10 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
+import app.gyrolet.mpvrx.ui.components.AppSlider as Slider
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -60,21 +60,19 @@ import app.gyrolet.mpvrx.ui.icons.Icon
 import app.gyrolet.mpvrx.ui.icons.Icons
 import app.gyrolet.mpvrx.ui.preferences.components.SwitchPreference
 import app.gyrolet.mpvrx.ui.utils.LocalBackStack
-import app.gyrolet.mpvrx.ui.utils.LocalShowSettingsBackArrow
 import app.gyrolet.mpvrx.ui.utils.currentMpvConfigOverrideOptions
 import app.gyrolet.mpvrx.ui.utils.popSafely
 import app.gyrolet.mpvrx.utils.media.MediaLibraryEvents
 import kotlinx.serialization.Serializable
 import me.zhanghai.compose.preference.ListPreference
-import me.zhanghai.compose.preference.ProvidePreferenceLocals
-import me.zhanghai.compose.preference.SliderPreference
+import app.gyrolet.mpvrx.ui.preferences.components.AppSliderPreference as SliderPreference
 import me.zhanghai.compose.preference.TextFieldPreference
 import org.koin.compose.koinInject
 
 import androidx.compose.foundation.layout.Row
-import androidx.compose.material3.AlertDialog
+import app.gyrolet.mpvrx.presentation.components.AppAlertDialog as AlertDialog
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.TextButton
+import app.gyrolet.mpvrx.presentation.components.AppDialogTextButton as TextButton
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -98,34 +96,16 @@ object AudioPreferencesScreen : Screen {
         contract = ActivityResultContracts.RequestPermission(),
       ) { _ -> }
 
-    var showMusicTabsDialog by remember { mutableStateOf(false) }
 
     Scaffold(
       topBar = {
-        TopAppBar(
-          title = {
-            Text(
-              text = stringResource(R.string.pref_audio),
-              style = MaterialTheme.typography.headlineSmall,
-              fontWeight = FontWeight.ExtraBold,
-              color = MaterialTheme.colorScheme.primary,
-            )
-          },
-          navigationIcon = {
-            if (LocalShowSettingsBackArrow.current) {
-              IconButton(onClick = { backstack.popSafely() }) {
-                Icon(
-                  Icons.RoundedFilled.ArrowBack,
-                  contentDescription = null,
-                  tint = MaterialTheme.colorScheme.secondary,
-                )
-              }
-            }
-          },
+        SettingsTopAppBar(
+          title = stringResource(R.string.pref_audio),
+          onBack = { backstack.popSafely() },
         )
       },
     ) { padding ->
-      ProvidePreferenceLocals {
+      ProvideExpressivePreferenceLocals {
         val (settingsListState, settingsHighlight) =
           rememberSettingsSearchList(AudioPreferencesScreen, MaterialTheme.colorScheme.primary)
         LazyColumn(
@@ -137,7 +117,7 @@ object AudioPreferencesScreen : Screen {
               .then(settingsHighlight),
         ) {
           item {
-            PreferenceSectionHeader(
+            PreferenceSectionHeader(position = PreferenceSectionPosition.First, 
               title = stringResource(R.string.pref_media_library_section),
               modifier = Modifier.settingsSearchTarget(R.string.pref_audio),
             )
@@ -235,37 +215,9 @@ object AudioPreferencesScreen : Screen {
               }
 
               PreferenceDivider()
-              val enabledMusicTabs by preferences.enabledMusicTabs.collectAsState()
-              val musicTabOrder by preferences.musicTabOrder.collectAsState()
-              val musicTabsSummary = remember(enabledMusicTabs, musicTabOrder, resources) {
-                val tabMap = MusicTab.entries.associateBy { it.name }
-                val orderedTabs = (musicTabOrder.mapNotNull { tabMap[it] } + (MusicTab.entries - musicTabOrder.mapNotNull { tabMap[it] }.toSet())).distinct()
-                val names = orderedTabs.filter { it.name in enabledMusicTabs }.map { resources.getString(it.titleRes) }
-                if (names.isEmpty()) resources.getString(R.string.ui_songs) else names.joinToString(", ")
-              }
-
-              Column(
-                modifier =
-                  Modifier
-                    .settingsSearchTarget(R.string.pref_music_tabs_title)
-                    .fillMaxWidth()
-                    .clickable { showMusicTabsDialog = true }
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-              ) {
-                Text(
-                  text = stringResource(R.string.pref_music_tabs_title),
-                  style = MaterialTheme.typography.bodyLarge,
-                )
-                Text(
-                  text = musicTabsSummary,
-                  color = MaterialTheme.colorScheme.outline,
-                  style = MaterialTheme.typography.bodyMedium,
-                )
-              }
-
-              PreferenceDivider()
               val mediaServerPreferences = koinInject<MediaServerPreferences>()
               val musicSourceProvider by mediaServerPreferences.musicSourceProvider.collectAsState()
+              ExpressivePreferenceItem {
               ListPreference(
                 modifier = Modifier.settingsSearchTarget(R.string.pref_music_player_switch_title),
                 value = musicSourceProvider,
@@ -295,16 +247,53 @@ object AudioPreferencesScreen : Screen {
                   )
                 },
               )
+              }
             }
           }
 
           item {
-            PreferenceSectionHeader(title = stringResource(R.string.pref_section_appearance))
+            PreferenceSectionHeader(
+              position = PreferenceSectionPosition.Middle,
+              title = stringResource(R.string.pref_music_tabs_title),
+            )
+          }
+          item {
+            val enabledMusicTabs by preferences.enabledMusicTabs.collectAsState()
+            val musicTabOrder by preferences.musicTabOrder.collectAsState()
+            val tabMap = MusicTab.entries.associateBy { it.name }
+            val orderedTabs = (musicTabOrder.mapNotNull(tabMap::get) + MusicTab.entries).distinct()
+            ExpressivePreferenceGroup {
+              ReorderableTabPreferences(
+                tabs = orderedTabs.map { tab ->
+                  ReorderableTabItem(
+                    id = tab.name,
+                    title = stringResource(tab.titleRes),
+                    summary = "",
+                    enabled = tab.name in enabledMusicTabs,
+                  )
+                },
+                onEnabledChange = { id, enabled ->
+                  val next = if (enabled) enabledMusicTabs + id else enabledMusicTabs - id
+                  if (next.isNotEmpty()) preferences.enabledMusicTabs.set(next)
+                },
+                onMove = { id, destination ->
+                  val next = orderedTabs.map { it.name }.toMutableList()
+                  next.remove(id)
+                  next.add(destination.coerceIn(0, next.size), id)
+                  preferences.musicTabOrder.set(next)
+                },
+              )
+            }
+          }
+
+          item {
+            PreferenceSectionHeader(position = PreferenceSectionPosition.Middle, title = stringResource(R.string.pref_section_appearance))
           }
 
           item {
             PreferenceCard {
               val audioVisualizerStyle by preferences.audioVisualizerStyle.collectAsState()
+              ExpressivePreferenceItem {
               ListPreference(
                 modifier = Modifier.settingsSearchTarget(R.string.pref_audio_visualizer_style_title),
                 value = audioVisualizerStyle,
@@ -313,7 +302,7 @@ object AudioPreferencesScreen : Screen {
                 valueToText = { AnnotatedString(resources.getString(it.title)) },
                 title = { Text(stringResource(R.string.pref_audio_visualizer_style_title)) },
                 summary = {
-                  Column {
+                  Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
                       stringResource(audioVisualizerStyle.title),
                       color = MaterialTheme.colorScheme.outline,
@@ -351,9 +340,11 @@ object AudioPreferencesScreen : Screen {
                   }
                 },
               )
+              }
 
               PreferenceDivider()
               val audioOrientation by preferences.audioOrientation.collectAsState()
+              ExpressivePreferenceItem {
               ListPreference(
                 modifier = Modifier.settingsSearchTarget(R.string.pref_audio_orientation_title),
                 value = audioOrientation,
@@ -368,6 +359,7 @@ object AudioPreferencesScreen : Screen {
                   )
                 },
               )
+              }
 
               PreferenceDivider()
               val audioAmbientMode by preferences.audioAmbientMode.collectAsState()
@@ -402,12 +394,13 @@ object AudioPreferencesScreen : Screen {
           }
 
           item {
-            PreferenceSectionHeader(title = stringResource(R.string.pref_section_playback))
+            PreferenceSectionHeader(position = PreferenceSectionPosition.Last, title = stringResource(R.string.pref_section_playback))
           }
 
           item {
             PreferenceCard {
               val preferredLanguages by preferences.preferredLanguages.collectAsState()
+              ExpressivePreferenceItem {
               TextFieldPreference(
                 modifier = Modifier.settingsSearchTarget(R.string.pref_preferred_languages),
                 value = preferredLanguages,
@@ -445,6 +438,7 @@ object AudioPreferencesScreen : Screen {
                   }
                 },
               )
+              }
 
               PreferenceDivider()
               val audioPitchCorrection by preferences.audioPitchCorrection.collectAsState()
@@ -554,6 +548,7 @@ object AudioPreferencesScreen : Screen {
 
               PreferenceDivider()
               val audioChannel by preferences.audioChannels.collectAsState()
+              ExpressivePreferenceItem {
               ListPreference(
                 modifier = Modifier.settingsSearchTarget(R.string.pref_audio_channels),
                 value = audioChannel,
@@ -569,9 +564,11 @@ object AudioPreferencesScreen : Screen {
                   )
                 },
               )
+              }
 
               PreferenceDivider()
               val volumeBoostCap by preferences.volumeBoostCap.collectAsState()
+              ExpressivePreferenceItem {
               SliderPreference(
                 modifier = Modifier.settingsSearchTarget(R.string.pref_audio_volume_boost_cap),
                 value = volumeBoostCap.toFloat(),
@@ -592,17 +589,46 @@ object AudioPreferencesScreen : Screen {
                 onSliderValueChange = { preferences.volumeBoostCap.set(it.toInt()) },
                 sliderValue = volumeBoostCap.toFloat(),
               )
+              }
 
-              PreferenceDivider()
-              Text(
-                text = stringResource(R.string.pref_lyrics_translation_category),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            }
+          }
+
+          item {
+            PreferenceSectionHeader(
+              position = PreferenceSectionPosition.Middle,
+              title = stringResource(R.string.pref_lyrics_sources_category),
+            )
+          }
+          item {
+            PreferenceCard {
+              val autoFetchLyricsOnline by preferences.lyricsAutoFetchOnline.collectAsState()
+              SwitchPreference(
+                modifier = Modifier.settingsSearchTarget(R.string.pref_lyrics_auto_fetch_online),
+                value = autoFetchLyricsOnline,
+                onValueChange = preferences.lyricsAutoFetchOnline::set,
+                title = { Text(stringResource(R.string.pref_lyrics_auto_fetch_online)) },
+                summary = {
+                  Text(
+                    stringResource(R.string.pref_lyrics_auto_fetch_online_summary),
+                    color = MaterialTheme.colorScheme.outline,
+                  )
+                },
               )
 
-              val lyricsAutoTranslate by preferences.lyricsAutoTranslate.collectAsState()
+            }
+          }
+
+          if (!app.gyrolet.mpvrx.BuildConfig.IS_PLAY_STORE_BUILD) {
+            item {
+              PreferenceSectionHeader(
+                position = PreferenceSectionPosition.Middle,
+                title = stringResource(R.string.pref_lyrics_translation_category),
+              )
+            }
+            item {
+              PreferenceCard {
+                val lyricsAutoTranslate by preferences.lyricsAutoTranslate.collectAsState()
               SwitchPreference(
                 modifier = Modifier.settingsSearchTarget(R.string.pref_lyrics_auto_translate),
                 value = lyricsAutoTranslate,
@@ -618,6 +644,7 @@ object AudioPreferencesScreen : Screen {
 
               PreferenceDivider()
               val lyricsTargetLanguage by preferences.lyricsTargetLanguage.collectAsState()
+              ExpressivePreferenceItem {
               ListPreference(
                 modifier = Modifier.settingsSearchTarget(R.string.pref_lyrics_target_language),
                 value = lyricsTargetLanguage,
@@ -632,9 +659,11 @@ object AudioPreferencesScreen : Screen {
                   )
                 },
               )
+              }
 
               PreferenceDivider()
               val lyricsDisplayMode by preferences.lyricsTranslationDisplayMode.collectAsState()
+              ExpressivePreferenceItem {
               ListPreference(
                 modifier = Modifier.settingsSearchTarget(R.string.pref_lyrics_display_mode),
                 value = lyricsDisplayMode,
@@ -649,9 +678,11 @@ object AudioPreferencesScreen : Screen {
                   )
                 },
               )
+              }
 
               PreferenceDivider()
               val paxsenixApiKey by preferences.paxsenixApiKey.collectAsState()
+              ExpressivePreferenceItem {
               TextFieldPreference(
                 modifier = Modifier.settingsSearchTarget(R.string.pref_paxsenix_api_key),
                 value = paxsenixApiKey,
@@ -676,117 +707,13 @@ object AudioPreferencesScreen : Screen {
                   }
                 },
               )
+              }
+              }
             }
           }
         }
       }
     }
 
-    if (showMusicTabsDialog) {
-      val enabledMusicTabs by preferences.enabledMusicTabs.collectAsState()
-      val musicTabOrder by preferences.musicTabOrder.collectAsState()
-      val tabMap = remember { MusicTab.entries.associateBy { it.name } }
-      val currentOrderedTabs = remember(musicTabOrder) {
-        (musicTabOrder.mapNotNull { tabMap[it] } + (MusicTab.entries - musicTabOrder.mapNotNull { tabMap[it] }.toSet())).distinct()
-      }
-
-      AlertDialog(
-        onDismissRequest = { showMusicTabsDialog = false },
-        title = { Text(stringResource(R.string.pref_music_tabs_title)) },
-        text = {
-          Column {
-            Text(
-              text = "Toggle tabs or use arrows to rearrange order:",
-              style = MaterialTheme.typography.bodyMedium,
-              color = MaterialTheme.colorScheme.outline,
-              modifier = Modifier.padding(bottom = 8.dp),
-            )
-            currentOrderedTabs.forEachIndexed { index, tab ->
-              val isChecked = tab.name in enabledMusicTabs
-              Row(
-                modifier = Modifier
-                  .fillMaxWidth()
-                  .padding(vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-              ) {
-                Checkbox(
-                  checked = isChecked,
-                  onCheckedChange = { checked ->
-                    val current = enabledMusicTabs.toMutableSet()
-                    if (!checked) {
-                      if (current.size > 1) {
-                        current.remove(tab.name)
-                        preferences.enabledMusicTabs.set(current)
-                      }
-                    } else {
-                      current.add(tab.name)
-                      preferences.enabledMusicTabs.set(current)
-                    }
-                  },
-                )
-                Text(
-                  text = stringResource(tab.titleRes),
-                  style = MaterialTheme.typography.bodyLarge,
-                  modifier = Modifier
-                    .weight(1f)
-                    .clickable {
-                      val current = enabledMusicTabs.toMutableSet()
-                      if (isChecked) {
-                        if (current.size > 1) {
-                          current.remove(tab.name)
-                          preferences.enabledMusicTabs.set(current)
-                        }
-                      } else {
-                        current.add(tab.name)
-                        preferences.enabledMusicTabs.set(current)
-                      }
-                    }
-                    .padding(vertical = 8.dp),
-                )
-                IconButton(
-                  onClick = {
-                    if (index > 0) {
-                      val updatedList = currentOrderedTabs.map { it.name }.toMutableList()
-                      val item = updatedList.removeAt(index)
-                      updatedList.add(index - 1, item)
-                      preferences.musicTabOrder.set(updatedList)
-                    }
-                  },
-                  enabled = index > 0,
-                ) {
-                  Icon(
-                    imageVector = Icons.RoundedFilled.ExpandLess,
-                    contentDescription = "Move Up",
-                    tint = if (index > 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline.copy(alpha = 0.38f),
-                  )
-                }
-                IconButton(
-                  onClick = {
-                    if (index < currentOrderedTabs.size - 1) {
-                      val updatedList = currentOrderedTabs.map { it.name }.toMutableList()
-                      val item = updatedList.removeAt(index)
-                      updatedList.add(index + 1, item)
-                      preferences.musicTabOrder.set(updatedList)
-                    }
-                  },
-                  enabled = index < currentOrderedTabs.size - 1,
-                ) {
-                  Icon(
-                    imageVector = Icons.RoundedFilled.ExpandMore,
-                    contentDescription = "Move Down",
-                    tint = if (index < currentOrderedTabs.size - 1) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline.copy(alpha = 0.38f),
-                  )
-                }
-              }
-            }
-          }
-        },
-        confirmButton = {
-          TextButton(onClick = { showMusicTabsDialog = false }) {
-            Text(stringResource(R.string.generic_ok))
-          }
-        },
-      )
-    }
   }
 }

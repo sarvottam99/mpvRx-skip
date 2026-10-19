@@ -143,12 +143,6 @@ internal object DebugLogReader {
     throw IOException(failures.filter { it.isNotBlank() }.joinToString("; ").ifBlank { "Unable to read logcat" })
   }
 
-  internal fun parseForTesting(
-    lines: List<String>,
-    expectedPid: Int? = null,
-    allowRawFallback: Boolean = true,
-  ): List<DebugLogEntry> = parseLines(lines, expectedPid, allowRawFallback)
-
   private fun parseLines(
     lines: List<String>,
     expectedPid: Int?,

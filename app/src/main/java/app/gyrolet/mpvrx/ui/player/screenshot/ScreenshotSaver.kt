@@ -151,7 +151,7 @@ object ScreenshotSaver {
   ): File? {
     val tempFile = File(context.cacheDir, "mpvrx_frame_capture.png")
     tempFile.delete()
-    PlaybackSession.setOptionString("screenshot-format", ScreenshotFormat.PNG.mpvValue)
+    // screenshot-to-file infers PNG from the .png extension (mpv ignores screenshot-format here).
     PlaybackSession.command("screenshot-to-file", tempFile.absolutePath, if (includeSubtitles) "subtitles" else "video")
     return awaitScreenshotFile(tempFile)
   }
@@ -190,8 +190,7 @@ object ScreenshotSaver {
     val tempFile = File(context.cacheDir, "mpvrx_snapshot_native.${settings.format.extension}")
     tempFile.delete()
     PlaybackSession.command("screenshot-to-file", tempFile.absolutePath, if (includeSubtitles) "subtitles" else "video")
-    delay(250)
-    return tempFile.takeIf { it.exists() && it.length() > 0L }
+    return awaitScreenshotFile(tempFile)
   }
 
   private suspend fun captureWithAndroidFallback(
@@ -203,10 +202,8 @@ object ScreenshotSaver {
 
     val sourcePng = File(context.cacheDir, "mpvrx_snapshot_fallback_source.png")
     sourcePng.delete()
-    PlaybackSession.setOptionString("screenshot-format", "png")
     PlaybackSession.command("screenshot-to-file", sourcePng.absolutePath, if (includeSubtitles) "subtitles" else "video")
-    delay(250)
-    if (!sourcePng.exists() || sourcePng.length() == 0L) return null
+    if (awaitScreenshotFile(sourcePng) == null) return null
 
     if (settings.format == ScreenshotFormat.PNG) {
       return sourcePng

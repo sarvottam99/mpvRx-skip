@@ -19,10 +19,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.DropdownMenu
+import app.gyrolet.mpvrx.presentation.components.AppDropdownMenu as DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -31,7 +32,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -69,11 +69,9 @@ import app.gyrolet.mpvrx.ui.browser.navidrome.NavidromeViewModel
 import app.gyrolet.mpvrx.ui.icons.Icon
 import app.gyrolet.mpvrx.ui.icons.Icons
 import app.gyrolet.mpvrx.ui.utils.LocalBackStack
-import app.gyrolet.mpvrx.ui.utils.LocalShowSettingsBackArrow
 import app.gyrolet.mpvrx.ui.utils.popSafely
 import kotlinx.serialization.Serializable
 import me.zhanghai.compose.preference.Preference
-import me.zhanghai.compose.preference.ProvidePreferenceLocals
 
 @Serializable
 object MediaServersPreferencesScreen : Screen {
@@ -111,30 +109,13 @@ object MediaServersPreferencesScreen : Screen {
 
     Scaffold(
       topBar = {
-        TopAppBar(
-          title = {
-            Text(
-              text = stringResource(R.string.pref_media_servers_title),
-              style = MaterialTheme.typography.headlineSmall,
-              fontWeight = FontWeight.ExtraBold,
-              color = MaterialTheme.colorScheme.primary,
-            )
-          },
-          navigationIcon = {
-            if (LocalShowSettingsBackArrow.current) {
-              IconButton(onClick = { backStack.popSafely() }) {
-                Icon(
-                  Icons.RoundedFilled.ArrowBack,
-                  contentDescription = null,
-                  tint = MaterialTheme.colorScheme.secondary,
-                )
-              }
-            }
-          },
+        SettingsTopAppBar(
+          title = stringResource(R.string.pref_media_servers_title),
+          onBack = { backStack.popSafely() },
         )
       },
     ) { padding ->
-      ProvidePreferenceLocals {
+      ProvideExpressivePreferenceLocals(horizontalSpacing = 24.dp) {
         val (settingsListState, settingsHighlight) =
           rememberSettingsSearchList(MediaServersPreferencesScreen, MaterialTheme.colorScheme.primary)
 
@@ -148,7 +129,7 @@ object MediaServersPreferencesScreen : Screen {
         ) {
           // --- JELLYFIN SECTION ---
           item {
-            PreferenceSectionHeader(
+            PreferenceSectionHeader(position = PreferenceSectionPosition.First, 
               title = stringResource(R.string.pref_jellyfin_title),
               modifier = Modifier.settingsSearchTarget(R.string.pref_media_servers_title),
             )
@@ -157,23 +138,11 @@ object MediaServersPreferencesScreen : Screen {
           item {
             PreferenceCard {
               if (jellyfinUiState.servers.isEmpty()) {
-                Preference(
+                ConnectMediaServerRow(
                   modifier = Modifier.settingsSearchTarget(R.string.pref_jellyfin_server_management),
-                  title = { Text(stringResource(R.string.pref_jellyfin_add_server)) },
-                  summary = {
-                    Text(
-                      text = stringResource(R.string.pref_jellyfin_add_server_desc),
-                      color = MaterialTheme.colorScheme.outline,
-                    )
-                  },
-                  icon = {
-                    Icon(
-                      painter = painterResource(R.drawable.ic_jellyfin),
-                      contentDescription = null,
-                      tint = MaterialTheme.colorScheme.primary,
-                      modifier = Modifier.size(32.dp),
-                    )
-                  },
+                  title = stringResource(R.string.pref_jellyfin_add_server),
+                  summary = stringResource(R.string.pref_jellyfin_add_server_desc),
+                  iconRes = R.drawable.ic_jellyfin,
                   onClick = {
                     serverToReauth = null
                     isAddServerOpen = true
@@ -302,6 +271,7 @@ object MediaServersPreferencesScreen : Screen {
                 }
 
                 PreferenceDivider()
+                ExpressivePreferenceItem {
                 Preference(
                   title = { Text(stringResource(R.string.pref_jellyfin_add_another_server)) },
                   summary = {
@@ -323,13 +293,14 @@ object MediaServersPreferencesScreen : Screen {
                     isAddServerOpen = true
                   },
                 )
+                }
               }
             }
           }
 
           // --- SEERR SECTION ---
           item {
-            PreferenceSectionHeader(title = stringResource(R.string.pref_seerr_title))
+            PreferenceSectionHeader(position = PreferenceSectionPosition.Middle, title = stringResource(R.string.pref_seerr_title))
           }
 
           item {
@@ -433,23 +404,11 @@ object MediaServersPreferencesScreen : Screen {
                   onClick = { isSeerrConnectionDialogOpen = true },
                 )
               } else {
-                Preference(
+                ConnectMediaServerRow(
                   modifier = Modifier.settingsSearchTarget(R.string.pref_seerr_server_management),
-                  title = { Text(stringResource(R.string.pref_seerr_add_server)) },
-                  summary = {
-                    Text(
-                      text = stringResource(R.string.pref_seerr_add_server_desc),
-                      color = MaterialTheme.colorScheme.outline,
-                    )
-                  },
-                  icon = {
-                    Icon(
-                      painter = painterResource(R.drawable.ic_seerr_logo),
-                      contentDescription = null,
-                      tint = MaterialTheme.colorScheme.primary,
-                      modifier = Modifier.size(32.dp),
-                    )
-                  },
+                  title = stringResource(R.string.pref_seerr_add_server),
+                  summary = stringResource(R.string.pref_seerr_add_server_desc),
+                  iconRes = R.drawable.ic_seerr_logo,
                   onClick = { isSeerrConnectionDialogOpen = true },
                 )
               }
@@ -458,7 +417,7 @@ object MediaServersPreferencesScreen : Screen {
 
           // --- NAVIDROME SECTION ---
           item {
-            PreferenceSectionHeader(
+            PreferenceSectionHeader(position = PreferenceSectionPosition.Middle, 
               title = stringResource(R.string.pref_navidrome_title),
               modifier = Modifier.settingsSearchTarget(R.string.pref_media_servers_title),
             )
@@ -467,23 +426,11 @@ object MediaServersPreferencesScreen : Screen {
           item {
             PreferenceCard {
               if (navidromeUiState.servers.isEmpty()) {
-                Preference(
+                ConnectMediaServerRow(
                   modifier = Modifier.settingsSearchTarget(R.string.pref_navidrome_title),
-                  title = { Text(stringResource(R.string.pref_navidrome_add_server)) },
-                  summary = {
-                    Text(
-                      text = stringResource(R.string.pref_navidrome_add_server_desc),
-                      color = MaterialTheme.colorScheme.outline,
-                    )
-                  },
-                  icon = {
-                    Icon(
-                      painter = painterResource(R.drawable.ic_navidrome),
-                      contentDescription = null,
-                      tint = MaterialTheme.colorScheme.primary,
-                      modifier = Modifier.size(32.dp),
-                    )
-                  },
+                  title = stringResource(R.string.pref_navidrome_add_server),
+                  summary = stringResource(R.string.pref_navidrome_add_server_desc),
+                  iconRes = R.drawable.ic_navidrome,
                   onClick = {
                     navidromeServerToEdit = null
                     isAddNavidromeServerOpen = true
@@ -612,6 +559,7 @@ object MediaServersPreferencesScreen : Screen {
 
                 PreferenceDivider()
 
+                ExpressivePreferenceItem {
                 Preference(
                   modifier = Modifier.settingsSearchTarget(R.string.pref_navidrome_title),
                   title = { Text(stringResource(R.string.pref_navidrome_add_another_server)) },
@@ -633,13 +581,14 @@ object MediaServersPreferencesScreen : Screen {
                     isAddNavidromeServerOpen = true
                   },
                 )
+                }
               }
             }
           }
 
           // --- AUDIOBOOKSHELF SECTION ---
           item {
-            PreferenceSectionHeader(
+            PreferenceSectionHeader(position = PreferenceSectionPosition.Last, 
               title = stringResource(R.string.pref_audiobookshelf_title),
               modifier = Modifier.settingsSearchTarget(R.string.pref_media_servers_title),
             )
@@ -648,23 +597,11 @@ object MediaServersPreferencesScreen : Screen {
           item {
             PreferenceCard {
               if (audiobookshelfUiState.servers.isEmpty()) {
-                Preference(
+                ConnectMediaServerRow(
                   modifier = Modifier.settingsSearchTarget(R.string.pref_audiobookshelf_title),
-                  title = { Text(stringResource(R.string.pref_audiobookshelf_add_server)) },
-                  summary = {
-                    Text(
-                      text = stringResource(R.string.pref_audiobookshelf_add_server_desc),
-                      color = MaterialTheme.colorScheme.outline,
-                    )
-                  },
-                  icon = {
-                    Icon(
-                      painter = painterResource(R.drawable.ic_audiobookshelf),
-                      contentDescription = null,
-                      tint = MaterialTheme.colorScheme.primary,
-                      modifier = Modifier.size(32.dp),
-                    )
-                  },
+                  title = stringResource(R.string.pref_audiobookshelf_add_server),
+                  summary = stringResource(R.string.pref_audiobookshelf_add_server_desc),
+                  iconRes = R.drawable.ic_audiobookshelf,
                   onClick = {
                     audiobookshelfServerToEdit = null
                     isAddAudiobookshelfServerOpen = true
@@ -804,6 +741,7 @@ object MediaServersPreferencesScreen : Screen {
 
                 PreferenceDivider()
 
+                ExpressivePreferenceItem {
                 Preference(
                   modifier = Modifier.settingsSearchTarget(R.string.pref_audiobookshelf_title),
                   title = { Text(stringResource(R.string.pref_audiobookshelf_add_another_server)) },
@@ -825,6 +763,7 @@ object MediaServersPreferencesScreen : Screen {
                     isAddAudiobookshelfServerOpen = true
                   },
                 )
+                }
               }
             }
           }
@@ -1109,6 +1048,49 @@ private fun SeerrServerAvatar(
   }
 }
 
+/**
+ * Uses the same fixed icon slot for disconnected and connected servers, keeping
+ * title/summary alignment stable for long and translated server descriptions.
+ */
+@Composable
+private fun ConnectMediaServerRow(
+  title: String,
+  summary: String,
+  iconRes: Int,
+  modifier: Modifier = Modifier,
+  onClick: () -> Unit,
+) {
+  ExpressivePreferenceItem {
+    ServerPreferenceItem(
+      title = {
+        Text(
+          text = title,
+          style = MaterialTheme.typography.bodyLarge,
+          fontWeight = FontWeight.SemiBold,
+        )
+      },
+      summary = {
+        Text(
+          text = summary,
+          style = MaterialTheme.typography.bodyMedium,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      },
+      icon = {
+        Icon(
+          painter = painterResource(iconRes),
+          contentDescription = null,
+          tint = MaterialTheme.colorScheme.primary,
+          modifier = Modifier.size(32.dp),
+        )
+      },
+      trailing = {},
+      modifier = modifier,
+      onClick = onClick,
+    )
+  }
+}
+
 @Composable
 private fun ServerPreferenceItem(
   title: @Composable () -> Unit,
@@ -1123,22 +1105,20 @@ private fun ServerPreferenceItem(
       modifier
         .fillMaxWidth()
         .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-        .padding(horizontal = 16.dp, vertical = 12.dp),
+        .padding(horizontal = 20.dp, vertical = 14.dp),
     verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(16.dp),
   ) {
     Box(
-      modifier = Modifier.padding(end = 16.dp),
+      modifier = Modifier.size(44.dp),
       contentAlignment = Alignment.Center,
     ) {
       icon()
     }
 
     Column(
-      modifier =
-        Modifier
-          .weight(1f)
-          .padding(end = 8.dp),
-      verticalArrangement = Arrangement.spacedBy(2.dp),
+      modifier = Modifier.weight(1f),
+      verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
       title()
       summary()

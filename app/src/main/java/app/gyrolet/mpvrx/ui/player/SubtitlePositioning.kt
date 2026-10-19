@@ -10,6 +10,7 @@
 package app.gyrolet.mpvrx.ui.player
 
 import app.gyrolet.mpvrx.preferences.SubtitlesPreferences
+import app.gyrolet.mpvrx.preferences.PlayerPreferences
 import org.koin.core.context.GlobalContext
 
 private const val MIN_SUBTITLE_POSITION = 0
@@ -19,64 +20,58 @@ private val subtitlesPreferences by lazy {
   GlobalContext.get().get<SubtitlesPreferences>()
 }
 
-private val HTML_TAG_REGEX = Regex("<[^>]*>")
-private val ASS_TAG_REGEX = Regex("[{][^}]*[}]")
-
 fun clampSubtitlePosition(position: Int): Int = position.coerceIn(MIN_SUBTITLE_POSITION, MAX_SUBTITLE_POSITION)
 
-/**
- * Estimates subtitle hitbox bounds (lowerBound, upperBound) relative to subtitleScreenY.
- * Accounts for sub-text content, font size, sub-scale, and screen width to handle
- * multi-line wrapping in both portrait and landscape.
- */
-fun getSubtitleHitboxBounds(
+fun getSubtitleGestureRegion(
+  target: SubtitleGestureTarget,
   screenWidth: Float,
   screenHeight: Float,
-): Pair<Float, Float> {
-  val subScale = PlaybackSession.getPropertyFloat("sub-scale") ?: subtitlesPreferences.subScale.get()
-  val fontSize = (PlaybackSession.getPropertyInt("sub-font-size") ?: subtitlesPreferences.fontSize.get()).toFloat()
-  val scaleMultiplier = subScale.coerceIn(0.4f, 3.0f)
-
-  // Estimate per-line height in screen pixels.
-  // sub-font-size is in "arbitrary" units scaled relative to screen height (720 reference).
-  val lineHeightPx = (fontSize / 720f) * screenHeight * scaleMultiplier * 1.3f
-
-  // Estimate how many lines the subtitle actually occupies
-  val subText = if (getTrackSelectionId("sid") > 0) PlaybackSession.getPropertyString("sub-text").orEmpty() else ""
-  val estimatedLines =
-    if (subText.isNotEmpty()) {
-      // Count explicit newlines first
-      val explicitLines = subText.split("\n")
-
-      // Estimate wrapping per explicit line based on available width
-      // Subtitles typically use ~80% of screen width (sub-margin-x on each side)
-      val subMarginX = (PlaybackSession.getPropertyInt("sub-margin-x") ?: 25).toFloat()
-      val availableWidth = screenWidth * (1f - 2f * subMarginX / screenWidth.coerceAtLeast(1f))
-
-      // Estimate character width: roughly fontSize * scale * 0.55 (typical char width ratio)
-      val charWidthPx = (fontSize / 720f) * screenHeight * scaleMultiplier * 0.55f
-      val charsPerLine = if (charWidthPx > 0f) (availableWidth / charWidthPx).toInt().coerceAtLeast(1) else 40
-
-      var totalLines = 0
-      for (line in explicitLines) {
-        val stripped = line.replace(HTML_TAG_REGEX, "").replace(ASS_TAG_REGEX, "")
-        totalLines +=
-          if (stripped.isEmpty()) 1 else ((stripped.length + charsPerLine - 1) / charsPerLine).coerceAtLeast(1)
-      }
-      totalLines.coerceAtLeast(1)
-    } else {
-      // No text available, assume a reasonable default
-      2
-    }
-
-  // Subtitle text grows upward from the sub-pos anchor point.
-  // Lower bound: small region below the anchor (padding for touch imprecision)
-  val lowerBound = -50f * scaleMultiplier
-  // Upper bound: covers the full estimated subtitle height + padding
-  val estimatedSubtitleHeight = lineHeightPx * estimatedLines
-  val upperBound = (estimatedSubtitleHeight + 80f * scaleMultiplier).coerceAtLeast(200f * scaleMultiplier)
-
-  return Pair(lowerBound, upperBound)
+  renderInVideoFrame: Boolean,
+  includeWhenTextEmpty: Boolean = false,
+): SubtitleGestureRegion? {
+  val trackId = getTrackSelectionId(target.selectionProperty)
+  if (trackId <= 0 || PlaybackSession.getPropertyBoolean("${target.prefix}-visibility") == false) return null
+  val secondary = target == SubtitleGestureTarget.Secondary
+  val position = PlaybackSession.getPropertyFloat("${target.prefix}-pos")
+    ?: (if (secondary) subtitlesPreferences.secondarySubPos.get() else subtitlesPreferences.subPos.get()).toFloat()
+  val scale = PlaybackSession.getPropertyFloat("${target.prefix}-scale")
+    ?: if (secondary) subtitlesPreferences.secondarySubScale.get() else subtitlesPreferences.subScale.get()
+  val aspect = PlaybackSession.getPropertyDouble("video-params/aspect")?.toFloat() ?: 0f
+  val videoHeight = if (aspect > 0f) minOf(screenHeight, screenWidth / aspect) else screenHeight
+  val renderHeight = if (renderInVideoFrame) videoHeight else screenHeight
+  val renderTop = if (renderInVideoFrame) (screenHeight - renderHeight) / 2f else 0f
+  val fontReferenceHeight = when {
+    PlaybackSession.getPropertyString("sub-scale-by-window") == "no" -> 720f
+    PlaybackSession.getPropertyString("sub-scale-with-window") == "no" -> videoHeight
+    else -> screenHeight
+  }
+  return estimateSubtitleGestureRegion(
+    target = target,
+    trackId = trackId,
+    // Center holds need position geometry even between subtitle lines. This placeholder is
+    // only used for geometry; it is never rendered or included in subtitle hit testing.
+    text = PlaybackSession.getPropertyString("${target.prefix}-text").orEmpty().let {
+      if (includeWhenTextEmpty && it.isBlank()) "M" else it
+    },
+    // Center drags must also recover a subtitle positioned beyond the visible frame.
+    position = if (includeWhenTextEmpty) position.coerceIn(0f, 100f) else position,
+    scale = scale,
+    screenWidth = screenWidth,
+    screenHeight = screenHeight,
+    renderTop = renderTop,
+    renderHeight = renderHeight,
+    fontSize = (PlaybackSession.getPropertyInt("sub-font-size") ?: subtitlesPreferences.fontSize.get()).toFloat(),
+    marginX = (PlaybackSession.getPropertyInt("sub-margin-x") ?: 19).toFloat(),
+    marginY = (PlaybackSession.getPropertyInt("sub-margin-y") ?: 34).toFloat(),
+    fontReferenceHeight = fontReferenceHeight,
+  )?.let { estimatedRegion ->
+    val region = if (includeWhenTextEmpty) estimatedRegion.copy(position = position) else estimatedRegion
+    if (!overlaysFollowVideoZoom()) return@let region
+    region.zoomedAroundCenter(
+      videoZoomMultiplier(PlaybackSession.videoZoom.value),
+      PlaybackSession.videoPanX.value, PlaybackSession.videoPanY.value, screenWidth, screenHeight,
+    )
+  }
 }
 
 fun isSecondarySubtitleActive(): Boolean = getTrackSelectionId("secondary-sid") > 0
@@ -108,4 +103,32 @@ fun applySubtitleLayout(
 ) {
   applySubtitleOverrides(forceAssOverride)
   applySubtitlePositions(primaryPosition, secondaryPosition)
+}
+
+/** True when the SurfaceView itself is zoomed, so subtitles and mpv's OSD move with the video. */
+fun overlaysFollowVideoZoom(): Boolean = GlobalContext.get().get<PlayerPreferences>().overlaysFollowVideoZoom.get()
+
+fun applySubtitleBlendMode() {
+  val blendMode = subtitleBlendMode()
+  if (PlaybackSession.getPropertyString("blend-subtitles") != blendMode) {
+    PlaybackSession.setPropertyString("blend-subtitles", blendMode)
+  }
+}
+
+fun applySubtitleScales() {
+  PlaybackSession.setPropertyFloat("sub-scale", subtitlesPreferences.subScale.get())
+  PlaybackSession.setPropertyFloat("secondary-sub-scale", subtitlesPreferences.secondarySubScale.get())
+}
+
+/** Blending into the video would bake subtitle pixels into mpv's own zoom and pan. */
+fun subtitleBlendMode(
+  ambientActive: Boolean = PlaybackSession.isAmbientShaderActive,
+): String {
+  val transformed = !overlaysFollowVideoZoom() && (
+    PlaybackSession.videoZoom.value != 0f ||
+      PlaybackSession.videoPanX.value != 0f || PlaybackSession.videoPanY.value != 0f
+    )
+  // An OUTPUT Ambient pass remaps video pixels non-uniformly. Subtitle pixels must never enter
+  // that pass (gpu and gpu-next blend at different stages). Restore the preference on teardown.
+  return if (!ambientActive && !transformed && subtitlesPreferences.blendSubtitlesWithVideo.get()) "video" else "no"
 }

@@ -81,14 +81,6 @@ class SelectionManager<T, ID>(
   }
 
   /**
-   * Add the range from the current anchor to this item.
-   */
-  fun selectRangeTo(item: T) {
-    val allIds = items().map(getId)
-    state = state.selectRange(getId(item), allIds)
-  }
-
-  /**
    * Handle long-click event on an item.
    * If in selection mode, triggers range selection.
    * Otherwise, starts selection mode by toggling the item.

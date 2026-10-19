@@ -16,25 +16,19 @@ import app.gyrolet.mpvrx.ui.utils.NavigationBackHandler as BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
+import app.gyrolet.mpvrx.ui.theme.AppMotion
 import app.gyrolet.mpvrx.ui.browser.fab.FabScrollHelper
 import app.gyrolet.mpvrx.ui.components.InlineSearchBar
 import app.gyrolet.mpvrx.ui.components.themedSegmentedButtonColors
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.systemBars
-import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonMenu
@@ -69,8 +63,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
@@ -99,6 +91,7 @@ import app.gyrolet.mpvrx.ui.browser.dialogs.FolderPickerDialog
 import app.gyrolet.mpvrx.ui.browser.dialogs.RenameDialog
 import app.gyrolet.mpvrx.ui.browser.dialogs.VideoCompressorOverlay
 import app.gyrolet.mpvrx.ui.browser.dialogs.VideoSortDialog
+import app.gyrolet.mpvrx.ui.browser.dialogs.rememberBrowserSortDialogOpen
 import app.gyrolet.mpvrx.ui.browser.playlist.ALL_VIDEOS_PLAYLIST_ID
 import app.gyrolet.mpvrx.ui.browser.selection.rememberSelectionManager
 import app.gyrolet.mpvrx.ui.browser.states.EmptyState
@@ -106,7 +99,6 @@ import app.gyrolet.mpvrx.ui.browser.videolist.VideoListContent
 import app.gyrolet.mpvrx.ui.browser.videolist.VideoWithPlaybackInfo
 import app.gyrolet.mpvrx.ui.icons.Icon
 import app.gyrolet.mpvrx.ui.icons.Icons
-import app.gyrolet.mpvrx.ui.player.controls.components.tvFocusHighlight
 import app.gyrolet.mpvrx.ui.player.PlaybackIdentity
 import app.gyrolet.mpvrx.ui.player.PlaybackItem
 import app.gyrolet.mpvrx.ui.player.PreparedPlaybackLaunchStore
@@ -151,6 +143,7 @@ fun MediaLibraryContent(forceAudio: Boolean = false) {
   val savedMediaType by browserPreferences.mediaLibraryType.collectAsState()
   val playlistMode by playerPreferences.playlistMode.collectAsState()
   val mediaType = if (forceAudio) MediaLibraryType.Audio else if (includeAudioBrowser) savedMediaType else MediaLibraryType.Video
+  val musicCoverArtSize by browserPreferences.musicCoverArtSize.collectAsState()
   val sortedVideos =
     remember(videos, videoSortType, videoSortOrder) {
       SortUtils.sortVideos(videos, videoSortType, videoSortOrder)
@@ -189,10 +182,7 @@ fun MediaLibraryContent(forceAudio: Boolean = false) {
     rememberSelectionManager(
       items = filteredVideosWithInfo.map { it.video },
       getId = { it.path.hashCode().toLong() },
-      onDeleteItems = { items, _ ->
-        coroutineScope.launch { viewModel.deleteVideos(items) }
-        Pair(items.size, 0)
-      },
+      onDeleteItems = { items, _ -> viewModel.deleteVideos(items) },
       onRenameItem = { video, newName ->
         coroutineScope.launch { viewModel.renameVideo(video, newName) }
         Result.success(Unit)
@@ -205,7 +195,7 @@ fun MediaLibraryContent(forceAudio: Boolean = false) {
   }
 
   val isRefreshing = remember { mutableStateOf(false) }
-  val sortDialogOpen = rememberSaveable { mutableStateOf(false) }
+  val sortDialogOpen = rememberBrowserSortDialogOpen(useHomeState = !forceAudio)
   val deleteDialogOpen = rememberSaveable { mutableStateOf(false) }
   val renameDialogOpen = rememberSaveable { mutableStateOf(false) }
   val addToPlaylistDialogOpen = rememberSaveable { mutableStateOf(false) }
@@ -338,7 +328,9 @@ fun MediaLibraryContent(forceAudio: Boolean = false) {
     val queueItems = playlistVideos.map { item ->
       PlaybackItem.fromUri(
         uri = item.uri.toString(),
-        stableId = PlaybackIdentity.forLocalPath(item.path),
+        stableId = if (app.gyrolet.mpvrx.BuildConfig.SCOPED_STORAGE_ONLY && item.uri.scheme == "content") {
+          app.gyrolet.mpvrx.ui.browser.videolist.videoPlaybackIdentifiers(item).first()
+        } else PlaybackIdentity.forLocalPath(item.path),
         title = item.displayName,
         mimeType = item.mimeType,
         durationSeconds = (item.duration / 1000L).toInt().takeIf { it > 0 },
@@ -387,8 +379,12 @@ fun MediaLibraryContent(forceAudio: Boolean = false) {
     }
   }
 
-  Scaffold(
-    containerColor = app.gyrolet.mpvrx.ui.theme.wallpaperAwareBackgroundColor(),
+  val bottomBarBackdrop = rememberBrowserBottomBarBackdrop()
+
+  Box(modifier = Modifier.fillMaxSize()) {
+    Scaffold(
+      modifier = Modifier.captureLiquidGlassBackdrop(bottomBarBackdrop),
+      containerColor = app.gyrolet.mpvrx.ui.theme.wallpaperAwareBackgroundColor(),
     topBar = {
       if (isSearching) {
         InlineSearchBar(
@@ -607,147 +603,153 @@ fun MediaLibraryContent(forceAudio: Boolean = false) {
         }
       },
     ) { padding ->
-    val bottomBarBackdrop = rememberBrowserBottomBarBackdrop()
-    val autoScrollToLastPlayed by browserPreferences.autoScrollToLastPlayed.collectAsState()
-    val videosWereDeletedOrMoved = false
+      val autoScrollToLastPlayed by browserPreferences.autoScrollToLastPlayed.collectAsState()
+      val videosWereDeletedOrMoved = false
 
-    Box(modifier = Modifier.fillMaxSize()) {
-      Column(
-        modifier =
-          Modifier
-            .fillMaxSize()
-            .padding(padding)
-            .captureLiquidGlassBackdrop(bottomBarBackdrop),
-      ) {
-        if (includeAudioBrowser && !forceAudio) {
-          SingleChoiceSegmentedButtonRow(
-            modifier =
-              Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-          ) {
-            MediaLibraryType.entries.forEachIndexed { index, type ->
-              SegmentedButton(
-                selected = mediaType == type,
-                onClick = {
-                  if (mediaType != type) {
-                    selectionManager.clear()
-                    browserPreferences.mediaLibraryType.set(type)
-                  }
-                },
-                shape = SegmentedButtonDefaults.itemShape(index, MediaLibraryType.entries.size),
-                colors = themedSegmentedButtonColors(),
-              ) {
-                Text(type.name)
+      Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+          modifier =
+            Modifier
+              .fillMaxSize()
+              .padding(padding),
+        ) {
+          if (includeAudioBrowser && !forceAudio) {
+            SingleChoiceSegmentedButtonRow(
+              modifier =
+                Modifier
+                  .fillMaxWidth()
+                  .padding(horizontal = 16.dp, vertical = 8.dp),
+            ) {
+              MediaLibraryType.entries.forEachIndexed { index, type ->
+                SegmentedButton(
+                  selected = mediaType == type,
+                  onClick = {
+                    if (mediaType != type) {
+                      selectionManager.clear()
+                      browserPreferences.mediaLibraryType.set(type)
+                    }
+                  },
+                  shape = SegmentedButtonDefaults.itemShape(index, MediaLibraryType.entries.size),
+                  colors = themedSegmentedButtonColors(),
+                ) {
+                  Text(type.name)
+                }
               }
             }
           }
-        }
 
-        Box(modifier = Modifier.weight(1f)) {
-          if (isSearching && filteredVideosWithInfo.isEmpty() && searchQuery.isNotBlank()) {
-            Box(
-              modifier = Modifier.fillMaxSize(),
-              contentAlignment = Alignment.Center,
-            ) {
-              EmptyState(
-                icon = Icons.RoundedFilled.Search,
-                title =
-                  if (mediaType ==
-                    MediaLibraryType.Audio
-                  ) {
-                    androidx.compose.ui.res
-                      .stringResource(app.gyrolet.mpvrx.R.string.ui_no_audio_found)
+          Box(modifier = Modifier.weight(1f)) {
+            if (isSearching && filteredVideosWithInfo.isEmpty() && searchQuery.isNotBlank()) {
+              Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+              ) {
+                EmptyState(
+                  icon = Icons.RoundedFilled.Search,
+                  title =
+                    if (mediaType ==
+                      MediaLibraryType.Audio
+                    ) {
+                      androidx.compose.ui.res
+                        .stringResource(app.gyrolet.mpvrx.R.string.ui_no_audio_found)
+                    } else {
+                      androidx.compose.ui.res
+                        .stringResource(app.gyrolet.mpvrx.R.string.ui_no_videos_found)
+                    },
+                  message = "Try a different search term",
+                )
+              }
+            } else {
+              VideoListContent(
+                folderId = "media_library_${mediaType.name.lowercase()}",
+                videosWithInfo = filteredVideosWithInfo,
+                isLoading = isLoading && videos.isEmpty(),
+                isRefreshing = isRefreshing,
+                recentlyPlayedFilePath = recentlyPlayedFilePath,
+                videosWereDeletedOrMoved = videosWereDeletedOrMoved,
+                autoScrollToLastPlayed = autoScrollToLastPlayed,
+                onRefresh = { viewModel.refresh() },
+                selectionManager = selectionManager,
+                onVideoClick = { video ->
+                  if (selectionManager.isInSelectionMode) {
+                    selectionManager.toggleFromUser(video)
                   } else {
-                    androidx.compose.ui.res
-                      .stringResource(app.gyrolet.mpvrx.R.string.ui_no_videos_found)
-                  },
-                message = "Try a different search term",
+                    playFromMediaLibrary(video)
+                  }
+                },
+                onVideoLongClick = { video -> selectionManager.handleLongClick(video) },
+                isFabVisible = isFabVisible,
+                modifier = Modifier.fillMaxSize(),
+                showFloatingBottomBar = showFloatingBottomBar,
+                mediaLayoutMode = mediaLayoutMode,
+                musicCoverArtSize = musicCoverArtSize,
+                isFabExpanded = isFabExpanded.value,
+                onFabExpandedChange = { isFabExpanded.value = it },
               )
             }
-          } else {
-            VideoListContent(
-              folderId = "media_library_${mediaType.name.lowercase()}",
-              videosWithInfo = filteredVideosWithInfo,
-              isLoading = isLoading && videos.isEmpty(),
-              isRefreshing = isRefreshing,
-              recentlyPlayedFilePath = recentlyPlayedFilePath,
-              videosWereDeletedOrMoved = videosWereDeletedOrMoved,
-              autoScrollToLastPlayed = autoScrollToLastPlayed,
-              onRefresh = { viewModel.refresh() },
-              selectionManager = selectionManager,
-              onVideoClick = { video ->
-                if (selectionManager.isInSelectionMode) {
-                  selectionManager.toggleFromUser(video)
-                } else {
-                  playFromMediaLibrary(video)
-                }
-              },
-              onVideoLongClick = { video -> selectionManager.handleLongClick(video) },
-              isFabVisible = isFabVisible,
-              modifier = Modifier.fillMaxSize(),
-              showFloatingBottomBar = showFloatingBottomBar,
-              mediaLayoutMode = mediaLayoutMode,
-              isFabExpanded = isFabExpanded.value,
-              onFabExpandedChange = { isFabExpanded.value = it },
-            )
           }
         }
-      }
 
-      FabScrollHelper.FabScrim(
-        visible = isFabExpanded.value && !quickPlayFabDirect,
-        onDismiss = { isFabExpanded.value = false },
-      )
-
-      AnimatedVisibility(
-        visible = showFloatingBottomBar,
-        enter =
-          slideInVertically(
-            animationSpec = tween(durationMillis = animationDuration),
-            initialOffsetY = { fullHeight -> fullHeight },
-          ),
-        exit =
-          slideOutVertically(
-            animationSpec = tween(durationMillis = animationDuration),
-            targetOffsetY = { fullHeight -> fullHeight },
-          ),
-        modifier = Modifier.align(Alignment.BottomCenter),
-      ) {
-        BrowserBottomBar(
-          backdrop = bottomBarBackdrop,
-          isSelectionMode = selectionManager.isInSelectionMode,
-          onCopyClick = {
-            operationType.value = CopyPasteOps.OperationType.Copy
-            if (CopyPasteOps.canUseDirectFileOperations()) {
-              folderPickerOpen.value = true
-            } else {
-              treePickerLauncher.launch(null)
-            }
-          },
-          onMoveClick = {
-            operationType.value = CopyPasteOps.OperationType.Move
-            if (CopyPasteOps.canUseDirectFileOperations()) {
-              folderPickerOpen.value = true
-            } else {
-              treePickerLauncher.launch(null)
-            }
-          },
-          onDownscaleClick = { compressorDialogOpen.value = true },
-          onRenameClick = { renameDialogOpen.value = true },
-          onDeleteClick = { deleteDialogOpen.value = true },
-          onAddToPlaylistClick = { addToPlaylistDialogOpen.value = true },
-          showCopy = true,
-          showMove = true,
-          showDownscale = selectionManager.getSelectedItems().let { items -> items.isNotEmpty() && items.none { it.isAudio } },
-          showRename = selectionManager.selectedCount > 0,
-          modifier =
-            Modifier.padding(
-              bottom = if (NavigationBarState.shouldHideNavigationBar) 0.dp else navigationBarHeight,
-            ),
+        FabScrollHelper.FabScrim(
+          visible = isFabExpanded.value && !quickPlayFabDirect,
+          onDismiss = { isFabExpanded.value = false },
         )
       }
     }
+
+    AnimatedVisibility(
+      visible = showFloatingBottomBar,
+      enter =
+        slideInVertically(
+          animationSpec =
+            spring(
+              dampingRatio = AppMotion.Spatial.Expressive.dampingRatio,
+              stiffness = AppMotion.Spatial.Expressive.stiffness,
+            ),
+          initialOffsetY = { fullHeight -> fullHeight },
+        ),
+      exit =
+        slideOutVertically(
+          animationSpec =
+            spring(
+              dampingRatio = AppMotion.Spatial.Standard.dampingRatio,
+              stiffness = AppMotion.Spatial.Standard.stiffness,
+            ),
+          targetOffsetY = { fullHeight -> fullHeight },
+        ),
+      modifier = Modifier.align(Alignment.BottomCenter),
+    ) {
+      BrowserBottomBar(
+        backdrop = bottomBarBackdrop,
+        isSelectionMode = selectionManager.isInSelectionMode,
+        onCopyClick = {
+          operationType.value = CopyPasteOps.OperationType.Copy
+          if (CopyPasteOps.canUseDirectFileOperations()) {
+            folderPickerOpen.value = true
+          } else {
+            treePickerLauncher.launch(null)
+          }
+        },
+        onMoveClick = {
+          operationType.value = CopyPasteOps.OperationType.Move
+          if (CopyPasteOps.canUseDirectFileOperations()) {
+            folderPickerOpen.value = true
+          } else {
+            treePickerLauncher.launch(null)
+          }
+        },
+        onDownscaleClick = { compressorDialogOpen.value = true },
+        onRenameClick = { renameDialogOpen.value = true },
+        onDeleteClick = { deleteDialogOpen.value = true },
+        onAddToPlaylistClick = { addToPlaylistDialogOpen.value = true },
+        showCopy = true,
+        showMove = true,
+        showDownscale = selectionManager.getSelectedItems().let { items -> items.isNotEmpty() && items.none { it.isAudio } },
+        showRename = selectionManager.selectedCount > 0,
+        modifier = Modifier.padding(bottom = 0.dp),
+      )
+    }
+  }
 
     if (sortDialogOpen.value) {
       VideoSortDialog(
@@ -759,6 +761,7 @@ fun MediaLibraryContent(forceAudio: Boolean = false) {
         onSortOrderChange = { browserPreferences.videoSortOrder.set(it) },
         isFolderView = false,
         enableViewModeOptions = !forceAudio,
+        isAudio = mediaType == MediaLibraryType.Audio,
       )
     }
 
@@ -885,4 +888,4 @@ fun MediaLibraryContent(forceAudio: Boolean = false) {
       onCancel = { secureFolderRepository.cancelOperation() },
     )
   }
-}
+

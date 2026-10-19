@@ -11,7 +11,6 @@ package app.gyrolet.mpvrx.ui.browser.cards
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -102,6 +101,7 @@ fun M3UVideoCard(
   onLongClick: (() -> Unit)? = null,
   onFavoriteClick: (() -> Unit)? = null,
   isSelected: Boolean = false,
+  selectionNeighbors: MediaSelectionNeighbors = MediaSelectionNeighbors(),
   isRecentlyPlayed: Boolean = false,
   isFavorite: Boolean = false,
   video: Video? = null,
@@ -238,32 +238,25 @@ fun M3UVideoCard(
   val location = sourceSubtitle?.takeIf(String::isNotBlank) ?: playlistSourceLocation(url)
 
   val thumbnailWidth = 128.dp
+  val cardShape = rememberMediaSelectionShape(isSelected, isGridMode, selectionNeighbors)
+  val selectionColor = animatedSelectionColor(isSelected)
 
   Card(
     modifier =
       modifier
         .fillMaxWidth()
-        .tvFocusHighlight(AppShapeScale.large, focusedScale = 1.03f)
-        .clip(AppShapeScale.large)
+        .tvFocusHighlight(cardShape, focusedScale = 1.03f)
+        .clip(cardShape)
         .tvContextMenu(onLongClick)
-        .combinedClickable(
+        .mediaCardClickable(
           onClick = onClick,
           onLongClick = onLongClick,
         ),
-    shape = AppShapeScale.large,
+    shape = cardShape,
     colors = CardDefaults.cardColors(containerColor = Color.Transparent),
   ) {
     Box(modifier = Modifier.fillMaxWidth()) {
-      if (isSelected) {
-        Box(
-          modifier =
-            Modifier
-              .matchParentSize()
-              .padding(2.dp)
-              .clip(AppShapeScale.large)
-              .background(MaterialTheme.colorScheme.tertiary.copy(alpha = 0.3f)),
-        )
-      }
+      Box(modifier = Modifier.matchParentSize().clip(cardShape).background(selectionColor))
 
       FlowRow(
         // Matches VideoCard's list layout exactly (8dp inset, 12dp thumbnail gap) so a mixed
@@ -285,7 +278,7 @@ fun M3UVideoCard(
             .onSizeChanged { thumbnailSize = it }
             .clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .combinedClickable(
+            .mediaCardClickable(
               onClick = onThumbClick,
               onLongClick = onLongClick,
             ),

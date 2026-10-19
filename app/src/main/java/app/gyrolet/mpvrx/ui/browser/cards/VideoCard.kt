@@ -12,7 +12,7 @@ package app.gyrolet.mpvrx.ui.browser.cards
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -69,8 +70,6 @@ import app.gyrolet.mpvrx.ui.player.controls.components.tvFocusHighlight
 import app.gyrolet.mpvrx.ui.player.controls.components.tvContextMenu
 import app.gyrolet.mpvrx.ui.theme.AppShapeScale
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 import org.koin.compose.koinInject
 import kotlin.math.roundToInt
@@ -188,13 +187,13 @@ private fun VideoTopStartBadges(
       Box(
         modifier =
           Modifier
-            .cardOverlay(containerColor = Color(0xFFD32F2F))
+            .cardOverlay(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
             .padding(horizontal = 8.dp, vertical = 3.dp),
       ) {
         Text(
           text = stringResource(R.string.video_label_new),
           style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-          color = Color.White,
+          color = MaterialTheme.colorScheme.onTertiaryContainer,
         )
       }
     }
@@ -224,6 +223,7 @@ fun VideoCard(
   useFolderNameStyle: Boolean = false,
   allowThumbnailGeneration: Boolean = true,
   allowThumbnailLoading: Boolean = true,
+  deferThumbnailLoading: Boolean = false,
   uiConfig: VideoCardUiConfig? = null,
   onSwipeAction: ((Video, Boolean, VideoSwipeAction) -> Unit)? = null,
   /** Source badge shown ahead of the metadata chips, e.g. "Local". Null renders nothing. */
@@ -232,6 +232,7 @@ fun VideoCard(
   /** Path line under the title, mirroring the network card's source line. */
   sourceSubtitle: String? = null,
   titleAction: (@Composable () -> Unit)? = null,
+  selectionNeighbors: MediaSelectionNeighbors = MediaSelectionNeighbors(),
 ) {
   // Screens hoist this once and pass it down; collecting per card would register a dozen
   // preference observers for every visible item in a grid.
@@ -279,40 +280,52 @@ fun VideoCard(
       app.gyrolet.mpvrx.utils.storage.FileTypeUtils.stripExtension(video.displayName)
     }
 
-  val selectionInset = 2.dp
   val selectionContainerColor = animatedSelectionColor(isSelected)
   val showSelectionBadge = isSelected || selectionContainerColor.alpha > 0.001f
 
-  val cardShape = AppShapeScale.large
+  // Hold the last displayed thumbnail for this file across grid/list size changes.
+  // Repository memory remains the source of truth for new requests.
+  var retainedThumbnail by remember(video.path, video.dateModified, video.size) { mutableStateOf<Bitmap?>(null) }
+
+  val cardShape = rememberMediaSelectionShape(isSelected, isGridMode, selectionNeighbors)
+  val gridFooterHeight = with(LocalDensity.current) {
+    MaterialTheme.typography.titleMedium.lineHeight.toDp() * 2 +
+      MaterialTheme.typography.labelSmall.lineHeight.toDp() * 3 + 64.dp
+  }
 
   VideoSwipeSurface(
     identity = video.path,
     leftAction = resolvedUiConfig.swipeLeft,
     rightAction = resolvedUiConfig.swipeRight,
     isWatched = isWatched,
-    enabled = !isGridMode && !isSelected && video.path.startsWith('/'),
+    enabled = !isGridMode && !isSelected &&
+      (video.path.startsWith('/') ||
+        (app.gyrolet.mpvrx.BuildConfig.SCOPED_STORAGE_ONLY &&
+          video.uri.scheme == "content" &&
+          android.provider.DocumentsContract.isDocumentUri(
+            androidx.compose.ui.platform.LocalContext.current, video.uri,
+          ))),
     onAction = onSwipeAction?.let { action -> { swipe -> action(video, isWatched, swipe) } },
     modifier =
       modifier
-        .then(
-          if (isGridMode) Modifier.fillMaxWidth() else Modifier.fillMaxWidth(),
-        ).tvFocusHighlight(cardShape, focusedScale = 1.03f)
+        .fillMaxWidth()
+        .then(if (isGridMode) Modifier.mediaGridTileHeight(if (video.isAudio) 1f else 16f / 10f, gridFooterHeight) else Modifier)
+        .tvFocusHighlight(cardShape, focusedScale = 1.03f)
         .clip(cardShape)
-        .semantics { selected = isSelected }
+                .semantics { selected = isSelected }
         .tvContextMenu(onLongClick)
-        .combinedClickable(
+        .mediaCardClickable(
           onClick = onClick,
           onLongClick = onLongClick,
         ),
     shape = cardShape,
     colors = CardDefaults.cardColors(containerColor = Color.Transparent),
   ) {
-    Box(modifier = Modifier.fillMaxWidth()) {
+    Box(modifier = if (isGridMode) Modifier.fillMaxSize() else Modifier.fillMaxWidth()) {
       Box(
         modifier =
           Modifier
             .matchParentSize()
-            .padding(selectionInset)
             .clip(cardShape)
             .background(selectionContainerColor),
       )
@@ -356,16 +369,20 @@ fun VideoCard(
 
           // Seeded during composition: reading the cache asynchronously shows the placeholder icon
           // for a frame first, which flickers every visible card when the list recomposes.
+          val exactMemoryThumbnail = remember(thumbnailRequestKey) {
+            thumbnailRepository.peekThumbnailFromMemory(video, resolvedThumbWidthPx, resolvedThumbHeightPx)
+          }
           var thumbnail by remember(thumbnailRequestKey) {
-            mutableStateOf<Bitmap?>(
-              thumbnailRepository.peekThumbnailFromMemory(video, resolvedThumbWidthPx, resolvedThumbHeightPx),
-            )
+            mutableStateOf<Bitmap?>(exactMemoryThumbnail ?: retainedThumbnail)
           }
 
           // Read cached thumbnail immediately from disk if not in memory, or generate if permitted
-          LaunchedEffect(thumbnailRequestKey, allowThumbnailGeneration, allowThumbnailLoading, showThumbnails) {
-            if (thumbnail == null && showThumbnails) {
-              thumbnail =
+          LaunchedEffect(thumbnailRequestKey, allowThumbnailGeneration, allowThumbnailLoading, showThumbnails, deferThumbnailLoading) {
+            thumbnail?.let { retainedThumbnail = it }
+            // A fallback frame from another size is displayed immediately; fetch the exact size
+            // without clearing it. Memory hits require no disk read or decoding.
+            if (!deferThumbnailLoading && exactMemoryThumbnail == null && showThumbnails) {
+              val loaded =
                 withContext(Dispatchers.IO) {
                   if (allowThumbnailGeneration && allowThumbnailLoading) {
                     thumbnailRepository.getThumbnail(video, resolvedThumbWidthPx, resolvedThumbHeightPx)
@@ -373,6 +390,10 @@ fun VideoCard(
                     thumbnailRepository.getCachedThumbnail(video, resolvedThumbWidthPx, resolvedThumbHeightPx)
                   }
                 }
+              if (loaded != null) {
+                thumbnail = loaded
+                retainedThumbnail = loaded
+              }
             }
           }
 
@@ -386,7 +407,7 @@ fun VideoCard(
                 .aspectRatio(aspect)
                 .clip(AppShapeScale.medium)
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                .combinedClickable(
+                .mediaCardClickable(
                   onClick = onThumbClick,
                   onLongClick = onLongClick,
                 ),
@@ -660,7 +681,7 @@ fun VideoCard(
           modifier =
             Modifier
               .fillMaxWidth()
-              .padding(horizontal = 8.dp, vertical = 6.dp),
+              .padding(horizontal = 8.dp, vertical = 2.dp),
           verticalAlignment = Alignment.CenterVertically,
         ) {
           val thumbnailRepository = koinInject<ThumbnailRepository>()
@@ -691,16 +712,20 @@ fun VideoCard(
 
           // Seeded during composition: reading the cache asynchronously shows the placeholder icon
           // for a frame first, which flickers every visible card when the list recomposes.
+          val exactMemoryThumbnail = remember(thumbnailRequestKey) {
+            thumbnailRepository.peekThumbnailFromMemory(video, thumbWidthPx, thumbHeightPx)
+          }
           var thumbnail by remember(thumbnailRequestKey) {
-            mutableStateOf<Bitmap?>(
-              thumbnailRepository.peekThumbnailFromMemory(video, thumbWidthPx, thumbHeightPx),
-            )
+            mutableStateOf<Bitmap?>(exactMemoryThumbnail ?: retainedThumbnail)
           }
 
           // Read cached thumbnail immediately from disk if not in memory, or generate if permitted
-          LaunchedEffect(thumbnailRequestKey, allowThumbnailGeneration, allowThumbnailLoading, showThumbnails) {
-            if (thumbnail == null && showThumbnails) {
-              thumbnail =
+          LaunchedEffect(thumbnailRequestKey, allowThumbnailGeneration, allowThumbnailLoading, showThumbnails, deferThumbnailLoading) {
+            thumbnail?.let { retainedThumbnail = it }
+            // A fallback frame from another size is displayed immediately; fetch the exact size
+            // without clearing it. Memory hits require no disk read or decoding.
+            if (!deferThumbnailLoading && exactMemoryThumbnail == null && showThumbnails) {
+              val loaded =
                 withContext(Dispatchers.IO) {
                   if (allowThumbnailGeneration && allowThumbnailLoading) {
                     thumbnailRepository.getThumbnail(video, thumbWidthPx, thumbHeightPx)
@@ -708,6 +733,10 @@ fun VideoCard(
                     thumbnailRepository.getCachedThumbnail(video, thumbWidthPx, thumbHeightPx)
                   }
                 }
+              if (loaded != null) {
+                thumbnail = loaded
+                retainedThumbnail = loaded
+              }
             }
           }
 
@@ -720,7 +749,7 @@ fun VideoCard(
                 .aspectRatio(aspect)
                 .clip(AppShapeScale.medium)
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                .combinedClickable(
+                .mediaCardClickable(
                   onClick = onThumbClick,
                   onLongClick = onLongClick,
                 ),
@@ -783,8 +812,8 @@ fun VideoCard(
               )
             }
 
-            // Duration timestamp overlay at bottom-right of the thumbnail
-            if (hasDuration) {
+            // Duration timestamp overlay at bottom-right of the thumbnail (video only in list view)
+            if (hasDuration && !video.isAudio) {
               Box(
                 modifier =
                   Modifier
@@ -967,6 +996,14 @@ fun VideoCard(
                 }
               }
             }
+          }
+          if (video.isAudio && hasDuration) {
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+              text = video.durationFormatted,
+              style = MaterialTheme.typography.labelMedium,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
           }
         }
       }

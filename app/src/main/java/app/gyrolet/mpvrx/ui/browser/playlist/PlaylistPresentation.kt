@@ -7,10 +7,22 @@ import app.gyrolet.mpvrx.utils.sort.SortUtils
 import java.util.Locale
 
 internal fun playlistGridColumnLimit(availableWidthDp: Int, isLibrary: Boolean = false): Int {
-  val spacing = if (isLibrary) 2 else 8
-  val minimumWidth = if (isLibrary) 100 else 160
+  val spacing = if (isLibrary) 12 else 8
+  val minimumWidth = if (isLibrary) 156 else 160
   return ((availableWidthDp - 16 + spacing) / (minimumWidth + spacing)).coerceIn(1, 8)
 }
+
+@androidx.annotation.StringRes
+internal fun playlistSortLabelRes(type: PlaylistSortType): Int =
+  when (type) {
+    PlaylistSortType.Original -> app.gyrolet.mpvrx.R.string.playlist_sort_original
+    PlaylistSortType.Name -> app.gyrolet.mpvrx.R.string.ui_name
+    PlaylistSortType.Location -> app.gyrolet.mpvrx.R.string.playlist_location
+    PlaylistSortType.DateAdded -> app.gyrolet.mpvrx.R.string.playlist_date_added
+    PlaylistSortType.LastPlayed -> app.gyrolet.mpvrx.R.string.video_swipe_last_played
+    PlaylistSortType.ItemCount -> app.gyrolet.mpvrx.R.string.playlist_item_count
+    PlaylistSortType.Category -> app.gyrolet.mpvrx.R.string.playlist_category
+  }
 
 internal fun playlistSourceLocation(source: String?): String {
   if (source.isNullOrBlank()) return ""

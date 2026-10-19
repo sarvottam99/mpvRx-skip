@@ -413,9 +413,6 @@ object MediaInfoParser {
   // Audio channels: 5.1, 7.1, 2.0 — also DDP5.1, DD5.1, AAC2.0
   private val AUDIO_CHANNEL_REGEX = Regex("""\b(?:DDP?|AAC|DD\+?)?\.?([257])\.([01])\b""", RegexOption.IGNORE_CASE)
 
-  // Resolution number: 1080p, 720p
-  private val RESOLUTION_NUM_REGEX = Regex("""\b\d{3,4}[pPiI]\b""")
-
   // Japanese season: San no Shou
   private val JAPANESE_SEASON_REGEX = Regex("""(\w+)\s+no\s+[Ss]hou""", RegexOption.IGNORE_CASE)
 

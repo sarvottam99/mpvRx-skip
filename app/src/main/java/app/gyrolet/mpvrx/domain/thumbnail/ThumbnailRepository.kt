@@ -27,8 +27,6 @@ import app.gyrolet.mpvrx.domain.media.model.Video
 import app.gyrolet.mpvrx.domain.network.NetworkConnection
 import app.gyrolet.mpvrx.preferences.ThumbnailMode
 import app.gyrolet.mpvrx.repository.NetworkRepository
-import app.gyrolet.mpvrx.ui.player.PlaybackPhase
-import app.gyrolet.mpvrx.ui.player.PlaybackSession
 import app.gyrolet.mpvrx.ui.player.resolveLocalPath
 import `is`.xyz.mpv.FastThumbnails
 import kotlinx.coroutines.CancellationException
@@ -46,12 +44,10 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
 import org.koin.java.KoinJavaComponent
 import java.io.ByteArrayOutputStream
@@ -66,13 +62,6 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 private const val NETWORK_THUMBNAIL_FAILURE_RETRY_MS = 30_000L
-
-/**
- * Total time one folder prefetch may spend waiting for the player to go quiet before it stops and
- * leaves the rest of the batch for the next visit. Without a budget a long video would starve the
- * prefetch for as long as it plays.
- */
-private const val FOLDER_PLAYBACK_WAIT_BUDGET_MS = 2_000L
 
 class ThumbnailRepository(
   private val context: Context,
@@ -111,21 +100,6 @@ class ThumbnailRepository(
   private val localGenerationSemaphore = Semaphore(localGenerationParallelism)
   private val networkGenerationSemaphore = Semaphore(1)
   private val maxFolderBatchSize = 48
-
-  // Phases where libmpv holds the current file open or is about to open one. A folder prefetch
-  // decode in one of these competes with the player for the same cores and IO, so it must yield.
-  /**
-   * The only phases where mpv is actively opening and decoding a file. Generating a thumbnail then
-   * competes for the same cores and opens a second demuxer on the very file mpv is opening, so it
-   * is worth standing aside. Once playback is merely running (READY) or in the background the open
-   * is already done, so thumbnails must be allowed to proceed: blocking there would leave a folder
-   * the user is scrolling permanently blank for as long as anything is playing.
-   */
-  private val playbackOpeningPhases =
-    setOf(
-      PlaybackPhase.INITIALIZING,
-      PlaybackPhase.LOADING,
-    )
 
   private data class FolderState(
     val signature: String,
@@ -256,6 +230,10 @@ class ThumbnailRepository(
       return@withContext scaled
     }
 
+  /** Cheap cold-start gate for Folder/Tree roots: do not enumerate folder contents
+   * when there are no cached thumbnails to display. Call from a worker thread. */
+  fun hasLocalCachedThumbnails(): Boolean = !localDiskDir.list().isNullOrEmpty()
+
   fun getThumbnailFromMemory(
     video: Video,
     widthPx: Int,
@@ -365,14 +343,7 @@ class ThumbnailRepository(
       folderJobs[folderId] =
         repositoryScope.launch {
           var i = state.nextIndex
-          var playbackWaitMs = FOLDER_PLAYBACK_WAIT_BUDGET_MS
           while (i < filteredVideos.size) {
-            // Stand aside only while mpv is opening a file, and only briefly. Progress is recorded by
-            // state.nextIndex after each completed batch, and cancelling the job still takes effect
-            // immediately, so pausing and resuming here never loses or repeats work.
-            val waitStartedAt = SystemClock.elapsedRealtime()
-            awaitThumbnailPlaybackWindow(playbackWaitMs)
-            playbackWaitMs -= (SystemClock.elapsedRealtime() - waitStartedAt)
             val batchEnd = (i + localGenerationParallelism).coerceAtMost(filteredVideos.size)
             coroutineScope {
               (i until batchEnd)
@@ -394,24 +365,6 @@ class ThumbnailRepository(
     folderJobs.remove(folderId)?.cancel()
     folderStates.remove(folderId)
   }
-
-  /**
-   * Stands aside while mpv is opening a file, but never indefinitely and never by giving up.
-   *
-   * Returns as soon as [PlaybackSession] is past its open window. If that has not happened within
-   * [budgetMs] the caller proceeds anyway: the list screens call
-   * [startFolderThumbnailGeneration] exactly once per scroll settle, so abandoning the batch here
-   * would leave the remaining thumbnails ungenerated with nothing to retry them.
-   */
-  private suspend fun awaitThumbnailPlaybackWindow(budgetMs: Long) {
-    currentCoroutineContext().ensureActive()
-    if (!isPlaybackOpeningPhase(PlaybackSession.state.value.phase)) return
-    withTimeoutOrNull(budgetMs) {
-      PlaybackSession.state.first { !isPlaybackOpeningPhase(it.phase) }
-    }
-  }
-
-  private fun isPlaybackOpeningPhase(phase: PlaybackPhase): Boolean = phase in playbackOpeningPhases
 
   fun thumbnailKey(
     video: Video,
@@ -445,24 +398,15 @@ class ThumbnailRepository(
     "${video.path}|${video.uri}|${video.size}|${video.dateModified}|${video.duration}" +
       "|$widthPx|$heightPx|${thumbnailModeKey()}|${thumbnailQualityKey()}"
 
-  /**
-   * Folder prefetch and a visible card may request different sizes for the same source.
-   * The disk entry is size-independent, so either completion can wake the card and let it
-   * decode the cached bitmap at its own target dimensions.
-   */
-  fun isThumbnailKeyForVideo(
-    key: String,
-    video: Video,
-  ): Boolean =
-    key.startsWith("${videoBaseKey(video)}|") &&
-      key.endsWith("|${thumbnailModeKey()}|${thumbnailQualityKey()}")
-
   // Keep extraction-quality changes from reusing smaller legacy images that were
   // cached without their requested dimensions in the key.
   fun diskCacheKey(video: Video): String =
     "video-thumb-v2|${diskVideoBaseKey(video)}|${thumbnailModeKey()}|${thumbnailQualityKey()}"
 
   private fun canonicalLocalPath(video: Video): String {
+    if (app.gyrolet.mpvrx.BuildConfig.SCOPED_STORAGE_ONLY && video.uri.scheme == "content") {
+      return video.uri.toString()
+    }
     val raw = video.path.ifBlank { video.uri.toString() }
     if (isNetworkUrl(raw)) return raw
     if (ZipArchiveMedia.isPlaybackUri(raw)) return raw
@@ -602,16 +546,16 @@ class ThumbnailRepository(
     if (ZipArchiveMedia.isPlaybackUri(video.uri.toString())) return null
     val mode = browserPreferences.thumbnailMode.get()
     val dimension = maxOf(widthPx, heightPx, MAX_THUMBNAIL_SIZE).coerceAtMost(thumbnailMaxSize())
+    // Entries saved without media metadata (e.g. songs added to a playlist) arrive flagged as video.
+    val isAudio =
+      video.isAudio ||
+        app.gyrolet.mpvrx.utils.storage.FileTypeUtils.isAudioFile(File(canonicalLocalPath(video)))
 
-    if (video.isAudio || mode == ThumbnailMode.Smart || mode == ThumbnailMode.EmbeddedThumbnail) {
-      // Opening a MediaMetadataRetriever here means a second demuxer on the very file the native
-      // decode below is about to open. Smart mode wants a real frame anyway, so only pay for the
-      // probe when a sidecar image is provably there. Audio and EmbeddedThumbnail keep it: there
-      // is no native frame to fall back to.
-      if (mode != ThumbnailMode.Smart || EmbeddedArtworkCandidates.hasSidecarArtwork(canonicalLocalPath(video))) {
-        generateEmbeddedArtwork(video)?.let { return scaleBitmap(it, widthPx, heightPx) }
+    if (isAudio || mode == ThumbnailMode.Smart || mode == ThumbnailMode.EmbeddedThumbnail) {
+      generateEmbeddedArtwork(video)?.let { return scaleBitmap(it, widthPx, heightPx) }
+      if (isAudio) {
+        return loadMediaStoreAudioArtwork(video, dimension)?.let { scaleBitmap(it, widthPx, heightPx) }
       }
-      if (video.isAudio) return null
     }
 
     generateWithFastThumbnails(video, mode, dimension)?.let {
@@ -621,17 +565,67 @@ class ThumbnailRepository(
     return extractLocalVideoFrame(video, widthPx, heightPx)
   }
 
-  private fun generateEmbeddedArtwork(video: Video): Bitmap? =
+  /** MediaStore's indexed cover, which also covers formats the retriever cannot read art from. */
+  private fun loadMediaStoreAudioArtwork(
+    video: Video,
+    sizePx: Int,
+  ): Bitmap? =
     runCatching {
-      val retriever = MediaMetadataRetriever()
-      try {
-        val canonicalPath = canonicalLocalPath(video)
-        setLocalDataSource(retriever, video)
-        EmbeddedArtworkResolver.decodeEmbeddedArtwork(canonicalPath, retriever)?.scaleToThumbnailMax(thumbnailMaxSize())
-      } finally {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) retriever.close() else retriever.release()
+      val resolver = context.contentResolver
+      val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+      val mediaStoreId =
+        video.uri
+          .takeIf { it.scheme == "content" && it.authority == MediaStore.AUTHORITY }
+          ?.let { runCatching { android.content.ContentUris.parseId(it) }.getOrNull() }
+      val (audioId, albumId) =
+        resolver.query(
+          collection,
+          arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.ALBUM_ID),
+          if (mediaStoreId != null) "${MediaStore.Audio.Media._ID}=?" else "${MediaStore.Audio.Media.DATA}=?",
+          arrayOf(mediaStoreId?.toString() ?: canonicalLocalPath(video)),
+          null,
+        )?.use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) to cursor.getLong(1) else null }
+          ?: return null
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        resolver.loadThumbnail(
+          android.content.ContentUris.withAppendedId(collection, audioId),
+          android.util.Size(sizePx, sizePx),
+          null,
+        )
+      } else {
+        resolver
+          .openInputStream(
+            android.content.ContentUris.withAppendedId(Uri.parse("content://media/external/audio/albumart"), albumId),
+          )?.use(BitmapFactory::decodeStream)
       }
     }.getOrNull()
+
+  private fun generateEmbeddedArtwork(video: Video): Bitmap? {
+    val canonicalPath = canonicalLocalPath(video)
+    // Some Android retrievers reject Matroska attachments or SAF providers. Their failure must
+    // not prevent the independent container/sidecar artwork paths from being tried.
+    val retrieverArtwork =
+      runCatching {
+        val retriever = MediaMetadataRetriever()
+        try {
+          setLocalDataSource(retriever, video)
+          EmbeddedArtworkResolver.decodeRetrieverArtwork(retriever)
+        } finally {
+          runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) retriever.close() else retriever.release()
+          }
+        }
+      }.getOrNull()
+    return (
+      retrieverArtwork
+        ?: EmbeddedArtworkResolver.decodeContainerOrSidecar(
+          videoPath = canonicalPath,
+          context = context,
+          videoUri = video.uri,
+          displayName = video.displayName,
+        )
+      )?.scaleToThumbnailMax(thumbnailMaxSize())
+  }
 
   private suspend fun generateWithFastThumbnails(
     video: Video,
@@ -659,10 +653,7 @@ class ThumbnailRepository(
       }
     val lastSafePosition = (durationSeconds - 0.1).coerceAtLeast(0.0)
     val positions =
-      when (mode) {
-        ThumbnailMode.Smart -> listOf(requestedPosition, 10.0, 20.0, 30.0)
-        else -> listOf(requestedPosition)
-      }.map { position ->
+      listOf(requestedPosition).map { position ->
         if (durationSeconds > 0.0) position.coerceIn(0.0, lastSafePosition) else position.coerceAtLeast(0.0)
       }.distinct()
 
@@ -756,6 +747,8 @@ class ThumbnailRepository(
   ) {
     val canonicalPath = canonicalLocalPath(video)
     when {
+      app.gyrolet.mpvrx.BuildConfig.SCOPED_STORAGE_ONLY && video.uri.scheme == "content" ->
+        retriever.setDataSource(context, video.uri)
       canonicalPath.isNotBlank() && !canonicalPath.contains("://") && File(canonicalPath).exists() ->
         retriever.setDataSource(canonicalPath)
       video.path.isNotBlank() && !video.path.contains("://") -> retriever.setDataSource(video.path)
@@ -998,7 +991,7 @@ class ThumbnailRepository(
         is ThumbnailStrategy.Hybrid -> decodeHybridFrame(retriever, strategy.percentage, targetWidth, targetHeight)
         is ThumbnailStrategy.EmbeddedOrHybrid ->
           embeddedPicture?.also { shouldRotate = false }
-            ?: decodeHybridFrame(retriever, strategy.percentage, targetWidth, targetHeight)
+            ?: getFrameAt(retriever, frameTimeMicros(retriever, strategy.percentage), targetWidth, targetHeight)
       } ?: return null
 
     return if (shouldRotate) rotateBitmapIfNeeded(retriever, raw) else raw
@@ -1395,10 +1388,10 @@ class ThumbnailRepository(
     val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
     val processorCount = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
     return when {
-      activityManager?.isLowRamDevice == true || processorCount <= 2 -> 1
-      processorCount <= 4 -> 2
-      processorCount <= 6 -> 3
-      else -> 4
+      activityManager?.isLowRamDevice == true || android.os.Build.VERSION.SDK_INT <= 29 || processorCount <= 2 -> 1
+      // Bound decode pressure on larger mobile SoCs so returning to the library cannot launch
+      // four simultaneous thumbnail decoders beside UI image work.
+      else -> 2
     }
   }
 

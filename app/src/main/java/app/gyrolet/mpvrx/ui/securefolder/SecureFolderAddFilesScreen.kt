@@ -25,7 +25,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -87,10 +86,6 @@ data object SecureFolderAddFilesScreen : Screen {
     val videoCardUiConfig = rememberVideoCardUiConfig()
     val showSubtitleIndicator by browserPreferences.showSubtitleIndicator.collectAsState()
     val videoListState = rememberLazyListState()
-    val isVideoListScrolling by
-      remember(videoListState) {
-        derivedStateOf { videoListState.isScrollInProgress }
-      }
 
     // Folder list step (mirrors FolderListScreen's browsing + sort)
     val folderListViewModel: FolderListViewModel =
@@ -271,7 +266,6 @@ data object SecureFolderAddFilesScreen : Screen {
               onClick = { selectionManager?.toggle(video) },
               onThumbClick = { selectionManager?.toggle(video) },
               onLongClick = { selectionManager?.handleLongClick(video) },
-              allowThumbnailLoading = !isVideoListScrolling,
               uiConfig = videoCardUiConfig,
               showSubtitleIndicator = showSubtitleIndicator,
               modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),

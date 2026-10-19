@@ -9,10 +9,11 @@
 
 package app.gyrolet.mpvrx.ui.preferences
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -27,7 +28,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -47,6 +47,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -63,8 +66,11 @@ import app.gyrolet.mpvrx.ui.player.controls.components.rememberTvInitialFocusReq
 import app.gyrolet.mpvrx.ui.player.controls.components.tvFocusGroup
 import app.gyrolet.mpvrx.ui.player.controls.components.tvFocusHighlight
 import app.gyrolet.mpvrx.ui.player.controls.components.tvInitialFocus
-import app.gyrolet.mpvrx.ui.securefolder.SecureFolderGateScreen
+import app.gyrolet.mpvrx.ui.theme.AppConnectedShapeTokens
+import app.gyrolet.mpvrx.ui.theme.ConnectedLayout
+import app.gyrolet.mpvrx.ui.securefolder.SecureFolderSettingsScreen
 import app.gyrolet.mpvrx.ui.theme.LocalEmphasizedTypography
+import app.gyrolet.mpvrx.ui.theme.rememberConnectedShape
 import app.gyrolet.mpvrx.ui.utils.LocalBackStack
 import app.gyrolet.mpvrx.ui.utils.navigateTo
 import app.gyrolet.mpvrx.ui.utils.LocalShowSettingsBackArrow
@@ -78,6 +84,7 @@ private data class SettingsDestination(
   val summary: String,
   val icon: AppIcon,
   val screen: Screen,
+  val experimental: Boolean = false,
 )
 
 private data class SettingsSection(
@@ -164,14 +171,14 @@ object PreferencesScreen : Screen {
           title = {
             Text(
               text = stringResource(R.string.pref_preferences),
-              style = emphasizedTypography.headlineSmall,
+              style = emphasizedTypography.titleLarge,
             )
           },
           navigationIcon = {
             IconButton(onClick = { backstack.popSafely() }) {
               Icon(
                 Icons.RoundedFilled.ArrowBack,
-                contentDescription = null,
+                contentDescription = stringResource(R.string.back),
                 tint = colorScheme.secondary,
               )
             }
@@ -214,7 +221,7 @@ object PreferencesScreen : Screen {
     val colorScheme = MaterialTheme.colorScheme
     val secureFolderPreferences = koinInject<SecureFolderPreferences>()
     val isSecureFolderEntryHidden by secureFolderPreferences.isEntryPointHidden.collectAsState()
-    return listOf(
+    return listOfNotNull(
       SettingsSection(
         title = stringResource(R.string.pref_section_appearance),
         tint = colorScheme.onSurfaceVariant,
@@ -225,6 +232,18 @@ object PreferencesScreen : Screen {
               summary = stringResource(R.string.pref_appearance_summary),
               icon = Icons.RoundedFilled.Palette,
               screen = AppearancePreferencesScreen,
+            ),
+            SettingsDestination(
+              title = stringResource(R.string.pref_appearance_category_liquid_glass),
+              summary =
+                listOf(
+                  stringResource(R.string.pref_liquid_glass_optics),
+                  stringResource(R.string.pref_liquid_glass_colors),
+                  stringResource(R.string.pref_liquid_glass_highlights),
+                ).joinToString(", "),
+              icon = Icons.RoundedFilled.BlurOn,
+              screen = LiquidGlassPreferencesScreen,
+              experimental = true,
             ),
           ),
       ),
@@ -246,12 +265,6 @@ object PreferencesScreen : Screen {
               screen = PlayerPreferencesScreen,
             ),
             SettingsDestination(
-              title = stringResource(R.string.pref_decoder),
-              summary = stringResource(R.string.pref_decoder_summary),
-              icon = Icons.RoundedFilled.DeveloperBoard,
-              screen = DecoderPreferencesScreen,
-            ),
-            SettingsDestination(
               title = stringResource(R.string.pref_audio),
               summary = stringResource(R.string.pref_audio_summary),
               icon = Icons.RoundedFilled.Audiotrack,
@@ -263,6 +276,12 @@ object PreferencesScreen : Screen {
               icon = Icons.RoundedFilled.Subtitles,
               screen = SubtitlesPreferencesScreen,
             ),
+            SettingsDestination(
+              title = stringResource(R.string.pref_decoder),
+              summary = stringResource(R.string.pref_decoder_summary),
+              icon = Icons.RoundedFilled.DeveloperBoard,
+              screen = DecoderPreferencesScreen,
+            ),
           ),
       ),
       SettingsSection(
@@ -271,16 +290,16 @@ object PreferencesScreen : Screen {
         items =
           listOf(
             SettingsDestination(
-              title = stringResource(R.string.pref_gesture),
-              summary = stringResource(R.string.pref_gesture_summary),
-              icon = Icons.RoundedFilled.Gesture,
-              screen = GesturePreferencesScreen,
-            ),
-            SettingsDestination(
               title = stringResource(R.string.pref_layout_title),
               summary = stringResource(R.string.pref_layout_summary),
               icon = Icons.RoundedFilled.GridView,
               screen = PlayerControlsPreferencesScreen,
+            ),
+            SettingsDestination(
+              title = stringResource(R.string.pref_gesture),
+              summary = stringResource(R.string.pref_gesture_summary),
+              icon = Icons.RoundedFilled.Gesture,
+              screen = GesturePreferencesScreen,
             ),
           ),
       ),
@@ -297,10 +316,10 @@ object PreferencesScreen : Screen {
             ),
             if (!isSecureFolderEntryHidden) {
               SettingsDestination(
-                title = stringResource(R.string.secure_folder_title),
-                summary = stringResource(R.string.secure_folder_summary),
+                title = stringResource(R.string.secure_folder_settings_title),
+                summary = stringResource(R.string.secure_folder_settings_summary),
                 icon = Icons.RoundedFilled.Lock,
-                screen = SecureFolderGateScreen,
+                screen = SecureFolderSettingsScreen,
               )
             } else {
               null
@@ -357,7 +376,7 @@ object PreferencesScreen : Screen {
               screen = AiIntegrationScreen,
             ),
           ),
-      ),
+      ).takeUnless { app.gyrolet.mpvrx.BuildConfig.IS_PLAY_STORE_BUILD },
       SettingsSection(
         title = stringResource(R.string.pref_section_advanced),
         tint = colorScheme.onSurfaceVariant,
@@ -473,7 +492,8 @@ private fun SettingsSectionBlock(
     ) {
       Text(
         text = section.title,
-        style = emphasizedTypography.titleLarge,
+        modifier = Modifier.semantics { heading() },
+        style = emphasizedTypography.titleMedium,
         color = MaterialTheme.colorScheme.onSurface,
       )
     }
@@ -496,25 +516,37 @@ private fun SettingsDestinationGroup(
   onItemClick: (SettingsDestination) -> Unit,
   modifier: Modifier = Modifier,
 ) {
-  Surface(
-    modifier = modifier.fillMaxWidth(),
-    shape = MaterialTheme.shapes.extraLargeIncreased,
-    color = MaterialTheme.colorScheme.surfaceContainerLow,
-    tonalElevation = 1.dp,
-  ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-      section.items.forEachIndexed { index, item ->
-        SettingsDestinationRow(
-          item = item,
-          tint = section.tint,
-          isSelected = selectedScreen == item.screen,
-          onClick = { onItemClick(item) },
-        )
-        if (index < section.items.lastIndex) {
-          HorizontalDivider(
-            modifier = Modifier.padding(start = 14.dp, end = 18.dp),
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+  BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+    // Keep phones legible; spacious settings panes can show connected 2-column bento tiles.
+    val columns = if (maxWidth >= 560.dp && section.items.size >= 3) 2 else 1
+    Column(verticalArrangement = Arrangement.spacedBy(AppConnectedShapeTokens.spacing)) {
+      section.items.chunked(columns).forEachIndexed { rowIndex, rowItems ->
+        if (columns == 1) {
+          val item = rowItems.first()
+          SettingsDestinationRow(
+            item = item,
+            index = rowIndex,
+            itemCount = section.items.size,
+            tint = section.tint,
+            isSelected = selectedScreen == item.screen,
+            onClick = { onItemClick(item) },
           )
+        } else {
+          Row(horizontalArrangement = Arrangement.spacedBy(AppConnectedShapeTokens.spacing)) {
+            rowItems.forEachIndexed { columnIndex, item ->
+              SettingsDestinationRow(
+                item = item,
+                index = rowIndex * columns + columnIndex,
+                itemCount = section.items.size,
+                tint = section.tint,
+                isSelected = selectedScreen == item.screen,
+                onClick = { onItemClick(item) },
+                modifier = Modifier.weight(1f),
+                layout = ConnectedLayout.Grid,
+                columns = columns,
+              )
+            }
+          }
         }
       }
     }
@@ -524,70 +556,108 @@ private fun SettingsDestinationGroup(
 @Composable
 private fun SettingsDestinationRow(
   item: SettingsDestination,
+  index: Int,
+  itemCount: Int,
   tint: Color,
   isSelected: Boolean,
   onClick: () -> Unit,
+  modifier: Modifier = Modifier,
+  layout: ConnectedLayout = ConnectedLayout.Vertical,
+  columns: Int = 1,
 ) {
-  val rowBgColor =
+  val shape =
+    rememberConnectedShape(
+      index = index,
+      itemCount = itemCount,
+      layout = layout,
+      columns = columns,
+    )
+  val containerColor =
     if (isSelected) {
-      MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+      MaterialTheme.colorScheme.secondaryContainer
     } else {
-      Color.Transparent
+      MaterialTheme.colorScheme.surfaceContainerLow
     }
-  Row(
+  Surface(
     modifier =
-      Modifier
+      modifier
         .fillMaxWidth()
-        .tvFocusHighlight(MaterialTheme.shapes.medium, focusedScale = 1.01f)
-        .background(rowBgColor)
-        .clickable(onClick = onClick)
-        .padding(horizontal = 14.dp, vertical = 13.dp),
-    verticalAlignment = Alignment.CenterVertically,
+        .tvFocusHighlight(shape, focusedScale = 1.01f)
+        .clip(shape)
+        .semantics { selected = isSelected }
+        .clickable(onClick = onClick),
+    shape = shape,
+    color = containerColor,
+    tonalElevation = 1.dp,
   ) {
-    Surface(
-      shape = MaterialTheme.shapes.largeIncreased,
-      color = tint.copy(alpha = 0.18f),
+    Row(
+      modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 13.dp),
+      verticalAlignment = Alignment.CenterVertically,
     ) {
-      Box(
-        modifier = Modifier.size(48.dp),
-        contentAlignment = Alignment.Center,
+      Surface(
+        shape = MaterialTheme.shapes.largeIncreased,
+        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest,
       ) {
-        Icon(
-          imageVector = item.icon,
-          contentDescription = null,
-          modifier = Modifier.size(26.dp),
-          tint = tint,
+        Box(
+          modifier = Modifier.size(48.dp),
+          contentAlignment = Alignment.Center,
+        ) {
+          Icon(
+            imageVector = item.icon,
+            contentDescription = null,
+            modifier = Modifier.size(26.dp),
+            tint = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else tint,
+          )
+        }
+      }
+
+      Spacer(modifier = Modifier.width(14.dp))
+
+      Column(modifier = Modifier.weight(1f)) {
+        Row(
+          horizontalArrangement = Arrangement.spacedBy(8.dp),
+          verticalAlignment = Alignment.CenterVertically,
+        ) {
+          Text(
+            text = item.title,
+            modifier = Modifier.weight(1f, fill = false),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+          )
+          if (item.experimental) {
+            Surface(
+              color = MaterialTheme.colorScheme.tertiaryContainer,
+              shape = RoundedCornerShape(50.dp),
+            ) {
+              Text(
+                text = stringResource(R.string.pref_experimental_badge),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+              )
+            }
+          }
+        }
+        Text(
+          text = item.summary,
+          style = MaterialTheme.typography.bodyMedium,
+          color = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+          maxLines = 2,
+          overflow = TextOverflow.Ellipsis,
         )
       }
-    }
 
-    Spacer(modifier = Modifier.width(14.dp))
+      Spacer(modifier = Modifier.width(10.dp))
 
-    Column(modifier = Modifier.weight(1f)) {
-      Text(
-        text = item.title,
-        style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.SemiBold,
-        color = MaterialTheme.colorScheme.onSurface,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-      )
-      Text(
-        text = item.summary,
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        maxLines = 2,
-        overflow = TextOverflow.Ellipsis,
+      Icon(
+        imageVector = Icons.RoundedFilled.ChevronRight,
+        contentDescription = null,
+        modifier = Modifier.size(24.dp),
+        tint = MaterialTheme.colorScheme.onSurfaceVariant,
       )
     }
-
-    Spacer(modifier = Modifier.width(10.dp))
-
-    Icon(
-      imageVector = Icons.RoundedFilled.ChevronRight,
-      contentDescription = null,
-      modifier = Modifier.size(24.dp),
-      tint = MaterialTheme.colorScheme.outline,
-    )
   }
 }

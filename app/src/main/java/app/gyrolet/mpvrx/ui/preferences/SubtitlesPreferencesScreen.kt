@@ -29,7 +29,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
+import app.gyrolet.mpvrx.presentation.components.AppAlertDialog as AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -40,9 +40,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import app.gyrolet.mpvrx.presentation.components.AppDialogTextButton as TextButton
 import androidx.compose.material3.TextField
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState as collectFlowAsState
@@ -86,13 +85,13 @@ import app.gyrolet.mpvrx.ui.icons.Icon
 import app.gyrolet.mpvrx.ui.icons.Icons
 import app.gyrolet.mpvrx.ui.preferences.components.SwitchPreference
 import app.gyrolet.mpvrx.ui.player.defaultSubtitleFontDisplayName
-import app.gyrolet.mpvrx.ui.player.resolveSubtitleFontFamily
 import app.gyrolet.mpvrx.ui.utils.LocalBackStack
-import app.gyrolet.mpvrx.ui.utils.LocalShowSettingsBackArrow
 import app.gyrolet.mpvrx.ui.utils.currentMpvConfigOverrideOptions
 import app.gyrolet.mpvrx.ui.utils.popSafely
+import app.gyrolet.mpvrx.utils.media.CustomFontEntry
 import app.gyrolet.mpvrx.utils.media.copyFontsFromDirectory
 import app.gyrolet.mpvrx.utils.media.loadCustomFontEntries
+import app.gyrolet.mpvrx.utils.media.subtitleFontChoices
 import app.gyrolet.mpvrx.utils.media.resolveSubtitleStorageDirectory
 import com.github.k1rakishou.fsaf.FileManager
 import kotlinx.coroutines.Dispatchers
@@ -101,7 +100,6 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import me.zhanghai.compose.preference.ListPreference
 import me.zhanghai.compose.preference.Preference
-import me.zhanghai.compose.preference.ProvidePreferenceLocals
 import me.zhanghai.compose.preference.TextFieldPreference
 import org.koin.compose.koinInject
 
@@ -168,32 +166,13 @@ object SubtitlesPreferencesScreen : Screen {
 
     Scaffold(
       topBar = {
-        TopAppBar(
-          title = {
-            Text(
-              text = stringResource(R.string.pref_subtitles),
-              style = MaterialTheme.typography.headlineSmall,
-              fontWeight = FontWeight.ExtraBold,
-              color = MaterialTheme.colorScheme.primary,
-            )
-          },
-          navigationIcon = {
-            if (LocalShowSettingsBackArrow.current) {
-              IconButton(
-                onClick = { backstack.popSafely() },
-              ) {
-                Icon(
-                  Icons.RoundedFilled.ArrowBack,
-                  contentDescription = null,
-                  tint = MaterialTheme.colorScheme.secondary,
-                )
-              }
-            }
-          },
+        SettingsTopAppBar(
+          title = stringResource(R.string.pref_subtitles),
+          onBack = { backstack.popSafely() },
         )
       },
     ) { padding ->
-      ProvidePreferenceLocals {
+      ProvideExpressivePreferenceLocals {
         val subtitleSaveFolder by preferences.subtitleSaveFolder.collectAsState()
         val fontsFolder by preferences.fontsFolder.collectAsState()
         val selectedFont by preferences.font.collectAsState()
@@ -217,7 +196,7 @@ object SubtitlesPreferencesScreen : Screen {
         val subtitleHubSourceValues =
           remember(allKeylessSourcesLabel) {
             MpvRxSubtitleHubSources.ALL.toMutableMap().apply {
-              this["all"] = allKeylessSourcesLabel
+              if (containsKey("all")) this["all"] = allKeylessSourcesLabel
             }
           }
         val subtitleHubSourceDescriptions =
@@ -272,7 +251,7 @@ object SubtitlesPreferencesScreen : Screen {
         val selectedSubtitleApiKeyPreferences =
           subtitleApiKeyPreferences.filter { it.sourceKey in subtitleHubSources }
         val requestedSearchTarget by SettingsSearchNavigation.target.collectFlowAsState()
-        var customFonts by remember { mutableStateOf<List<String>>(emptyList()) }
+        var customFonts by remember { mutableStateOf<List<CustomFontEntry>>(emptyList()) }
         var downloadedGoogleFonts by remember { mutableStateOf<List<String>>(emptyList()) }
 
         LaunchedEffect(fontsFolder, fontRefreshKey, appFontFamily) {
@@ -283,18 +262,15 @@ object SubtitlesPreferencesScreen : Screen {
           customFonts =
             loadCustomFontEntries(context)
               .filterNot { googleFontsRepository.isManagedMpvFont(it.file) }
-              .map { it.familyName }
-              .distinct()
-              .filter { it != DEFAULT_SUBTITLE_FONT_FAMILY && it != LEGACY_DEFAULT_SUBTITLE_FONT_FAMILY }
+              .filter { it.familyName != DEFAULT_SUBTITLE_FONT_FAMILY && it.familyName != LEGACY_DEFAULT_SUBTITLE_FONT_FAMILY }
         }
 
-        val availableFonts =
+        val fontChoices =
           remember(downloadedGoogleFonts, customFonts) {
-            (downloadedGoogleFonts + customFonts)
-              .filter { it != DEFAULT_SUBTITLE_FONT_FAMILY && it != LEGACY_DEFAULT_SUBTITLE_FONT_FAMILY }
-              .distinct()
-              .sorted()
+            subtitleFontChoices(downloadedGoogleFonts, customFonts)
+              .filter { it.familyName != DEFAULT_SUBTITLE_FONT_FAMILY && it.familyName != LEGACY_DEFAULT_SUBTITLE_FONT_FAMILY }
           }
+        val availableFonts = fontChoices.map { it.label }
         val effectiveDefaultFont = DEFAULT_SUBTITLE_FONT_FAMILY
 
         var sourcesResponse by remember { mutableStateOf<WyzieSourcesResponse?>(null) }
@@ -328,7 +304,7 @@ object SubtitlesPreferencesScreen : Screen {
         ) {
           // === GENERAL SECTION ===
           item {
-            PreferenceSectionHeader(
+            PreferenceSectionHeader(position = PreferenceSectionPosition.First, 
               title = stringResource(R.string.general),
               modifier = Modifier.settingsSearchTarget(R.string.pref_subtitles),
             )
@@ -337,6 +313,7 @@ object SubtitlesPreferencesScreen : Screen {
           item {
             PreferenceCard {
               val preferredLanguages by preferences.preferredLanguages.collectAsState()
+              ExpressivePreferenceItem {
               TextFieldPreference(
                 modifier = Modifier.settingsSearchTarget(R.string.pref_preferred_languages),
                 value = preferredLanguages,
@@ -375,6 +352,7 @@ object SubtitlesPreferencesScreen : Screen {
                   }
                 },
               )
+              }
 
               PreferenceDivider()
 
@@ -455,11 +433,12 @@ object SubtitlesPreferencesScreen : Screen {
 
           // === FONT SECTION ===
           item {
-            PreferenceSectionHeader(title = stringResource(R.string.pref_section_subtitle_fonts))
+            PreferenceSectionHeader(position = PreferenceSectionPosition.Middle, title = stringResource(R.string.pref_section_subtitle_fonts))
           }
 
           item {
             PreferenceCard {
+              ExpressivePreferenceItem {
               Preference(
                 modifier = Modifier.settingsSearchTarget(R.string.pref_subtitles_fonts_dir),
                 enabled = "sub-fonts-dir" !in configOwnedOptions,
@@ -490,39 +469,43 @@ object SubtitlesPreferencesScreen : Screen {
                 },
                 onClick = { fontFolderPicker.launch(null) },
               )
+              }
 
               PreferenceDivider()
 
-              val fontValues =
-                remember(availableFonts, selectedFont) {
-                  val effectiveSelected =
-                    selectedFont.takeUnless {
-                      it.isBlank() ||
-                        it == DEFAULT_SUBTITLE_FONT_FAMILY ||
-                        it == LEGACY_DEFAULT_SUBTITLE_FONT_FAMILY
-                    }.orEmpty()
-                  (listOf("") + availableFonts + listOf(effectiveSelected).filter { it.isNotBlank() }).distinct()
-                }
-              val fontValue = if (selectedFont in fontValues) selectedFont else ""
-              val fontLabel =
+              val effectiveSelected =
                 selectedFont.takeUnless {
                   it.isBlank() ||
                     it == DEFAULT_SUBTITLE_FONT_FAMILY ||
                     it == LEGACY_DEFAULT_SUBTITLE_FONT_FAMILY
-                } ?: defaultSubtitleFontDisplayName(effectiveDefaultFont)
+                }.orEmpty()
+              val fontValues = (listOf("") + availableFonts + listOf(effectiveSelected).filter(String::isNotBlank)).distinct()
+              // Keep the clicked filename highlighted when multiple files advertise the
+              // same family. mpv itself continues to receive the real family name.
+              var preferredFontLabel by rememberSaveable { mutableStateOf("") }
+              fun familyForLabel(label: String): String =
+                fontChoices.firstOrNull { it.label == label }?.familyName ?: label
+              val fontValue =
+                preferredFontLabel.takeIf { it in fontValues && familyForLabel(it) == effectiveSelected }
+                  ?: fontValues.firstOrNull { familyForLabel(it) == effectiveSelected }.orEmpty()
+              val fontLabel = fontValue.ifBlank { defaultSubtitleFontDisplayName(effectiveDefaultFont) }
 
+              ExpressivePreferenceItem {
               ListPreference(
                 modifier = Modifier.settingsSearchTarget(R.string.pref_subtitles_font_title),
                 value = fontValue,
                 enabled = "sub-font" !in configOwnedOptions,
-                onValueChange = preferences.font::set,
+                onValueChange = { label ->
+                  preferredFontLabel = label
+                  preferences.font.set(familyForLabel(label))
+                },
                 values = fontValues,
                 valueToText = {
                   AnnotatedString(it.ifBlank { context.getString(R.string.pref_subtitles_font_default) })
                 },
                 title = { Text(stringResource(R.string.pref_subtitles_font_title)) },
                 summary = {
-                  Column {
+                  Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
                       stringResource(R.string.pref_subtitles_font_summary, fontLabel),
                       color = MaterialTheme.colorScheme.outline,
@@ -531,7 +514,7 @@ object SubtitlesPreferencesScreen : Screen {
                       if (availableFonts.isEmpty()) {
                         stringResource(R.string.pref_subtitles_font_no_custom)
                       } else {
-                        stringResource(R.string.fonts_loaded, availableFonts.size)
+                        stringResource(R.string.fonts_loaded, fontChoices.size)
                       },
                       color = MaterialTheme.colorScheme.outline,
                       style = MaterialTheme.typography.bodySmall,
@@ -539,9 +522,11 @@ object SubtitlesPreferencesScreen : Screen {
                   }
                 },
               )
+              }
 
               PreferenceDivider()
 
+              ExpressivePreferenceItem {
               Preference(
                 modifier = Modifier.settingsSearchTarget(R.string.reload_fonts),
                 title = { Text(stringResource(R.string.reload_fonts)) },
@@ -561,10 +546,12 @@ object SubtitlesPreferencesScreen : Screen {
                 enabled = fontsFolder.isNotBlank(),
                 onClick = { reloadFontsFrom(fontsFolder) },
               )
+              }
 
               if (fontsFolder.isNotBlank() || customFonts.isNotEmpty()) {
                 PreferenceDivider()
 
+                ExpressivePreferenceItem {
                 Preference(
                   title = {
                     Text(
@@ -589,13 +576,14 @@ object SubtitlesPreferencesScreen : Screen {
                     }
                   },
                 )
+                }
               }
             }
           }
 
           // === ONLINE SUBTITLE SECTION ===
           item {
-            PreferenceSectionHeader(
+            PreferenceSectionHeader(position = PreferenceSectionPosition.Last, 
               title = stringResource(R.string.pref_section_subtitle_search),
               modifier = Modifier.settingsSearchTarget(R.string.pref_subtitle_search_title),
             )
@@ -605,6 +593,7 @@ object SubtitlesPreferencesScreen : Screen {
             PreferenceCard {
               var showClearDialog by remember { mutableStateOf(false) }
 
+              ExpressivePreferenceItem {
               ListPreference(
                 modifier = Modifier.settingsSearchTarget(R.string.pref_subtitles_search_mode_title),
                 value = onlineSubtitleSearchMode,
@@ -619,6 +608,7 @@ object SubtitlesPreferencesScreen : Screen {
                   )
                 },
               )
+              }
 
               PreferenceDivider()
 
@@ -685,6 +675,7 @@ object SubtitlesPreferencesScreen : Screen {
                   map
                 }
 
+              ExpressivePreferenceItem {
               Preference(
                 modifier = Modifier.settingsSearchTarget(R.string.pref_subtitle_sources_title),
                 title = { Text(stringResource(R.string.pref_subtitle_sources_title)) },
@@ -704,6 +695,7 @@ object SubtitlesPreferencesScreen : Screen {
                 },
                 onClick = { showSourcesDialog = true },
               )
+              }
 
               if (showSourcesDialog) {
                 val allSourcesLabel = stringResource(R.string.pref_all_sources)
@@ -1136,6 +1128,7 @@ object SubtitlesPreferencesScreen : Screen {
 
               PreferenceDivider()
 
+              ExpressivePreferenceItem {
               Preference(
                 modifier = Modifier.settingsSearchTarget(R.string.pref_subtitles_clear_downloads),
                 title = {
@@ -1148,6 +1141,7 @@ object SubtitlesPreferencesScreen : Screen {
                 onClick = { showClearDialog = true },
                 enabled = subtitleSaveFolder.isNotBlank(),
               )
+              }
 
               if (showClearDialog) {
                 AlertDialog(
@@ -1249,12 +1243,14 @@ fun MultiChoicePreference(
   var showDialog by remember { mutableStateOf(false) }
   var query by rememberSaveable { mutableStateOf("") }
 
+  ExpressivePreferenceItem {
   Preference(
     modifier = modifier,
     title = title,
     summary = summary,
     onClick = { showDialog = true },
   )
+  }
 
   if (showDialog) {
     val valuesList = values.toList()
@@ -1376,6 +1372,7 @@ private fun SubtitleApiKeyPreference(
   val context = LocalContext.current
   var showApiKey by rememberSaveable(spec.sourceKey) { mutableStateOf(false) }
 
+  ExpressivePreferenceItem {
   TextFieldPreference(
     modifier = modifier,
     value = spec.value,
@@ -1452,4 +1449,5 @@ private fun SubtitleApiKeyPreference(
       }
     },
   )
+  }
 }

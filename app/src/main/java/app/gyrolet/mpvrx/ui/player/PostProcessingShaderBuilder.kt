@@ -239,30 +239,6 @@ vec4 hook() {
   """.trimIndent()
 }
 
-/** Port of Eden ColorGrade.fx — saturation, brightness, contrast, gamma (PPSSPP). */
-object ColorGradeShaderBuilder {
-  fun build(p: PostProcessingParams): String = """
-//!HOOK MAIN
-//!BIND HOOKED
-//!DESC Colour Grade (mpvRx)
-
-#define PP_SATURATION ${f(p.cgSaturation)}
-#define PP_BRIGHTNESS ${f(p.cgBrightness)}
-#define PP_CONTRAST   ${f(p.cgContrast)}
-#define PP_GAMMA      ${f(p.cgGamma)}
-
-vec4 hook() {
-    vec3 rgb = HOOKED_tex(HOOKED_pos).rgb;
-    float luma = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
-    rgb = mix(vec3(luma), rgb, PP_SATURATION);
-    rgb *= PP_BRIGHTNESS;
-    rgb = (rgb - 0.5) * PP_CONTRAST + 0.5;
-    rgb = pow(max(rgb, 0.0), vec3(1.0 / max(PP_GAMMA, 0.0001)));
-    return vec4(clamp(rgb, 0.0, 1.0), 1.0);
-}
-  """.trimIndent()
-}
-
 /** Port of Eden Denoise.fx — bilateral edge-preserving filter (Anime4K-derived). */
 object DenoiseShaderBuilder {
   fun build(p: PostProcessingParams): String = """
@@ -434,44 +410,6 @@ vec4 hook() {
   """.trimIndent()
 }
 
-/** Port of Eden Cartoon.fx — 3×3 diagonal edge detection + colour quantisation (PPSSPP guest(r)). */
-object CartoonShaderBuilder {
-  fun build(p: PostProcessingParams): String = """
-//!HOOK MAIN
-//!BIND HOOKED
-//!DESC Cartoon (mpvRx)
-
-#define PP_EDGE   ${f(p.cartoonEdgeStrength)}
-#define PP_LEVELS ${f(p.cartoonLevels)}
-
-vec4 hook() {
-    vec2 t = 1.0 / HOOKED_size;
-    vec3 c00 = HOOKED_tex(HOOKED_pos + t*vec2(-1,-1)).rgb;
-    vec3 c10 = HOOKED_tex(HOOKED_pos + t*vec2( 0,-1)).rgb;
-    vec3 c20 = HOOKED_tex(HOOKED_pos + t*vec2( 1,-1)).rgb;
-    vec3 c01 = HOOKED_tex(HOOKED_pos + t*vec2(-1, 0)).rgb;
-    vec3 c11 = HOOKED_tex(HOOKED_pos).rgb;
-    vec3 c21 = HOOKED_tex(HOOKED_pos + t*vec2( 1, 0)).rgb;
-    vec3 c02 = HOOKED_tex(HOOKED_pos + t*vec2(-1, 1)).rgb;
-    vec3 c12 = HOOKED_tex(HOOKED_pos + t*vec2( 0, 1)).rgb;
-    vec3 c22 = HOOKED_tex(HOOKED_pos + t*vec2( 1, 1)).rgb;
-    const vec3 dt = vec3(1.0);
-    float d1 = dot(abs(c00-c22), dt); float d2 = dot(abs(c20-c02), dt);
-    float hl = dot(abs(c01-c21), dt); float vl = dot(abs(c10-c12), dt);
-    float edge = PP_EDGE * (d1+d2+hl+vl) / (dot(c11, dt) + 0.15);
-    float lc = PP_LEVELS * length(c11);
-    float fr = fract(lc); fr *= fr;
-    lc = (floor(lc) + fr*fr) / PP_LEVELS + 0.05;
-    vec3 unit = normalize(max(c11, 0.0001));
-    vec3 q = PP_LEVELS * unit;
-    vec3 f2 = fract(q); f2 *= f2;
-    q = floor(q) + 0.05*dt + f2*f2;
-    vec3 color = lc * (1.1 - edge * sqrt(edge)) * q / PP_LEVELS;
-    return vec4(clamp(color, 0.0, 1.0), 1.0);
-}
-  """.trimIndent()
-}
-
 /** Port of Eden CartoonSoft.fx — shadow-aware ink outlines + smooth banding. */
 object CartoonSoftShaderBuilder {
   fun build(p: PostProcessingParams): String = """
@@ -610,99 +548,6 @@ vec4 hook() {
     float luma = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
     float response = 1.0 - abs(luma * 2.0 - 1.0);
     return vec4(clamp(rgb + noise * PP_INTENSITY * response, 0.0, 1.0), 1.0);
-}
-  """.trimIndent()
-}
-
-/** Port of Eden LensDistortion.fx — barrel/pincushion warp. */
-object LensDistortionShaderBuilder {
-  fun build(p: PostProcessingParams): String = """
-//!HOOK MAIN
-//!BIND HOOKED
-//!DESC Lens Distortion (mpvRx)
-
-#define PP_DISTORTION ${f(p.lensDistortion)}
-#define PP_ZOOM       ${f(p.lensZoom)}
-
-vec4 hook() {
-    float aspect = HOOKED_size.x / HOOKED_size.y;
-    vec2 half_size = vec2(aspect, 1.0);
-    vec2 unit = half_size / length(half_size);
-    vec2 centred = (HOOKED_pos - 0.5) * 2.0 * unit;
-    float r2 = dot(centred, centred);
-    centred *= 1.0 + PP_DISTORTION * r2;
-    centred /= max(PP_ZOOM, 0.001);
-    vec2 source = centred / (2.0 * unit) + 0.5;
-    return vec4(HOOKED_tex(source).rgb, 1.0);
-}
-  """.trimIndent()
-}
-
-/** Port of Eden MotionBlur.fx — multi-mode camera motion blur (zoom, pan, spin). */
-object MotionBlurShaderBuilder {
-  fun build(p: PostProcessingParams): String = """
-//!HOOK MAIN
-//!BIND HOOKED
-//!DESC Motion Blur (mpvRx)
-
-#define PP_LENGTH ${f(p.motionLength)}
-#define PP_ZOOM   ${f(p.motionZoom)}
-#define PP_PAN    ${f(p.motionPan)}
-#define PP_ANGLE  ${f(p.motionAngle)}
-#define PP_SPIN   ${f(p.motionSpin)}
-#define TAPS 24
-
-vec4 hook() {
-    float aspect = HOOKED_size.x / HOOKED_size.y;
-    vec2 toScreen = vec2(aspect, 1.0);
-    vec2 centred = (HOOKED_pos - 0.5) * toScreen * 2.0;
-    vec2 outward = centred;
-    vec2 around  = vec2(-centred.y, centred.x);
-    float rad = PP_ANGLE * 0.01745329;
-    vec2 sweep = vec2(cos(rad), sin(rad));
-    vec2 velocity = sweep * PP_PAN + outward * PP_ZOOM + around * PP_SPIN;
-    velocity *= PP_LENGTH * 0.01;
-    velocity /= toScreen;
-    float jitter = fract(sin(dot(HOOKED_pos * HOOKED_size, vec2(12.9898, 78.233))) * 43758.5453);
-    vec3 sum = vec3(0.0);
-    for (int i = 0; i < TAPS; ++i) {
-        float t = (float(i) + jitter) / float(TAPS) - 0.5;
-        sum += HOOKED_tex(HOOKED_pos + velocity * t).rgb;
-    }
-    return vec4(sum / float(TAPS), 1.0);
-}
-  """.trimIndent()
-}
-
-/** Port of Eden Reflections.fx — reflective floor with optional water ripple. Uses HOOKED_time for animation. */
-object ReflectionsShaderBuilder {
-  fun build(p: PostProcessingParams): String = """
-//!HOOK MAIN
-//!BIND HOOKED
-//!DESC Reflections (mpvRx)
-
-#define PP_HORIZON       ${f(p.reflHorizon)}
-#define PP_AMOUNT        ${f(p.reflAmount)}
-#define PP_FALLOFF       ${f(p.reflFalloff)}
-#define PP_PERSPECTIVE   ${f(p.reflPerspective)}
-#define PP_RIPPLE        ${f(p.reflRipple)}
-#define PP_RIPPLE_SPEED  ${f(p.reflRippleSpeed)}
-
-vec4 hook() {
-    vec3 color = HOOKED_tex(HOOKED_pos).rgb;
-    float depth = HOOKED_pos.y - PP_HORIZON;
-    float onFloor = step(0.0, depth);
-    float span = max(1.0 - PP_HORIZON, 0.001);
-    float distDown = clamp(depth / span, 0.0, 1.0);
-    float seconds = HOOKED_time;
-    float wave = sin(HOOKED_pos.x * 38.0 + seconds * PP_RIPPLE_SPEED * 2.0) *
-                 sin(HOOKED_pos.y * 21.0 - seconds * PP_RIPPLE_SPEED * 1.3);
-    vec2 disturb = vec2(wave * 0.004, wave * 0.002) * PP_RIPPLE * distDown;
-    vec2 mirrored = vec2(HOOKED_pos.x, PP_HORIZON - depth * PP_PERSPECTIVE) + disturb;
-    vec3 reflection = HOOKED_tex(clamp(mirrored, vec2(0.0), vec2(1.0))).rgb;
-    float fade = pow(max(1.0 - distDown, 0.0001), PP_FALLOFF);
-    float strength = PP_AMOUNT * fade * onFloor;
-    return vec4(mix(color, reflection, strength), 1.0);
 }
   """.trimIndent()
 }

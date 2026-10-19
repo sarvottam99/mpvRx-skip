@@ -123,7 +123,17 @@ object FolderViewScanner {
       if (options.includeAudio) {
         scanAudioMediaStoreImmediateChildren(context, allFolders, noMediaPathFilter, options)
       }
-      scanFileSystemRoots(context, allFolders, options, noMediaPathFilter, forceFileSystemCheck)
+      // MediaStore already covers indexed primary/removable media. Recursively walking every
+      // filesystem root on each normal refresh defeats the cache and can block for minutes.
+      // Keep the filesystem fallback for an empty/unindexed library and explicit forced checks;
+      // hidden .nomedia folders are discovered through their separate incremental index.
+      if (forceFileSystemCheck || allFolders.isEmpty()) {
+        scanFileSystemRoots(context, allFolders, options, noMediaPathFilter, forceFileSystemCheck)
+      } else {
+        // Keep unindexed USB/SD videos discoverable without rescanning the entire
+        // primary storage whenever the normal MediaStore-backed library is refreshed.
+        scanUnindexedExternalVolumes(context, allFolders, options, noMediaPathFilter)
+      }
 
       // Convert to VideoFolder list
       val result =
@@ -151,7 +161,7 @@ object FolderViewScanner {
     dao: DirectoryScanDao,
   ): List<VideoFolder> =
     withContext(Dispatchers.IO) {
-      if (!options.includeNoMediaFolders) return@withContext emptyList()
+      if (!options.scanHiddenFolders) return@withContext emptyList()
       dao
         .getEntries(options.cacheKey)
         .mapNotNull(::toVideoFolder)
@@ -169,7 +179,7 @@ object FolderViewScanner {
     forceDiscovery: Boolean = false,
   ): Flow<List<VideoFolder>> =
     flow {
-      if (!options.includeNoMediaFolders) return@flow
+      if (!options.scanHiddenFolders) return@flow
 
       val scanKey = options.cacheKey
       val cached =
@@ -350,7 +360,7 @@ object FolderViewScanner {
   ): IndexedDirectorySnapshot {
     val path = normalizeStoragePath(directory.absolutePath) ?: directory.absolutePath
     val fingerprint = directoryFingerprint(directory, files)
-    val subdirectories = files.filter { it.isDirectory && shouldVisitDuringNoMediaScan(it) }
+    val subdirectories = files.filter { it.isDirectory && shouldVisitDuringNoMediaScan(it, options) }
     val unchangedEntity = previous?.takeIf { it.fingerprint == fingerprint }
     val contentChanged = unchangedEntity == null
 
@@ -366,12 +376,17 @@ object FolderViewScanner {
         var size = 0L
         var duration = 0L
         var modified = 0L
+        // Durations are read only when a minimum audio length has to be checked. Otherwise they are
+        // filled in afterwards, in the background, the same way Play Store folders get them.
+        val readDurations = options.minimumAudioDurationSeconds > 0
         for (file in files) {
-          if (!file.isFile || file.name.startsWith(".")) continue
+          if (file.name.startsWith(".") && !options.includeDotFolders) continue
+          // The type comes from the name, so only media that is counted costs a stat.
           val isAudio = options.includeAudio && FileTypeUtils.isAudioFile(file)
           if (!isAudio && !FileTypeUtils.isVideoFile(file)) continue
-          val mediaDuration = if (isAudio) FileTypeUtils.getDurationMs(file) else 0L
-          if (isAudio && !options.includesAudioDuration(mediaDuration)) continue
+          if (!file.isFile) continue
+          val mediaDuration = if (isAudio && readDurations) FileTypeUtils.getDurationMs(file) else 0L
+          if (isAudio && readDurations && !options.includesAudioDuration(mediaDuration)) continue
           count++
           size += file.length()
           duration += mediaDuration
@@ -498,7 +513,7 @@ object FolderViewScanner {
         } else {
           files
             .asSequence()
-            .filter { file -> file.isDirectory && shouldVisitDuringNoMediaScan(file) }
+            .filter { file -> file.isDirectory && shouldVisitDuringNoMediaScan(file, options) }
             .forEach { child ->
               if (scanEntryKey(child.absolutePath) !in cached) {
                 enqueueNewDirectory(child, work.rootPath)
@@ -605,23 +620,31 @@ object FolderViewScanner {
   private fun scanEntryKey(path: String): String =
     storagePathKey(path) ?: path.replace('\\', '/').trimEnd('/').lowercase(Locale.ROOT)
 
-  private fun shouldVisitDuringNoMediaScan(directory: File): Boolean {
+  private fun shouldVisitDuringNoMediaScan(directory: File, options: MediaScanOptions): Boolean {
     val name = directory.name.lowercase(Locale.ROOT)
-    return name !in NO_MEDIA_SCAN_SKIP_FOLDERS && directory.canRead()
+    return name !in NO_MEDIA_SCAN_SKIP_FOLDERS && directory.canRead() &&
+      !options.pathFilter.shouldExcludeDirectory(directory)
   }
 
   private fun isHiddenMediaRoot(
     directory: File,
     options: MediaScanOptions,
     files: List<File>? = null,
-  ): Boolean =
-    directory.name.startsWith(".") ||
-      if (files == null) {
-        options.normalizedHiddenFolderMarkerNames.any { File(directory, it).isFile }
-      } else {
-        files.any { file -> file.isFile && file.name in options.normalizedHiddenFolderMarkerNames }
-      }
+  ): Boolean {
+    // A disabled marker wins even when the same directory is dot-prefixed.
+    if (options.pathFilter.shouldExcludeDirectory(directory)) return false
+    return (options.includeDotFolders && directory.name.startsWith(".")) ||
+      (options.activeHiddenMarkerNames.isNotEmpty() &&
+        if (files == null) {
+          options.activeHiddenMarkerNames.any { File(directory, it).isFile }
+        } else {
+          files.any { file -> file.isFile && file.name in options.activeHiddenMarkerNames }
+        })
+  }
 
+  // Names and the directory's own mtime change when a child is added, removed or renamed. Media files
+  // also contribute size and mtime, so an in-place edit to a video or track is still noticed. Other
+  // entries are not statted, which keeps large folders of photos and documents cheap to check.
   private fun directoryFingerprint(
     directory: File,
     files: List<File>,
@@ -631,9 +654,10 @@ object FolderViewScanner {
     files.forEach { file ->
       var entryHash = 17L
       entryHash = 31 * entryHash + file.name.hashCode()
-      entryHash = 31 * entryHash + if (file.isDirectory) 1 else 0
-      entryHash = 31 * entryHash + file.length()
-      entryHash = 31 * entryHash + file.lastModified()
+      if (FileTypeUtils.isVideoFile(file) || FileTypeUtils.isAudioFile(file)) {
+        entryHash = 31 * entryHash + file.length()
+        entryHash = 31 * entryHash + file.lastModified()
+      }
       val mixed = mixFingerprint(entryHash)
       xor = xor xor mixed
       sum += mixed
@@ -722,17 +746,20 @@ object FolderViewScanner {
 
           // Collect videos by folder
           val videosByFolder = mutableMapOf<String, FolderAggregate>()
+          val folderResolver = MediaFolderResolver(noMediaPathFilter)
+          val existenceCache = FolderListingExistenceCache()
 
           while (cursor.moveToNext()) {
-            val videoPath = cursor.getString(dataColumn)
+            val videoPath = cursor.getString(dataColumn)?.takeIf { it.isNotBlank() } ?: continue
             val file = File(videoPath)
 
-            if (!file.exists()) continue
             if (!FileTypeUtils.isVideoFile(file)) continue
-            if (noMediaPathFilter.shouldExcludeDirectory(file.parentFile)) continue
+            val folder = folderResolver.resolve(file.parent) ?: continue
+            if (folder.excluded) continue
+            if (!app.gyrolet.mpvrx.BuildConfig.SCOPED_STORAGE_ONLY && !existenceCache.exists(file)) continue
 
-            val folderPath = normalizeStoragePath(file.parent) ?: continue
-            val folderKey = storagePathKey(folderPath) ?: continue
+            val folderPath = folder.path
+            val folderKey = folder.key
             val size = cursor.getLong(sizeColumn)
             val duration = cursor.getLong(durationColumn)
             val dateModified = cursor.getLong(dateColumn)
@@ -741,7 +768,9 @@ object FolderViewScanner {
               videosByFolder.getOrPut(folderKey) {
                 FolderAggregate(path = folderPath)
               }
-            aggregate.path = choosePreferredStoragePath(aggregate.path, folderPath)
+            if (aggregate.path != folderPath) {
+              aggregate.path = choosePreferredStoragePath(aggregate.path, folderPath)
+            }
             aggregate.videos.add(
               VideoInfo(size, duration, dateModified),
             )
@@ -820,28 +849,32 @@ object FolderViewScanner {
           val sizeColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
           val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
           val dateColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_MODIFIED)
+          val folderResolver = MediaFolderResolver(noMediaPathFilter)
+          val existenceCache = FolderListingExistenceCache()
           while (cursor.moveToNext()) {
-            val file = File(cursor.getString(dataColumn))
-            if (!file.exists() || noMediaPathFilter.shouldExcludeDirectory(file.parentFile)) continue
+            val path = cursor.getString(dataColumn)?.takeIf { it.isNotBlank() } ?: continue
+            val file = File(path)
             if (!FileTypeUtils.isAudioFile(file)) continue
+            val folder = folderResolver.resolve(file.parent) ?: continue
+            if (folder.excluded) continue
+            if (!app.gyrolet.mpvrx.BuildConfig.SCOPED_STORAGE_ONLY && !existenceCache.exists(file)) continue
             val duration = cursor.getLong(durationColumn)
             if (!options.includesAudioDuration(duration)) continue
-            val folderPath = normalizeStoragePath(file.parent) ?: continue
-            val folderKey = storagePathKey(folderPath) ?: continue
-            val aggregate = audioByFolder.getOrPut(folderKey) { FolderAggregate(folderPath) }
+            val aggregate = audioByFolder.getOrPut(folder.key) { FolderAggregate(folder.path) }
             aggregate.videos += VideoInfo(cursor.getLong(sizeColumn), duration, cursor.getLong(dateColumn))
           }
         }
+
+      // One pass instead of comparing every folder against every other folder.
+      val audioParentKeys =
+        audioByFolder.values.mapNotNullTo(HashSet()) { storagePathKey(it.path.substringBeforeLast('/')) }
 
       for ((folderKey, aggregate) in audioByFolder) {
         val existing = folders[folderKey]
         val audioSize = aggregate.videos.sumOf { it.size }
         val audioDuration = aggregate.videos.sumOf { it.duration }
         val audioModified = aggregate.videos.maxOfOrNull { it.dateModified } ?: 0L
-        val hasAudioSubfolders =
-          audioByFolder.values.any { child ->
-            areEquivalentStoragePaths(child.path.substringBeforeLast('/'), aggregate.path)
-          }
+        val hasAudioSubfolders = storagePathKey(aggregate.path) in audioParentKeys
         folders[folderKey] =
           if (existing == null) {
             FolderData(
@@ -878,6 +911,7 @@ object FolderViewScanner {
     noMediaPathFilter: NoMediaPathFilter,
     forceFileSystemCheck: Boolean,
   ) {
+    if (app.gyrolet.mpvrx.BuildConfig.SCOPED_STORAGE_ONLY) return
     try {
       val rootsToScan = linkedSetOf<File>()
       val primaryStorageRoot = Environment.getExternalStorageDirectory()
@@ -922,6 +956,38 @@ object FolderViewScanner {
   }
 
   /**
+   * USB/SD volumes may not be registered with MediaStore on every Android device.
+   * Only fall back to a filesystem walk for removable volumes with no indexed media.
+   */
+  private suspend fun scanUnindexedExternalVolumes(
+    context: Context,
+    folders: MutableMap<String, FolderData>,
+    options: MediaScanOptions,
+    noMediaPathFilter: NoMediaPathFilter,
+  ) {
+    if (app.gyrolet.mpvrx.BuildConfig.SCOPED_STORAGE_ONLY) return
+    val visitedDirectories = mutableSetOf<String>()
+    for (volume in StorageVolumeUtils.getExternalStorageVolumes(context)) {
+      currentCoroutineContext().ensureActive()
+      val path = StorageVolumeUtils.getVolumePath(volume) ?: continue
+      val normalizedPath = normalizeStoragePath(path) ?: continue
+      if (folders.values.any { it.path == normalizedPath || it.path.startsWith("$normalizedPath/") }) {
+        continue
+      }
+      val root = File(path)
+      if (!root.isDirectory || !root.canRead()) continue
+      scanDirectoryRecursive(
+        root,
+        folders,
+        maxDepth = 20,
+        options = options,
+        noMediaPathFilter = noMediaPathFilter,
+        visitedDirectories = visitedDirectories,
+      )
+    }
+  }
+
+  /**
    * Recursively scan directory for videos
    */
   private suspend fun scanDirectoryRecursive(
@@ -935,7 +1001,7 @@ object FolderViewScanner {
   ) {
     currentCoroutineContext().ensureActive()
     if (currentDepth >= maxDepth) return
-    if (!directory.exists() || !directory.canRead() || !directory.isDirectory) return
+    if (!directory.isDirectory || !directory.canRead()) return
     if (FileFilterUtils.shouldSkipFolder(directory, options, noMediaPathFilter)) return
 
     try {
@@ -943,27 +1009,32 @@ object FolderViewScanner {
       val files = directory.listFiles() ?: return
 
       val mediaFiles = mutableListOf<File>()
+      val mediaStats = HashMap<File, FileEntryStat>()
+      val audioDurations = mutableMapOf<File, Long>()
       val subdirectories = mutableListOf<File>()
 
       for (file in files) {
         currentCoroutineContext().ensureActive()
         try {
+          val stat = readFileEntryStat(file) ?: continue
           when {
-            file.isDirectory -> {
+            stat.isDirectory -> {
               if (!FileFilterUtils.shouldSkipFolder(file, options, noMediaPathFilter)) {
                 subdirectories.add(file)
               }
             }
-            file.isFile -> {
+            stat.isFile -> {
               if (FileFilterUtils.shouldSkipFile(file, options, noMediaPathFilter)) {
                 continue
               }
               if (FileTypeUtils.isSupportedMediaFile(file, options)) {
-                val isAudio = FileTypeUtils.isAudioFile(file)
-                val duration = if (isAudio) FileTypeUtils.getDurationMs(file) else 0L
-                if (!isAudio || options.includesAudioDuration(duration)) {
-                  mediaFiles.add(file)
+                if (options.minimumAudioDurationSeconds > 0 && FileTypeUtils.isAudioFile(file)) {
+                  val duration = FileTypeUtils.getDurationMs(file)
+                  if (!options.includesAudioDuration(duration)) continue
+                  audioDurations[file] = duration
                 }
+                mediaFiles.add(file)
+                mediaStats[file] = stat
               }
             }
           }
@@ -984,9 +1055,12 @@ object FolderViewScanner {
 
           var totalDuration = 0L
           for (media in mediaFiles) {
-            totalSize += media.length()
-            if (FileTypeUtils.isAudioFile(media)) totalDuration += FileTypeUtils.getDurationMs(media)
-            val modified = media.lastModified()
+            val stat = mediaStats.getValue(media)
+            totalSize += stat.size
+            if (FileTypeUtils.isAudioFile(media)) {
+              totalDuration += audioDurations[media] ?: FileTypeUtils.getDurationMs(media)
+            }
+            val modified = stat.lastModifiedMs
             if (modified > lastModified) {
               lastModified = modified
             }

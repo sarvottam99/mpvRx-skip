@@ -40,6 +40,7 @@ fun PlaylistSortDialog(
   isLibrary: Boolean = false,
   isM3uPlaylist: Boolean = false,
   availableWidthDp: Int? = null,
+  isAudio: Boolean = false,
 ) {
   if (!isOpen) return
   val preferences = koinInject<BrowserPreferences>()
@@ -61,6 +62,7 @@ fun PlaylistSortDialog(
   val fullNames by viewPreferences.unlimitedNameLines.collectAsState()
   val centerTitles by viewPreferences.centerGridTitles.collectAsState()
   val manualGrid by viewPreferences.manualGridColumnsEnabled.collectAsState()
+  val audioCoverArtSize by viewPreferences.audioCoverArtSize.collectAsState()
   val configuration = androidx.compose.ui.platform.LocalConfiguration.current
   val landscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
   val columnsPreference = if (landscape) landscapeColumnsPreference else portraitColumnsPreference
@@ -70,15 +72,9 @@ fun PlaylistSortDialog(
     isLibrary,
   )
   val columns = if (requestedColumns > 0) requestedColumns.coerceIn(1, maxColumns) else maxColumns
-  val labels = mapOf(
-    PlaylistSortType.Original to stringResource(R.string.playlist_sort_original),
-    PlaylistSortType.Name to stringResource(R.string.ui_name),
-    PlaylistSortType.Location to stringResource(R.string.playlist_location),
-    PlaylistSortType.DateAdded to stringResource(R.string.playlist_date_added),
-    PlaylistSortType.LastPlayed to stringResource(R.string.video_swipe_last_played),
-    PlaylistSortType.ItemCount to stringResource(R.string.playlist_item_count),
-    PlaylistSortType.Category to stringResource(R.string.playlist_category),
-  )
+  val labels = PlaylistSortType.entries.associateWith { type ->
+    stringResource(app.gyrolet.mpvrx.ui.browser.playlist.playlistSortLabelRes(type))
+  }
   val types = buildList {
     add(PlaylistSortType.Original)
     add(PlaylistSortType.Name)
@@ -173,19 +169,39 @@ fun PlaylistSortDialog(
         },
       )
     } else null,
-    videoGridColumnSelector = if (layoutMode == MediaLayoutMode.GRID && manualGrid && maxColumns > 1) {
-      GridColumnSelector(
-        label = stringResource(
-          if (landscape) R.string.playlist_columns_landscape else R.string.playlist_columns_portrait,
-        ),
-        currentValue = columns,
-        onValueChange = columnsPreference::set,
-        valueRange = 1f..maxColumns.toFloat(),
-        steps = maxColumns - 2,
-      )
-    } else null,
+    videoGridColumnSelector = when {
+      isAudio && layoutMode == MediaLayoutMode.LIST -> coverArtSizeSelector(audioCoverArtSize, viewPreferences.audioCoverArtSize::set)
+      layoutMode == MediaLayoutMode.GRID && manualGrid && maxColumns > 1 ->
+        GridColumnSelector(
+          label = stringResource(
+            if (landscape) R.string.playlist_columns_landscape else R.string.playlist_columns_portrait,
+          ),
+          currentValue = columns,
+          onValueChange = columnsPreference::set,
+          valueRange = 1f..maxColumns.toFloat(),
+          steps = maxColumns - 2,
+        )
+      else -> null
+    },
   )
 }
+
+private const val MIN_COVER_ART_SIZE_DP = 40
+private const val MAX_COVER_ART_SIZE_DP = 128
+
+@Composable
+private fun coverArtSizeSelector(
+  currentValue: Int,
+  onValueChange: (Int) -> Unit,
+): GridColumnSelector =
+  GridColumnSelector(
+    label = stringResource(R.string.cover_art_size),
+    currentValue = currentValue.coerceIn(MIN_COVER_ART_SIZE_DP, MAX_COVER_ART_SIZE_DP),
+    onValueChange = onValueChange,
+    valueRange = MIN_COVER_ART_SIZE_DP.toFloat()..MAX_COVER_ART_SIZE_DP.toFloat(),
+    steps = (MAX_COVER_ART_SIZE_DP - MIN_COVER_ART_SIZE_DP) / 4 - 1,
+    unitSuffix = "dp",
+  )
 
 @Composable
 fun RecentSortDialog(
@@ -295,14 +311,7 @@ fun RecentSortDialog(
     videoGridColumnSelector =
       when {
         isAudioTab && layoutMode == MediaLayoutMode.LIST ->
-          GridColumnSelector(
-            label = stringResource(R.string.cover_art_size),
-            currentValue = audioCoverArtSize,
-            onValueChange = viewPreferences.audioCoverArtSize::set,
-            valueRange = 56f..126f,
-            steps = 40,
-            unitSuffix = "dp",
-          )
+          coverArtSizeSelector(audioCoverArtSize, viewPreferences.audioCoverArtSize::set)
         layoutMode == MediaLayoutMode.GRID && manualGrid && maxColumns > 1 ->
           GridColumnSelector(
             label = stringResource(
@@ -684,9 +693,11 @@ fun VideoSortDialog(
   pickerMode: Boolean = false,
   availableWidthDp: Int? = null,
   fixedLayoutMode: MediaLayoutMode? = null,
+  isAudio: Boolean = false,
 ) {
   val browserPreferences = koinInject<BrowserPreferences>()
   val appearancePreferences = koinInject<AppearancePreferences>()
+  val musicCoverArtSize by browserPreferences.musicCoverArtSize.collectAsState()
   val showThumbnails by browserPreferences.showVideoThumbnails.collectAsState()
   val showSizeChip by browserPreferences.showSizeChip.collectAsState()
   val showResolutionChip by browserPreferences.showResolutionChip.collectAsState()
@@ -761,7 +772,9 @@ fun VideoSortDialog(
   } else maxOf(if (isTablet || isLandscape) 8 else 4, dynamicVideoColumns + 3).coerceIn(4, 16)
 
   val folderGridColumnSelector =
-    if (activeLayoutMode == MediaLayoutMode.GRID && manualGridColumnsEnabled && maxFolderColumns > 1) {
+    if (isFolderView && activeLayoutMode == MediaLayoutMode.GRID &&
+      manualGridColumnsEnabled && maxFolderColumns > 1
+    ) {
       GridColumnSelector(
         label = "Folder (${if (isLandscape) "Landscape" else "Portrait"})",
         currentValue = folderGridColumns.coerceIn(1, maxFolderColumns),
@@ -1040,7 +1053,12 @@ fun VideoSortDialog(
         enabled = !pickerMode || activeLayoutMode == MediaLayoutMode.GRID,
       ),
     folderGridColumnSelector = folderGridColumnSelector.takeUnless { pickerMode },
-    videoGridColumnSelector = videoGridColumnSelector,
+    videoGridColumnSelector =
+      if (isAudio && activeLayoutMode == MediaLayoutMode.LIST) {
+        coverArtSizeSelector(musicCoverArtSize) { browserPreferences.musicCoverArtSize.set(it) }
+      } else {
+        videoGridColumnSelector
+      },
   )
 }
 

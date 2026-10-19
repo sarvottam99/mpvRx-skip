@@ -17,7 +17,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import app.gyrolet.mpvrx.R
-import app.gyrolet.mpvrx.ui.player.visualizer.VisualizerPalette
 import android.util.Base64
 import java.nio.charset.StandardCharsets
 
@@ -666,26 +665,6 @@ enum class AppTheme(
     )
   }
 
-  internal fun toVisualizerPalette(
-    useDarkTheme: Boolean,
-    amoledMode: Boolean = false,
-  ): VisualizerPalette {
-    val bg =
-      if (amoledMode && useDarkTheme) {
-        Color.Black
-      } else if (useDarkTheme) {
-        backgroundDark
-      } else {
-        backgroundLight
-      }
-    return VisualizerPalette(
-      background = bg.toArgb(),
-      primary = (if (useDarkTheme) primaryDark else primaryLight).toArgb(),
-      secondary = (if (useDarkTheme) secondaryDark else secondaryLight).toArgb(),
-      tertiary = (if (useDarkTheme) tertiaryDark else tertiaryLight).toArgb(),
-    )
-  }
-
   /**
    * Get the AMOLED (pure black) color scheme for this theme
    */
@@ -694,8 +673,10 @@ enum class AppTheme(
       background = Color.Black,
       surface = Color.Black,
       surfaceVariant = primaryDark.copy(alpha = 0.08f).compositeOver(Color(0xFF1A1A1A)),
-      surfaceContainer = Color(0xFF0A0A0A),
-      surfaceContainerLow = Color(0xFF050505),
+      // Consistent lifted surface for settings and connected controls in AMOLED;
+      // only the page background and lowest level stay pure black.
+      surfaceContainer = primaryDark.copy(alpha = 0.05f).compositeOver(Color(0xFF151515)),
+      surfaceContainerLow = primaryDark.copy(alpha = 0.05f).compositeOver(Color(0xFF151515)),
       surfaceContainerLowest = Color.Black,
       surfaceContainerHigh = primaryDark.copy(alpha = 0.05f).compositeOver(Color(0xFF151515)),
       surfaceContainerHighest = primaryDark.copy(alpha = 0.08f).compositeOver(Color(0xFF1F1F1F)),

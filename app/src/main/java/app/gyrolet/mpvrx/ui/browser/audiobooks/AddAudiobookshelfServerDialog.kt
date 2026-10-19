@@ -9,27 +9,21 @@
 
 package app.gyrolet.mpvrx.ui.browser.audiobooks
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import app.gyrolet.mpvrx.R
 import app.gyrolet.mpvrx.domain.audiobookshelf.AudiobookshelfServer
 import app.gyrolet.mpvrx.ui.browser.dialogs.SharedAddServerDialog
-import app.gyrolet.mpvrx.ui.browser.dialogs.SharedManageServersDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -102,64 +96,6 @@ fun AddAudiobookshelfServerDialog(
         tint = MaterialTheme.colorScheme.primary,
         modifier = Modifier.size(28.dp),
       )
-    },
-  )
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun ManageAudiobookshelfServersDialog(
-  isOpen: Boolean,
-  servers: List<AudiobookshelfServer>,
-  activeServer: AudiobookshelfServer?,
-  onDismiss: () -> Unit,
-  onSelectServer: (AudiobookshelfServer) -> Unit,
-  onDeleteServer: (AudiobookshelfServer) -> Unit,
-  onAddServerClick: () -> Unit,
-) {
-  SharedManageServersDialog(
-    isOpen = isOpen,
-    title = "Audiobookshelf Servers",
-    servers = servers,
-    activeServerId = activeServer?.id,
-    getServerId = { it.id },
-    getServerName = { it.name },
-    getServerUrl = { it.serverUrl },
-    getServerSubtitle = { server ->
-      if (server.username.isNotBlank()) server.username else null
-    },
-    onDismiss = onDismiss,
-    onSelectServer = onSelectServer,
-    onDeleteServer = onDeleteServer,
-    onAddServerClick = onAddServerClick,
-    avatarContent = { _, isSelected ->
-      Surface(
-        shape = CircleShape,
-        color =
-          if (isSelected) {
-            MaterialTheme.colorScheme.primary
-          } else {
-            MaterialTheme.colorScheme.surfaceContainerHighest
-          },
-        modifier = Modifier.size(40.dp),
-      ) {
-        Box(
-          modifier = Modifier.fillMaxSize(),
-          contentAlignment = Alignment.Center,
-        ) {
-          Icon(
-            painter = painterResource(id = R.drawable.ic_audiobookshelf),
-            contentDescription = null,
-            tint =
-              if (isSelected) {
-                MaterialTheme.colorScheme.onPrimary
-              } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-              },
-            modifier = Modifier.size(20.dp),
-          )
-        }
-      }
     },
   )
 }

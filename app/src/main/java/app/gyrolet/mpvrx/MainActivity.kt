@@ -9,19 +9,14 @@
 
 package app.gyrolet.mpvrx
 
-import android.animation.ValueAnimator
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
-import android.view.animation.PathInterpolator
 import android.app.Activity
 import androidx.activity.ComponentActivity
-import androidx.compose.runtime.withFrameNanos
-import androidx.core.animation.doOnEnd
-import androidx.core.splashscreen.SplashScreen
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -30,12 +25,16 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.Lifecycle
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.AlertDialog
+import app.gyrolet.mpvrx.presentation.components.AppAlertDialog as AlertDialog
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import app.gyrolet.mpvrx.presentation.components.AppDialogTextButton as TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -53,8 +52,10 @@ import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
@@ -68,12 +69,10 @@ import app.gyrolet.mpvrx.presentation.components.rememberLiquidGlassBackdrop
 import app.gyrolet.mpvrx.ui.browser.MainScreen
 import app.gyrolet.mpvrx.ui.browser.NavigationBarState
 import app.gyrolet.mpvrx.ui.browser.components.MiniPlayer
+import app.gyrolet.mpvrx.ui.theme.AppMotion
 import app.gyrolet.mpvrx.ui.theme.DarkMode
 import app.gyrolet.mpvrx.ui.theme.AppWallpaperHost
 import app.gyrolet.mpvrx.ui.theme.MpvrxTheme
-import app.gyrolet.mpvrx.ui.theme.SPLASH_MAX_DURATION_MS
-import app.gyrolet.mpvrx.ui.theme.SPLASH_MIN_DURATION_MS
-import app.gyrolet.mpvrx.ui.theme.SplashContent
 import app.gyrolet.mpvrx.ui.theme.rememberThemeTransitionState
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -85,12 +84,16 @@ import app.gyrolet.mpvrx.ui.player.MPVPipHelper
 import app.gyrolet.mpvrx.ui.player.PlaybackPhase
 import app.gyrolet.mpvrx.ui.player.PlaybackSession
 import app.gyrolet.mpvrx.ui.player.PlayerActivity
-import app.gyrolet.mpvrx.ui.player.PlayerArtworkDestination
-import app.gyrolet.mpvrx.ui.player.PlayerArtworkTransitionOverlay
+import app.gyrolet.mpvrx.ui.player.PlayerSheetDestination
+import app.gyrolet.mpvrx.ui.player.PlayerSheetTransitionOverlay
+import app.gyrolet.mpvrx.ui.player.PlayerSheetTransitions
+import app.gyrolet.mpvrx.ui.player.playerSheetBackdrop
+import app.gyrolet.mpvrx.ui.player.playerSheetMiniPlacement
 import app.gyrolet.mpvrx.ui.player.PlayerLifecyclePolicy
 import app.gyrolet.mpvrx.ui.player.MediaPlaybackService
 import app.gyrolet.mpvrx.ui.player.TrackNode
 import app.gyrolet.mpvrx.ui.player.toObject
+import app.gyrolet.mpvrx.ui.theme.AppShapeScale
 import app.gyrolet.mpvrx.ui.utils.LocalBackStack
 import app.gyrolet.mpvrx.ui.utils.ScreenNavDisplay
 import app.gyrolet.mpvrx.ui.utils.popSafely
@@ -98,6 +101,7 @@ import app.gyrolet.mpvrx.utils.device.VulkanCapabilities
 import app.gyrolet.mpvrx.utils.device.DeviceFormFactor
 import app.gyrolet.mpvrx.utils.device.appUiScaleOverrideConfiguration
 import app.gyrolet.mpvrx.utils.media.fileExtension
+import app.gyrolet.mpvrx.utils.permission.PermissionRecovery
 import app.gyrolet.mpvrx.utils.permission.PermissionUtils
 import app.gyrolet.mpvrx.utils.storage.FileTypeUtils
 import app.gyrolet.mpvrx.ui.update.UpdateSheet
@@ -111,17 +115,10 @@ import org.koin.android.ext.android.inject
 private const val RENDERER_NOTICE_PREFERENCES = "renderer_build_notice"
 private const val NON_VULKAN_NOTICE_SHOWN = "non_vulkan_notice_shown"
 
-// Splash exit animation (pre-Android 12 only; see setSplashExitAnimation).
-private const val SPLASH_EXIT_ANIMATION_MS = 320L
-private const val SPLASH_EXIT_TRANSLATION_DP = 16f
-
-private fun Float.dpToPx(resources: android.content.res.Resources): Float =
-  this * resources.displayMetrics.density
-
 /**
  * Main entry point for the application
  */
-class MainActivity : AppCompatActivity() {
+open class MainActivity : AppCompatActivity() {
   private val appearancePreferences by inject<AppearancePreferences>()
   private val playerPreferences by inject<PlayerPreferences>()
   private var appliedEdgeToEdgeDarkMode: Boolean? = null
@@ -131,11 +128,6 @@ class MainActivity : AppCompatActivity() {
   private var pendingPipExitResolution = false
   private var isExpandingFromPip by mutableStateOf(false)
 
-  // Splash lifecycle. isSplashReady is read from the keep-on-screen condition, which runs off the
-  // composition, so it is deliberately not Compose state.
-  @Volatile private var isSplashReady = false
-  private var isSplashFinished by mutableStateOf(false)
-
   // Register the ActivityResultLauncher at class level
   private val mediaAccessLauncher =
     registerForActivityResult(
@@ -144,12 +136,14 @@ class MainActivity : AppCompatActivity() {
       PermissionUtils.handleMediaAccessResult(result.resultCode)
     }
 
-  override fun onCreate(savedInstanceState: Bundle?) {
-    // Before super.onCreate(): the system splash has to be installed while the pre-splash theme is
-    // still active. Skipped on recreation so a rotation or theme change does not replay it.
-    val showSplash = savedInstanceState == null
-    val splashScreen = if (showSplash) installSplashScreen() else null
+  // Re-asks for revoked runtime grants; the outcome is read back on the next resume.
+  private val runtimePermissionLauncher =
+    registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
 
+  override fun onCreate(savedInstanceState: Bundle?) {
+    // Match REX Player's splash handoff: use only Android's system SplashScreen and hand
+    // directly into the real UI. Do not draw a second Compose logo/title layer afterwards.
+    installSplashScreen()
     super.onCreate(savedInstanceState)
 
     if (DeviceFormFactor.isTelevision(this)) {
@@ -278,18 +272,7 @@ class MainActivity : AppCompatActivity() {
         MpvrxTheme(transitionState = themeTransitionState) {
           AppWallpaperHost {
             Surface(modifier = Modifier.fillMaxSize(), color = Color.Transparent) {
-              // Reported only once a frame has actually been produced, so the splash is never lifted
-              // onto an empty window.
-              if (showSplash) {
-                LaunchedEffect(Unit) {
-                  withFrameNanos { }
-                  onSplashReady()
-                }
-              }
               Navigator()
-            }
-            if (showSplash) {
-              SplashContent(visible = !isSplashFinished)
             }
             if (showRendererBuildNotice) {
               val acknowledgeNotice = {
@@ -322,70 +305,6 @@ class MainActivity : AppCompatActivity() {
       }
     }
 
-    if (splashScreen != null) {
-      val startTime = System.currentTimeMillis()
-      splashScreen.setKeepOnScreenCondition {
-        val elapsed = System.currentTimeMillis() - startTime
-        // Never flash: hold for a beat so a fast launch does not strobe, and cap the wait so a slow
-        // device cannot strand the user on the splash.
-        elapsed <= SPLASH_MIN_DURATION_MS || (!isSplashReady && elapsed <= SPLASH_MAX_DURATION_MS)
-      }
-      setSplashExitAnimation(splashScreen)
-    }
-  }
-
-  /**
-   * Called once the first Compose frame is out.
-   *
-   * Releases the system splash and starts the themed overlay's fade-out. The minimum duration is
-   * enforced by the keep-on-screen condition above, so this only ever shortens the wait.
-   */
-  private fun onSplashReady() {
-    if (isSplashReady) return
-    isSplashReady = true
-    isSplashFinished = true
-  }
-
-  /**
-   * Custom exit animation for the pre-Android 12 splash, where the platform draws its own view and
-   * hands it to us to dismiss.
-   *
-   * Above API 31 the system animates the splash itself and this listener never runs, so the
-   * transition is left to the platform there rather than double-animated.
-   */
-  @Suppress("DEPRECATION")
-  private fun setSplashExitAnimation(splashScreen: SplashScreen) {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) return
-    val root = findViewById<android.view.View>(android.R.id.content)
-    // Transparent while the splash is up so the exit does not flash the bar backgrounds back in.
-    window.statusBarColor = android.graphics.Color.TRANSPARENT
-    window.navigationBarColor = android.graphics.Color.TRANSPARENT
-
-    splashScreen.setOnExitAnimationListener { splashProvider ->
-      // The compat layer mis-translates the icon on the way in, so it is reset here.
-      splashProvider.iconView.translationY = 0f
-
-      val contentAnim =
-        ValueAnimator.ofFloat(1f, 0f).apply {
-          interpolator = PathInterpolator(0f, 0f, 0.2f, 1f)
-          duration = SPLASH_EXIT_ANIMATION_MS
-          addUpdateListener { animator ->
-            val value = animator.animatedValue as Float
-            root.translationY = value * SPLASH_EXIT_TRANSLATION_DP.dpToPx(root.resources)
-          }
-        }
-      val splashAnim =
-        ValueAnimator.ofFloat(1f, 0f).apply {
-          interpolator = PathInterpolator(0.4f, 0f, 0.2f, 1f)
-          duration = SPLASH_EXIT_ANIMATION_MS
-          addUpdateListener { animator ->
-            splashProvider.view.alpha = animator.animatedValue as Float
-          }
-          doOnEnd { splashProvider.remove() }
-        }
-      contentAnim.start()
-      splashAnim.start()
-    }
   }
 
   override fun attachBaseContext(newBase: android.content.Context?) {
@@ -408,6 +327,10 @@ class MainActivity : AppCompatActivity() {
 
   override fun onResume() {
     super.onResume()
+    PermissionRecovery.requestRevoked(this, runtimePermissionLauncher)
+    runCatching { app.gyrolet.mpvrx.ui.preferences.LauncherIconManager.reconcile(this) }
+      .onFailure { Log.w("LauncherIcon", "Unable to reconcile launcher aliases", it) }
+    app.gyrolet.mpvrx.ui.preferences.LauncherIconManager.refreshTaskIcon(this)
     pipHelper.updatePictureInPictureParams()
     if (!isPipMode && (pendingPipExitResolution || wasInPipMode)) {
       window.decorView.post {
@@ -416,6 +339,17 @@ class MainActivity : AppCompatActivity() {
         }
       }
     }
+    // The browser is visible again; drop the frozen copy kept for in-player gestures.
+    PlayerSheetTransitions.clearBrowserCache()
+    // Interactive again without the player having taken over, so its expansion is void.
+    PlayerSheetTransitions.abandonExpansion()
+  }
+
+  override fun onPause() {
+    // Still on screen here, so this is the last point where the browser layer can be frozen
+    // for the player's swipe-down and predictive-back previews.
+    PlayerSheetTransitions.captureBrowser()
+    super.onPause()
   }
 
   override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -524,6 +458,8 @@ class MainActivity : AppCompatActivity() {
 
   override fun onStop() {
     super.onStop()
+    // The fullscreen window now covers the browser; its source mini player can leave composition.
+    PlayerSheetTransitions.releaseExpansionHold()
     pipHelper.onStop()
     val powerManager = getSystemService(android.os.PowerManager::class.java)
     val keyguardManager = getSystemService(android.app.KeyguardManager::class.java)
@@ -610,10 +546,11 @@ class MainActivity : AppCompatActivity() {
       navigationBarStyle = synchronizedBarStyle,
     )
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-      window.isNavigationBarContrastEnforced = false
-    }
-    if (Build.VERSION.SDK_INT >= 35) {
-      window.isStatusBarContrastEnforced = false
+      // In three-button navigation Android applies a contrast scrim behind the
+      // system buttons. Gesture navigation remains transparent where supported.
+      // Disabling enforcement unconditionally makes three-button controls hard
+      // to see against arbitrary artwork, wallpapers and expressive surfaces.
+      window.isNavigationBarContrastEnforced = true
     }
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
       // Draw into camera-cutout areas too, so the wallpaper covers the whole screen.
@@ -627,6 +564,7 @@ class MainActivity : AppCompatActivity() {
 
   private companion object {
     const val SYSTEM_BAR_THEME_SWITCH_PROGRESS = 0.55f
+
   }
 
   /**
@@ -685,9 +623,10 @@ class MainActivity : AppCompatActivity() {
             modifier =
               Modifier
                 .fillMaxSize()
+                .playerSheetBackdrop()
                 .captureLiquidGlassBackdrop(miniPlayerBackdrop, liquidGlassEnabled),
             backStack = typedBackstack,
-            opaqueBackground = typedBackstack.any { it == app.gyrolet.mpvrx.ui.preferences.PreferencesScreen },
+            opaqueFrom = app.gyrolet.mpvrx.ui.preferences.PreferencesScreen,
             onBack = {
               if (typedBackstack.size <= 1 || !typedBackstack.popSafely()) {
                 this@MainActivity.finish()
@@ -699,6 +638,43 @@ class MainActivity : AppCompatActivity() {
           val isPortrait = miniPlayerConfig.orientation == Configuration.ORIENTATION_PORTRAIT
           val isTablet = miniPlayerConfig.smallestScreenWidthDp >= 600
           val isDualPane = NavigationBarState.isDualPaneFolderSelected
+          val isNavBarVisible = NavigationBarState.isNavBarVisible
+          val isSelectionMode = NavigationBarState.isInSelectionMode
+          val reducedMotion = AppMotion.shouldReduceMotion()
+          val playerHandoff = PlayerSheetTransitions.motion != null ||
+            PlayerSheetTransitions.collapsedMediaId != null || PlayerSheetTransitions.expandingMediaId != null
+          val placementAnimation = if (reducedMotion || playerHandoff) snap() else tween<androidx.compose.ui.unit.Dp>(
+            durationMillis = 320,
+            easing = FastOutSlowInEasing,
+          )
+          // The clearance moves with the floating bars instead of snapping at navigation changes.
+          // Keep the insets and base spacing fixed; animate visual translation instead
+          // of remeasuring the mini-player whenever the navigation visibility changes.
+          val portraitLift by animateDpAsState(
+            targetValue = when {
+              isSelectionMode -> NavigationBarState.selectionBarClearance
+              isNavBarVisible -> (NavigationBarState.navigationBarClearance - 12.dp).coerceAtLeast(0.dp)
+              else -> 0.dp
+            },
+            animationSpec = placementAnimation,
+            label = "mini_player_portrait_lift",
+          )
+          val wideBottomPadding by animateDpAsState(
+            targetValue = if (isSelectionMode) NavigationBarState.selectionBarClearance else 12.dp,
+            animationSpec = placementAnimation,
+            label = "mini_player_wide_bottom_clearance",
+          )
+          val wideStartPadding by animateDpAsState(
+            targetValue =
+              if (isNavBarVisible) {
+                NavigationBarState.navbarLeftOffset.coerceAtLeast(16.dp) +
+                  NavigationBarState.navbarWidth.coerceAtLeast(0.dp) + 12.dp
+              } else {
+                12.dp
+              },
+            animationSpec = placementAnimation,
+            label = "mini_player_wide_start_clearance",
+          )
 
           val miniPlayerModifier =
             when {
@@ -717,54 +693,35 @@ class MainActivity : AppCompatActivity() {
                   .align(Alignment.BottomCenter)
                   .fillMaxWidth()
                   .windowInsetsPadding(WindowInsets.navigationBars)
-                  .padding(
-                    start = 12.dp,
-                    end = 12.dp,
-                    bottom =
-                      (if (NavigationBarState.isNavBarVisible) {
-                        NavigationBarState.navigationBarClearance
-                      } else {
-                        12.dp
-                      }) +
-                        (if (NavigationBarState.isInSelectionMode) {
-                          NavigationBarState.selectionBarClearance
-                        } else {
-                          0.dp
-                        }),
-                  )
+                  .padding(start = 12.dp, end = 12.dp, bottom = 12.dp)
+                  .offset(y = -portraitLift)
 
               // Landscape/tablet single-pane: sit on the right side of the nav bar,
               // which slides left when the mini player appears.
-              else -> {
-                val isNavBarOnScreen = NavigationBarState.isNavBarVisible
-                val navBarLeft = if (NavigationBarState.navbarLeftOffset > 0.dp) NavigationBarState.navbarLeftOffset else 16.dp
-                val navBarWidth = if (NavigationBarState.navbarWidth > 0.dp) NavigationBarState.navbarWidth else 320.dp
-                val startPadding = if (isNavBarOnScreen) (navBarLeft + navBarWidth + 12.dp) else 12.dp
-                val bottomPadding = if (NavigationBarState.isInSelectionMode) {
-                  NavigationBarState.selectionBarClearance
-                } else {
-                  12.dp
-                }
-
+              else ->
                 Modifier
                   .align(Alignment.BottomStart)
-                  .padding(
-                    start = startPadding,
-                    end = 12.dp,
-                  )
+                  .padding(start = wideStartPadding, end = 12.dp)
                   .fillMaxWidth()
                   .windowInsetsPadding(WindowInsets.navigationBars)
-                  .padding(bottom = bottomPadding)
-              }
+                  .padding(bottom = wideBottomPadding)
             }
 
+          Box(
+            modifier = miniPlayerModifier
+              .height(64.dp)
+              .playerSheetMiniPlacement(
+                AppShapeScale.largeIncreased,
+                androidx.compose.material3.MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.96f),
+              ),
+          )
           ProvideLiquidGlassBackdrop(
             backdrop = miniPlayerBackdrop,
             enabled = liquidGlassEnabled,
           ) {
             MiniPlayer(modifier = miniPlayerModifier)
           }
-          PlayerArtworkTransitionOverlay(PlayerArtworkDestination.MINI, Modifier.matchParentSize())
+          PlayerSheetTransitionOverlay(PlayerSheetDestination.MINI, Modifier.matchParentSize())
         }
       }
 

@@ -10,33 +10,22 @@
 package app.gyrolet.mpvrx.ui.browser.navidrome
 
 import android.text.format.DateUtils
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.BottomSheetDefaults
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetValue
@@ -47,32 +36,24 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.gyrolet.mpvrx.ui.player.PlaybackSession
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.gyrolet.mpvrx.R
-import app.gyrolet.mpvrx.domain.navidrome.NavidromeAlbum
-import app.gyrolet.mpvrx.domain.navidrome.NavidromeArtist
-import app.gyrolet.mpvrx.domain.navidrome.NavidromePlaylist
 import app.gyrolet.mpvrx.domain.navidrome.NavidromeServer
-import app.gyrolet.mpvrx.domain.navidrome.NavidromeSong
-import app.gyrolet.mpvrx.presentation.components.RemoteImage
 import app.gyrolet.mpvrx.repository.NavidromeRepository
 import app.gyrolet.mpvrx.ui.browser.music.SharedMusicCarouselSection
 import app.gyrolet.mpvrx.ui.browser.music.SharedMusicDetailHeader
-import app.gyrolet.mpvrx.ui.browser.music.SharedMusicGridCard
 import app.gyrolet.mpvrx.ui.browser.music.SharedMusicTrackListItem
 import app.gyrolet.mpvrx.ui.icons.Icon
 import app.gyrolet.mpvrx.ui.icons.Icons
+import app.gyrolet.mpvrx.ui.theme.AppConnectedShapeTokens
+import app.gyrolet.mpvrx.ui.theme.ConnectedLayout
+import app.gyrolet.mpvrx.ui.theme.rememberConnectedShape
 import org.koin.compose.koinInject
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun NavidromeDetailSheet(
   uiState: NavidromeUiState,
@@ -101,7 +82,7 @@ fun NavidromeDetailSheet(
   ModalBottomSheet(
     onDismissRequest = onDismiss,
     sheetState = sheetState,
-    shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+    shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
     containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
     dragHandle = { BottomSheetDefaults.DragHandle() },
   ) {
@@ -110,6 +91,7 @@ fun NavidromeDetailSheet(
         .fillMaxWidth()
         .navigationBarsPadding(),
       contentPadding = PaddingValues(bottom = 32.dp),
+      verticalArrangement = Arrangement.spacedBy(AppConnectedShapeTokens.spacing),
     ) {
       if (album != null) {
         item {
@@ -130,11 +112,12 @@ fun NavidromeDetailSheet(
               artworkUrl = navidromeRepository.getCoverArtUrl(server, album.coverArtId, size = 300),
               onPlayAll = { viewModel.playAll(context, album.songs, 0) },
               onShuffle = { viewModel.shufflePlay(context, album.songs) },
+              playbackEnabled = album.songs.isNotEmpty(),
               trailingAction = {
-                IconButton(onClick = { viewModel.toggleAlbumFavorite(album) }) {
+                FilledTonalIconButton(onClick = { viewModel.toggleAlbumFavorite(album) }, modifier = Modifier.size(48.dp)) {
                   Icon(
                     imageVector = if (album.isFavorite) Icons.RoundedFilled.Favorite else Icons.RoundedFilled.FavoriteBorder,
-                    contentDescription = null,
+                    contentDescription = stringResource(if (album.isFavorite) R.string.generic_remove_from_favorites else R.string.notification_add_to_favorites),
                     tint = if (album.isFavorite) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                   )
                 }
@@ -146,8 +129,7 @@ fun NavidromeDetailSheet(
             Spacer(Modifier.height(8.dp))
             Text(
               text = "Tracks",
-              style = MaterialTheme.typography.titleMedium,
-              fontWeight = FontWeight.Bold,
+              style = MaterialTheme.typography.titleMediumEmphasized,
               color = MaterialTheme.colorScheme.onSurface,
               modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
@@ -172,6 +154,9 @@ fun NavidromeDetailSheet(
             isFavorite = song.isFavorite,
             onFavoriteClick = { viewModel.toggleFavorite(song) },
             onClick = { viewModel.playSong(context, song) },
+            modifier = Modifier.padding(horizontal = 16.dp),
+            shape = rememberConnectedShape(index, album.songs.size, ConnectedLayout.Vertical),
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
           )
         }
       } else if (playlist != null) {
@@ -195,6 +180,7 @@ fun NavidromeDetailSheet(
               fallbackIcon = if (playlist.id == "virtual_favorites_playlist" || playlist.id == "favorites") Icons.RoundedFilled.Favorite else Icons.RoundedFilled.QueueMusic,
               onPlayAll = { viewModel.playAll(context, playlist.songs, 0) },
               onShuffle = { viewModel.shufflePlay(context, playlist.songs) },
+              playbackEnabled = playlist.songs.isNotEmpty(),
             )
           }
 
@@ -202,8 +188,7 @@ fun NavidromeDetailSheet(
             Spacer(Modifier.height(8.dp))
             Text(
               text = "Tracks",
-              style = MaterialTheme.typography.titleMedium,
-              fontWeight = FontWeight.Bold,
+              style = MaterialTheme.typography.titleMediumEmphasized,
               color = MaterialTheme.colorScheme.onSurface,
               modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
@@ -228,6 +213,9 @@ fun NavidromeDetailSheet(
             isFavorite = song.isFavorite,
             onFavoriteClick = { viewModel.toggleFavorite(song) },
             onClick = { viewModel.playSong(context, song) },
+            modifier = Modifier.padding(horizontal = 16.dp),
+            shape = rememberConnectedShape(index, playlist.songs.size, ConnectedLayout.Vertical),
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
           )
         }
       } else if (artist != null) {
@@ -244,10 +232,10 @@ fun NavidromeDetailSheet(
               fallbackIcon = Icons.RoundedFilled.Person,
               isCircular = true,
               trailingAction = {
-                IconButton(onClick = { viewModel.toggleArtistFavorite(artist) }) {
+                FilledTonalIconButton(onClick = { viewModel.toggleArtistFavorite(artist) }, modifier = Modifier.size(48.dp)) {
                   Icon(
                     imageVector = if (artist.isFavorite) Icons.RoundedFilled.Favorite else Icons.RoundedFilled.FavoriteBorder,
-                    contentDescription = null,
+                    contentDescription = stringResource(if (artist.isFavorite) R.string.generic_remove_from_favorites else R.string.notification_add_to_favorites),
                     tint = if (artist.isFavorite) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                   )
                 }
