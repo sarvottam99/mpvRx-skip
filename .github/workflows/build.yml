@@ -142,6 +142,12 @@ jobs:
           # BuildConfig.GIT_COUNT and preview build identities rely on the real repository history.
           fetch-depth: 0
 
+      - name: Download mkvbridge AAR
+        uses: actions/download-artifact@v7
+        with:
+          name: mkvbridge-aar
+          path: app/libs
+
       - name: Generate build metadata
         id: metadata
         shell: bash
