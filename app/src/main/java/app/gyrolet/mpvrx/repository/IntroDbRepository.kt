@@ -146,6 +146,20 @@ data class IntroDbSegment(
     val end = endSecondsOrNull ?: duration ?: return null
     if (!start.isFinite() || !end.isFinite() || start < 0.0 || end <= start) return null
     if (duration != null && (start >= duration || end > duration + 2.0)) return null
+
+    // Reject obviously misclassified provider markers based on their position
+    // in the episode. Intros/recaps belong in the first half; credits belong
+    // in the second half. This is especially important for Hybrid fallback:
+    // an invalid provider result must become NoSegments so another provider
+    // can supply the marker.
+    if (duration != null) {
+      val midpoint = duration / 2.0
+      when (type) {
+        "intro", "recap" -> if (start >= midpoint) return null
+        "credits" -> if (start < midpoint) return null
+      }
+    }
+
     return IntroDbSegment(
       segmentType = type,
       start = start,
