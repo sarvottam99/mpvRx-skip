@@ -570,17 +570,17 @@ object AboutScreen : Screen {
                           icon = {},
                           label = {
                             Text(
-                              when (channel) {
+                              text = when (channel) {
                                 AppUpdateChannel.STABLE -> stringResource(R.string.ui_update_channel_stable_short)
                                 AppUpdateChannel.PREVIEW -> stringResource(R.string.ui_update_channel_preview_short)
                                 AppUpdateChannel.EXPERIMENTAL -> stringResource(R.string.ui_update_channel_experimental_short)
                                 AppUpdateChannel.MPVRX_SKIP -> "mpvRx-skip"
                               },
+                              maxLines = 1,
+                              overflow = TextOverflow.Ellipsis,
+                              style = MaterialTheme.typography.labelMedium,
                             )
-                          maxLines = 1,
-                          overflow = TextOverflow.Ellipsis,
-                          style = MaterialTheme.typography.labelMedium,
-                        )
+                          },
                       },
                     )
                   }
