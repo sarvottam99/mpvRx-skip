@@ -548,25 +548,35 @@ object AboutScreen : Screen {
                   style = MaterialTheme.typography.bodyMedium,
                   color = cs.outline,
                 )
-                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                  AppUpdateChannel.entries.forEachIndexed { index, channel ->
-                    SegmentedButton(
-                      modifier = Modifier.weight(1f),
-                      selected = updateChannel == channel,
-                      onClick = { updateViewModel.setUpdateChannel(channel) },
-                      shape = SegmentedButtonDefaults.itemShape(index, AppUpdateChannel.entries.size),
-                      colors = themedSegmentedButtonColors(),
-                      contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
-                      icon = {},
-                      label = {
-                        Text(
-                          stringResource(
-                            when (channel) {
-                              AppUpdateChannel.STABLE -> R.string.ui_update_channel_stable_short
-                              AppUpdateChannel.PREVIEW -> R.string.ui_update_channel_preview_short
-                              AppUpdateChannel.EXPERIMENTAL -> R.string.ui_update_channel_experimental_short
-                            },
-                          ),
+                Column(
+                  modifier = Modifier.fillMaxWidth(),
+                  verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                  val updateChannelRows = listOf(
+                    listOf(AppUpdateChannel.STABLE, AppUpdateChannel.MPVRX_SKIP),
+                    listOf(AppUpdateChannel.PREVIEW, AppUpdateChannel.EXPERIMENTAL),
+                  )
+
+                  updateChannelRows.forEach { row ->
+                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                      row.forEachIndexed { index, channel ->
+                        SegmentedButton(
+                          modifier = Modifier.weight(1f),
+                          selected = updateChannel == channel,
+                          onClick = { updateViewModel.setUpdateChannel(channel) },
+                          shape = SegmentedButtonDefaults.itemShape(index, row.size),
+                          colors = themedSegmentedButtonColors(),
+                          contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                          icon = {},
+                          label = {
+                            Text(
+                              when (channel) {
+                                AppUpdateChannel.STABLE -> stringResource(R.string.ui_update_channel_stable_short)
+                                AppUpdateChannel.PREVIEW -> stringResource(R.string.ui_update_channel_preview_short)
+                                AppUpdateChannel.EXPERIMENTAL -> stringResource(R.string.ui_update_channel_experimental_short)
+                                AppUpdateChannel.MPVRX_SKIP -> "mpvRx-skip"
+                              },
+                            )
                           maxLines = 1,
                           overflow = TextOverflow.Ellipsis,
                           style = MaterialTheme.typography.labelMedium,

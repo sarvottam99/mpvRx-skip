@@ -16,6 +16,7 @@ enum class AppUpdateChannel {
   STABLE,
   PREVIEW,
   EXPERIMENTAL,
+  MPVRX_SKIP,
   ;
 
   companion object {

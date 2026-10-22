@@ -57,6 +57,7 @@ class UpdateManager(
           AppUpdateChannel.STABLE -> STABLE_RELEASE_URL
           AppUpdateChannel.PREVIEW -> PREVIEW_RELEASE_URL
           AppUpdateChannel.EXPERIMENTAL -> EXPERIMENTAL_RELEASE_URL
+          AppUpdateChannel.MPVRX_SKIP -> MPVRX_SKIP_RELEASE_URL
         },
         allowMissing = channel == AppUpdateChannel.EXPERIMENTAL,
       ) ?: return null
@@ -78,7 +79,7 @@ class UpdateManager(
 
     val isNewer =
       when (channel) {
-        AppUpdateChannel.STABLE -> {
+        AppUpdateChannel.STABLE, AppUpdateChannel.MPVRX_SKIP -> {
           val currentVersion = BuildConfig.VERSION_NAME.substringBefore('-')
           isNewerVersion(release.tagName.removePrefix("v"), currentVersion)
         }
@@ -460,6 +461,7 @@ class UpdateManager(
     const val STABLE_RELEASE_URL = "https://api.github.com/repos/Riteshp2001/mpvRx/releases/latest"
     const val PREVIEW_RELEASE_URL = "https://riteshp2001.github.io/mpvRx/latest.json"
     const val EXPERIMENTAL_RELEASE_URL = "https://riteshp2001.github.io/mpvRx/experimental.json"
+    const val MPVRX_SKIP_RELEASE_URL = "https://api.github.com/repos/sarvottam99/mpvRx-skip/releases/latest"
     const val LEGACY_IGNORED_VERSION_KEY = "ignored_version"
     const val PART_SUFFIX = ".part"
     const val LOCAL_HASH_LENGTH = 12
