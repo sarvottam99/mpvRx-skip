@@ -581,8 +581,9 @@ object AboutScreen : Screen {
                               style = MaterialTheme.typography.labelMedium,
                             )
                           },
-                      },
-                    )
+                        )
+                      }
+                    }
                   }
                 }
               }
