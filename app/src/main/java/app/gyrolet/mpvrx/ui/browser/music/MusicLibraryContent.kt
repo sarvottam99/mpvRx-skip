@@ -5,7 +5,6 @@
 package app.gyrolet.mpvrx.ui.browser.music
 
 import android.app.Application
-import android.graphics.BitmapFactory
 import android.net.Uri
 import android.text.format.DateUtils
 import app.gyrolet.mpvrx.ui.browser.jellyfin.JellyfinViewModel
@@ -113,6 +112,7 @@ import kotlinx.coroutines.flow.filter
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.gyrolet.mpvrx.R
+import app.gyrolet.mpvrx.domain.thumbnail.getArtwork
 import app.gyrolet.mpvrx.database.entities.PlaylistEntity
 import app.gyrolet.mpvrx.database.repository.PlaylistRepository
 import app.gyrolet.mpvrx.domain.media.model.Video
@@ -136,6 +136,7 @@ import app.gyrolet.mpvrx.ui.browser.components.rememberSwipePlaybackInfo
 import app.gyrolet.mpvrx.ui.browser.components.rememberVideoSwipeActions
 import app.gyrolet.mpvrx.ui.browser.dialogs.AddToPlaylistDialog
 import app.gyrolet.mpvrx.ui.browser.dialogs.toPlaylistCandidates
+import app.gyrolet.mpvrx.ui.browser.fab.FabPlacement
 import app.gyrolet.mpvrx.ui.browser.fab.FabScrollHelper
 import app.gyrolet.mpvrx.ui.browser.dialogs.DeleteConfirmationDialog
 import app.gyrolet.mpvrx.ui.browser.dialogs.FolderSortDialog
@@ -144,13 +145,13 @@ import app.gyrolet.mpvrx.ui.player.controls.components.MiniAudioVisualizer
 import app.gyrolet.mpvrx.ui.browser.folderlist.FolderListScreen
 import app.gyrolet.mpvrx.ui.browser.playlist.PlaylistDetailScreen
 import app.gyrolet.mpvrx.ui.browser.selection.rememberSelectionManager
+import app.gyrolet.mpvrx.ui.browser.dialogs.rememberSelectionInfoAction
 import app.gyrolet.mpvrx.ui.browser.cards.SelectionIndicator
 import app.gyrolet.mpvrx.ui.browser.cards.animatedSelectionColor
 import app.gyrolet.mpvrx.ui.browser.cards.MediaSelectionNeighbors
 import app.gyrolet.mpvrx.ui.browser.cards.MediaSelectionGridGap
 import app.gyrolet.mpvrx.ui.browser.cards.MediaSelectionListGap
 import app.gyrolet.mpvrx.ui.browser.cards.mediaSelectionNeighbors
-import app.gyrolet.mpvrx.ui.browser.cards.mediaGridTileHeight
 import app.gyrolet.mpvrx.ui.browser.cards.rememberMediaSelectionShape
 import app.gyrolet.mpvrx.ui.player.PlaybackSession
 import app.gyrolet.mpvrx.ui.components.InlineSearchBar
@@ -225,6 +226,7 @@ fun MusicLibraryContent(
   val sortOrder by musicViewModel.sortOrder.collectAsState()
   val viewMode by musicViewModel.viewMode.collectAsState()
   val isLoading by musicViewModel.isLoading.collectAsState()
+  LaunchedEffect(musicViewModel) { musicViewModel.ensureLibraryLoaded() }
 
   val songs by musicViewModel.filteredSongs.collectAsState()
   val albums by musicViewModel.filteredAlbums.collectAsState()
@@ -303,6 +305,10 @@ fun MusicLibraryContent(
     // Folders tab reuses FolderListScreen, which owns its own selection state.
     MusicTab.FOLDERS -> songSelectionManager
   }
+  val showSongSelectionInfo = rememberSelectionInfoAction(
+    videos = { songSelectionManager.getSelectedItems().map { it.toVideo() } },
+    onSingleOpened = { songSelectionManager.clear() },
+  )
 
   @Suppress("UNCHECKED_CAST")
   fun selectedMusicVideos(): List<Video> {
@@ -552,7 +558,7 @@ fun MusicLibraryContent(
               },
               onRenameClick = null,
               isSingleSelection = activeSelectionManager.isSingleSelection,
-              onInfoClick = null,
+              onInfoClick = if (selectedTab == MusicTab.SONGS) showSongSelectionInfo else null,
               titleTrailing = {
                 MusicSourceDropdown()
               },
@@ -580,6 +586,7 @@ fun MusicLibraryContent(
             onSortFieldChange = { musicViewModel.setSortField(it) },
             onSortOrderChange = { musicViewModel.setSortOrder(it) },
             onViewModeChange = { musicViewModel.setViewMode(it) },
+            availableFields = selectedTab.availableSortFields,
           )
         }
 
@@ -623,7 +630,7 @@ fun MusicLibraryContent(
         // FolderListScreen.MediaStoreFolderListContent renders its own FAB, skip ours.
       } else if (isPlaylistsTab) {
         FloatingActionButtonMenu(
-          modifier = Modifier.padding(bottom = (navigationBarHeight - 16.dp).coerceAtLeast(0.dp)),
+          modifier = Modifier.padding(bottom = FabPlacement.scaffoldBottomPadding()),
           expanded = false,
           button = {
             ToggleFloatingActionButton(
@@ -644,7 +651,7 @@ fun MusicLibraryContent(
         ) { }
       } else if (songs.isNotEmpty()) {
         FloatingActionButtonMenu(
-          modifier = Modifier.padding(bottom = (navigationBarHeight - 16.dp).coerceAtLeast(0.dp)),
+          modifier = Modifier.padding(bottom = FabPlacement.scaffoldBottomPadding()),
           expanded = isFabExpanded.value && !quickPlayFabDirect,
           button = {
             TooltipBox(
@@ -716,7 +723,9 @@ fun MusicLibraryContent(
         onRefresh = { musicViewModel.refreshLibrary(context) },
         modifier = Modifier.fillMaxSize()
       ) {
-        if (isLoading && songs.isEmpty() && albums.isEmpty() && artists.isEmpty() && playlists.isEmpty()) {
+        // Playlists are not part of the condition: the Favorites playlist always exists, which kept
+        // the first scan from ever showing this and flashed "No songs found" instead.
+        if (isLoading && songs.isEmpty() && albums.isEmpty() && artists.isEmpty()) {
           Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
@@ -961,7 +970,9 @@ fun MusicLibraryContent(
             },
             itemCount = 1,
             itemType = "song",
-            itemNames = listOf(song.title)
+            itemNames = listOf(song.title),
+            itemPaths = listOf(song.uri.toString()),
+            totalSizeBytes = song.size.takeIf { it > 0L },
           )
         }
 
@@ -991,7 +1002,10 @@ fun MusicLibraryContent(
             },
             itemCount = count,
             itemType = itemType,
-            itemNames = itemNames
+            itemNames = itemNames,
+            itemPaths = if (selectedTab == MusicTab.SONGS) {
+              songSelectionManager.getSelectedItems().map { it.uri.toString() }
+            } else emptyList(),
           )
         }
 
@@ -1289,65 +1303,28 @@ fun LocalAlbumArtImage(
   modifier: Modifier = Modifier,
   audioSong: MusicSong? = null,
 ) {
-  val context = LocalContext.current
   val thumbnailRepository = koinInject<app.gyrolet.mpvrx.domain.thumbnail.ThumbnailRepository>()
+  val revision by thumbnailRepository.cacheRevision.collectAsState()
+  val generator by koinInject<BrowserPreferences>().thumbnailGenerator.collectAsState()
   val video = remember(audioSong) { audioSong?.toVideo() }
   val density = androidx.compose.ui.platform.LocalDensity.current
   BoxWithConstraints(modifier = modifier, contentAlignment = Alignment.Center) {
     val widthPx = with(density) { if (maxWidth.value.isFinite()) maxWidth.roundToPx().coerceAtLeast(1) else 256 }
     val heightPx = with(density) { if (maxHeight.value.isFinite()) maxHeight.roundToPx().coerceAtLeast(1) else 256 }
-    // Preserve the previous cover for the same track while higher-resolution art loads.
-    var retainedBitmap by remember(audioSong?.path, uri) {
+    var retainedBitmap by remember(video, uri, generator, revision) {
       mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null)
     }
-    var bitmap by remember(uri, video, widthPx, heightPx) {
-      mutableStateOf(
-        video?.let { thumbnailRepository.peekThumbnailFromMemory(it, widthPx, heightPx) }?.asImageBitmap()
-          ?: retainedBitmap,
-      )
+    var bitmap by remember(video, uri, widthPx, heightPx, generator, revision) {
+      mutableStateOf(video?.let { thumbnailRepository.peekThumbnailFromMemory(it, widthPx, heightPx) }?.asImageBitmap() ?: retainedBitmap)
     }
-
-    LaunchedEffect(uri, video, widthPx, heightPx) {
-      val loadedBitmap = withContext(Dispatchers.IO) {
-        try {
-          // MediaStore album art is normally the cheapest and most authoritative audio cover.
-          // Fall back to embedded/sidecar extraction for files whose indexed cover is unavailable.
-          val mediaStoreArtwork = uri?.let { source ->
-            // MediaStore/embedded cover art can be several megapixels even in a 48dp song row.
-            // Decode at the requested UI size instead of allocating a full-size JPEG on every
-            // navigation/scroll, while preserving the repository fallback for missing artwork.
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            context.contentResolver.openInputStream(source)?.use { stream ->
-              BitmapFactory.decodeStream(stream, null, bounds)
-            }
-            if (bounds.outWidth > 0 && bounds.outHeight > 0) {
-              var sampleSize = 1
-              while (
-                bounds.outWidth / sampleSize > widthPx * 2 ||
-                bounds.outHeight / sampleSize > heightPx * 2
-              ) {
-                sampleSize *= 2
-              }
-              val options = BitmapFactory.Options().apply { inSampleSize = sampleSize }
-              context.contentResolver.openInputStream(source)?.use { stream ->
-                BitmapFactory.decodeStream(stream, null, options)
-              }
-            } else {
-              null
-            }
-          }
-          (mediaStoreArtwork ?: video?.let { thumbnailRepository.getThumbnail(it, widthPx, heightPx) })?.asImageBitmap()
-        } catch (error: kotlinx.coroutines.CancellationException) {
-          throw error
-        } catch (_: Exception) {
-          null
-        }
+    LaunchedEffect(video, uri, widthPx, heightPx, generator, revision) {
+      val loaded = if (video != null) {
+        thumbnailRepository.getThumbnail(video, widthPx, heightPx)
+      } else {
+        thumbnailRepository.getArtwork(uri?.toString(), widthPx = widthPx, heightPx = heightPx)
       }
-      // Do not blank an already-rendered cover if a transient rescan/reload fails.
-      if (loadedBitmap != null) {
-        bitmap = loadedBitmap
-        retainedBitmap = loadedBitmap
-      }
+      bitmap = loaded?.asImageBitmap()
+      retainedBitmap = bitmap
     }
 
     val loaded = bitmap
@@ -1471,7 +1448,7 @@ private fun SongsTabContent(
   val gridColumns by remember(gridState) {
     derivedStateOf { gridState.layoutInfo.maxSpan.coerceAtLeast(1) }
   }
-  val navBarHeight = LocalNavigationBarHeight.current.takeIf { it > 0.dp } ?: 88.dp
+  val navBarHeight = LocalNavigationBarHeight.current
   Box(modifier = Modifier.fillMaxSize()) {
     if (viewMode == MusicViewMode.GRID) {
       LazyVerticalGrid(
@@ -1498,7 +1475,11 @@ private fun SongsTabContent(
         }
       }
     } else {
-      val swipeVideos = remember(songs) { songs.map { it.toVideo() } }
+      // Built off the main thread: converting a whole library in composition stalled a frame each
+      // time the list was published, which happens twice during a scan.
+      val swipeVideos by produceState(initialValue = emptyList<Video>(), songs) {
+        value = withContext(Dispatchers.Default) { songs.map { it.toVideo() } }
+      }
       val swipePlaybackInfo = rememberSwipePlaybackInfo(swipeVideos)
       val swipeActions = rememberVideoSwipeActions(audioOnly = true, onChanged = onSongsChanged)
       LazyColumn(
@@ -1565,7 +1546,6 @@ private fun SongGridCard(
   Card(
     modifier = modifier
       .fillMaxWidth()
-      .mediaGridTileHeight(1f, 80.dp)
       .clip(selectedShape)
       .tvFocusHighlight(selectedShape, focusedScale = 1.03f)
       .tvContextMenu(onLongClick)
@@ -1706,7 +1686,7 @@ private fun AlbumsTabContent(
   val gridColumns by remember(gridState) {
     derivedStateOf { gridState.layoutInfo.maxSpan.coerceAtLeast(1) }
   }
-  val navBarHeight = LocalNavigationBarHeight.current.takeIf { it > 0.dp } ?: 88.dp
+  val navBarHeight = LocalNavigationBarHeight.current
   Box(modifier = Modifier.fillMaxSize()) {
     if (viewMode == MusicViewMode.GRID) {
       LazyVerticalGrid(
@@ -1784,7 +1764,6 @@ private fun AlbumGridCard(
   Card(
     modifier = modifier
       .fillMaxWidth()
-      .mediaGridTileHeight(1f, 80.dp)
       .clip(selectedShape)
       .tvFocusHighlight(selectedShape, focusedScale = 1.03f)
       .tvContextMenu(onLongClick)
@@ -1951,7 +1930,7 @@ private fun ArtistsTabContent(
   val gridColumns by remember(gridState) {
     derivedStateOf { gridState.layoutInfo.maxSpan.coerceAtLeast(1) }
   }
-  val navBarHeight = LocalNavigationBarHeight.current.takeIf { it > 0.dp } ?: 88.dp
+  val navBarHeight = LocalNavigationBarHeight.current
   Box(modifier = Modifier.fillMaxSize()) {
     if (viewMode == MusicViewMode.GRID) {
       LazyVerticalGrid(
@@ -2029,7 +2008,6 @@ private fun ArtistGridCard(
   Card(
     modifier = modifier
       .fillMaxWidth()
-      .mediaGridTileHeight(1f, 65.dp)
       .clip(selectedShape)
       .tvFocusHighlight(selectedShape, focusedScale = 1.03f)
       .tvContextMenu(onLongClick)
@@ -2351,7 +2329,6 @@ private fun MusicPlaylistCard(
     Card(
       modifier = modifier
         .fillMaxWidth()
-        .mediaGridTileHeight(1f, 60.dp)
         .clip(selectedShape)
         .tvFocusHighlight(selectedShape, focusedScale = 1.03f)
         .tvContextMenu(onLongClick)
@@ -2494,7 +2471,7 @@ private fun PlaylistsTabContent(
       val gridColumns by remember(gridState) {
         derivedStateOf { gridState.layoutInfo.maxSpan.coerceAtLeast(1) }
       }
-      val navBarHeight = LocalNavigationBarHeight.current.takeIf { it > 0.dp } ?: 88.dp
+      val navBarHeight = LocalNavigationBarHeight.current
       Box(modifier = Modifier.fillMaxSize()) {
         if (viewMode == MusicViewMode.GRID) {
           LazyVerticalGrid(

@@ -46,6 +46,7 @@ import app.gyrolet.mpvrx.ui.player.controls.components.rememberTvInitialFocusReq
 import app.gyrolet.mpvrx.ui.player.controls.components.tvFocusGroup
 import app.gyrolet.mpvrx.ui.player.controls.components.tvFocusHighlight
 import app.gyrolet.mpvrx.ui.player.controls.components.tvInitialFocus
+import app.gyrolet.mpvrx.utils.device.DevicePerformance
 import kotlinx.collections.immutable.ImmutableList
 
 enum class LiquidGlassHighlightStyle { Component, Default, Ambient, Plain }
@@ -70,7 +71,9 @@ class AppearancePreferences(
   val customWallpaperAlpha = preferenceStore.getFloat("custom_wallpaper_alpha", 1f)
   val customWallpaperUseColors = preferenceStore.getBoolean("custom_wallpaper_use_colors", false)
   val amoledMode = preferenceStore.getBoolean("amoled_mode", false)
-  val liquidGlassEnabled = preferenceStore.getBoolean("liquid_glass_enabled", true)
+  // Glass records the whole screen behind it every frame and moves player video to a TextureView;
+  // low-end devices start without it (and without the progressive blur) unless the user opts in.
+  val liquidGlassEnabled = preferenceStore.getBoolean("liquid_glass_enabled", !DevicePerformance.isLowEnd)
   val liquidGlassInHdr = preferenceStore.getBoolean("liquid_glass_in_hdr", false)
   val liquidGlassOpacity = preferenceStore.getFloat("liquid_glass_opacity", 1f)
   val liquidGlassBlur = preferenceStore.getFloat("liquid_glass_blur", 1f)
@@ -87,6 +90,8 @@ class AppearancePreferences(
   val liquidGlassHighlightWidth = preferenceStore.getFloat("liquid_glass_highlight_width", 1f)
   val liquidGlassHighlightBlur = preferenceStore.getFloat("liquid_glass_highlight_blur", 1f)
   val navigationBarGlow = preferenceStore.getBoolean("navigation_bar_glow", true)
+  val legacyNavigationBar = preferenceStore.getBoolean("legacy_navigation_bar", false)
+  val progressiveNavigationBlur = preferenceStore.getBoolean("progressive_navigation_blur", !DevicePerformance.isLowEnd)
   val useSystemFont = preferenceStore.getBoolean("use_system_font", false)
   val googleFontFamily = preferenceStore.getString("google_font_family", "")
   val googleFontRevision = preferenceStore.getInt("google_font_revision", 0)
@@ -114,7 +119,7 @@ class AppearancePreferences(
     deserializer = { stored ->
       val defaults = listOf("HOME", "MUSIC", "NETWORK", "JELLYFIN", "PROFILE")
       val parsed = stored.split(",").map(String::trim).filter { it in defaults }.distinct()
-      parsed + defaults.filterNot { it in parsed }
+      listOf("HOME") + parsed.filterNot { it == "HOME" } + defaults.drop(1).filterNot { it in parsed }
     },
   )
   val showQuickPlayFab = preferenceStore.getBoolean("show_quick_play_fab", true)

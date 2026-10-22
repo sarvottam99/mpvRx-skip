@@ -14,6 +14,7 @@ import android.widget.Toast
 import app.gyrolet.mpvrx.ui.utils.NavigationBackHandler as BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import app.gyrolet.mpvrx.ui.browser.fab.FabPlacement
 import app.gyrolet.mpvrx.ui.browser.fab.FabScrollHelper
 import app.gyrolet.mpvrx.ui.components.themedSegmentedButtonColors
 import androidx.compose.foundation.layout.Arrangement
@@ -298,9 +299,7 @@ object RecentlyPlayedScreen : Screen {
           showQuickPlayFab && !selectionManager.isInSelectionMode && isFabVisible.value && filteredRecentItems.isNotEmpty()
 
         FloatingActionButtonMenu(
-          modifier =
-            Modifier
-              .padding(bottom = (navigationBarHeight - 16.dp).coerceAtLeast(0.dp)),
+          modifier = Modifier.padding(bottom = FabPlacement.scaffoldBottomPadding()),
           expanded = isFabExpanded.value && !quickPlayFabDirect,
           button = {
             TooltipBox(
@@ -606,6 +605,18 @@ object RecentlyPlayedScreen : Screen {
         ConfirmDialog(
           title = title,
           subtitle = subtitle,
+          confirmContent = if (deleteFiles) {
+            {
+              app.gyrolet.mpvrx.presentation.components.DeleteSizeButton(
+                paths = selectionManager.getSelectedItems().filterIsInstance<RecentlyPlayedItem.VideoItem>().map { it.video.uri.toString() },
+                onClick = {
+                  selectionManager.deleteSelected(true)
+                  deleteDialogOpen.value = false
+                  deleteFilesCheckbox.value = false
+                },
+              )
+            }
+          } else null,
           customContent = {
             androidx.compose.foundation.layout.Row(
               modifier = Modifier.fillMaxWidth(),
@@ -699,6 +710,7 @@ private fun RecentItemsContent(
   val showDurationField by viewPreferences.showDurationField.collectAsState()
   val centerGridTitles by viewPreferences.centerGridTitles.collectAsState()
   val thumbnailQuality by browserPreferences.thumbnailQuality.collectAsState()
+  val thumbnailGenerator by browserPreferences.thumbnailGenerator.collectAsState()
   val swipeLeft by browserPreferences.videoSwipeLeft.collectAsState()
   val swipeRight by browserPreferences.videoSwipeRight.collectAsState()
   val manualGridColumnsEnabled by viewPreferences.manualGridColumnsEnabled.collectAsState()
@@ -753,6 +765,7 @@ private fun RecentItemsContent(
       showDurationField,
       centerGridTitles,
       thumbnailQuality,
+      thumbnailGenerator,
       swipeLeft,
       swipeRight,
     ) {
@@ -771,6 +784,7 @@ private fun RecentItemsContent(
         showDurationField = showDurationField,
         centerGridTitles = centerGridTitles,
         thumbnailQuality = thumbnailQuality,
+        thumbnailGenerator = thumbnailGenerator,
         swipeLeft = swipeLeft,
         swipeRight = swipeRight,
       )
@@ -783,7 +797,7 @@ private fun RecentItemsContent(
 
   // Unified thumbnail generation - starts with initial batch and continues as needed
   // This avoids the overhead of multiple conflicting LaunchedEffect calls
-      LaunchedEffect(showVideoThumbnails, showNetworkThumbnails, thumbWidthPx, thumbHeightPx, recentItems.size) {
+      LaunchedEffect(showVideoThumbnails, showNetworkThumbnails, thumbnailGenerator, thumbWidthPx, thumbHeightPx, recentItems.size) {
     if (showVideoThumbnails && recentVideos.isNotEmpty()) {
       // Start with all videos - the ThumbnailRepository will handle batching internally
       // This avoids redundant job restarts when scrolling
@@ -819,7 +833,10 @@ private fun RecentItemsContent(
     modifier = modifier.fillMaxSize(),
   ) {
     if (isGridMode) {
-      val navigationBarHeight = app.gyrolet.mpvrx.ui.browser.LocalNavigationBarHeight.current
+      val bottomClearance = maxOf(
+        app.gyrolet.mpvrx.ui.browser.LocalNavigationBarHeight.current,
+        if (isInSelectionMode) app.gyrolet.mpvrx.ui.browser.NavigationBarState.selectionBarClearance else 0.dp,
+      )
       BoxWithConstraints(
         modifier =
           Modifier
@@ -838,7 +855,7 @@ private fun RecentItemsContent(
             PaddingValues(
               start = 8.dp,
               end = 8.dp,
-              bottom = if (isInSelectionMode) 88.dp else navigationBarHeight,
+              bottom = bottomClearance,
             ),
           horizontalArrangement = Arrangement.spacedBy(MediaSelectionGridGap),
           verticalArrangement = Arrangement.spacedBy(MediaSelectionGridGap),
@@ -955,13 +972,16 @@ private fun RecentItemsContent(
             modifier =
               Modifier
                 .align(Alignment.CenterEnd)
-                .padding(end = 2.dp, top = 6.dp, bottom = navigationBarHeight + 6.dp)
+                .padding(end = 2.dp, top = 6.dp, bottom = bottomClearance + 6.dp)
                 .graphicsLayer { alpha = scrollbarAlpha },
           )
         }
       }
     } else {
-      val navigationBarHeight = app.gyrolet.mpvrx.ui.browser.LocalNavigationBarHeight.current
+      val bottomClearance = maxOf(
+        app.gyrolet.mpvrx.ui.browser.LocalNavigationBarHeight.current,
+        if (isInSelectionMode) app.gyrolet.mpvrx.ui.browser.NavigationBarState.selectionBarClearance else 0.dp,
+      )
       Box(
         modifier =
           Modifier
@@ -975,7 +995,7 @@ private fun RecentItemsContent(
             PaddingValues(
               start = 8.dp,
               end = 8.dp,
-              bottom = if (isInSelectionMode) 88.dp else navigationBarHeight,
+              bottom = bottomClearance,
             ),
         ) {
           items(
@@ -1093,7 +1113,7 @@ private fun RecentItemsContent(
             modifier =
               Modifier
                 .align(Alignment.CenterEnd)
-                .padding(end = 2.dp, top = 6.dp, bottom = navigationBarHeight + 6.dp)
+                .padding(end = 2.dp, top = 6.dp, bottom = bottomClearance + 6.dp)
                 .graphicsLayer { alpha = scrollbarAlpha },
           )
         }

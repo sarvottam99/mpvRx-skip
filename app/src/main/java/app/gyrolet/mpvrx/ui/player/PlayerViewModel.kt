@@ -1249,29 +1249,38 @@ class PlayerViewModel : ViewModel(),
   private fun currentLyricsPath(): String? = PlaybackSession.state.value.currentItem?.originalUri?.takeIf(String::isNotBlank)
     ?: PlaybackSession.getPropertyString("path") ?: PlaybackSession.getPropertyString("stream-open-filename")
 
+  /** Queue song metadata is stable across track changes; native/display tags can lag behind. */
+  private fun currentLyricsTitle(): String =
+    PlaybackSession.state.value.currentItem?.title?.takeIf { it.isNotBlank() }
+      ?: PlaybackSession.getPropertyString("metadata/by-key/Title")?.takeIf { it.isNotBlank() }
+      ?: currentMediaTitle.takeIf { it.isNotBlank() }
+      ?: PlaybackSession.getPropertyString("media-title").orEmpty()
+
+  private fun currentLyricsArtist(): String =
+    PlaybackSession.state.value.currentItem?.artist?.takeIf { it.isNotBlank() }
+      ?: PlaybackSession.getPropertyString("metadata/by-key/Artist")
+      ?: PlaybackSession.getPropertyString("metadata/by-key/ARTIST")
+      ?: PlaybackSession.getPropertyString("metadata/by-key/album_artist")
+      ?: ""
+
   fun loadLyricsForCurrentTrack(
     forceRefresh: Boolean = false,
     titleOverride: String? = null,
     forceOnline: Boolean = false,
   ) {
-    val allowOnline = PlaybackSession.state.value.currentItem?.audiobook == null
+    val session = PlaybackSession.state.value
+    // Do not send the previous song's native tags to online providers during file loading.
+    if (session.phase != PlaybackPhase.READY && session.phase != PlaybackPhase.BACKGROUND) return
+    val allowOnline = session.currentItem?.audiobook == null
     val path = currentLyricsPath() ?: return
     if (path.isBlank()) return
     if (forceRefresh) lyricsRepository.invalidate(path, allowOnline)
-    val generation = PlaybackSession.state.value.generation
+    val generation = session.generation
 
-    val title = titleOverride
-      ?: currentMediaTitle.takeIf { it.isNotBlank() }
-      ?: PlaybackSession.getPropertyString("metadata/by-key/Title")
-      ?: PlaybackSession.getPropertyString("media-title")
-      ?: ""
-
-    val artist = PlaybackSession.getPropertyString("metadata/by-key/Artist")
-      ?: PlaybackSession.getPropertyString("metadata/by-key/ARTIST")
-      ?: PlaybackSession.getPropertyString("metadata/by-key/album_artist")
-      ?: ""
-
-    val duration = PlaybackSession.getPropertyDouble("duration")?.toInt() ?: 0
+    val title = titleOverride ?: currentLyricsTitle()
+    val artist = currentLyricsArtist()
+    val duration = session.currentItem?.durationSeconds?.takeIf { it > 0 }
+      ?: PlaybackSession.getPropertyDouble("duration")?.toInt() ?: 0
     val album = PlaybackSession.getPropertyString("metadata/by-key/Album")
       ?: PlaybackSession.getPropertyString("metadata/by-key/album")
     val isrc = PlaybackSession.getPropertyString("metadata/by-key/isrc")
@@ -1280,14 +1289,19 @@ class PlayerViewModel : ViewModel(),
     )
     if (!forceRefresh && !forceOnline && request == lastLyricsLoadRequest) return
     lastLyricsLoadRequest = request
+    val isNewTrack = lyricsStatePath != path
     lyricsStatePath = path
 
-    lyricsUiState.value = lyricsUiState.value.copy(
-      isLoading = true,
-      errorMessage = null,
-      syncOffsetMs = 0,
-      onlineEnabled = allowOnline,
-    )
+    lyricsUiState.value = if (isNewTrack) {
+      LyricsUiState(isLoading = true, onlineEnabled = allowOnline)
+    } else {
+      lyricsUiState.value.copy(
+        isLoading = true,
+        errorMessage = null,
+        syncOffsetMs = 0,
+        onlineEnabled = allowOnline,
+      )
+    }
 
     // Cancel any in-flight lyrics load/translate for the previous track, otherwise a slow
     // fetch for the old song can resolve after the new song's fetch and overwrite it with
@@ -1365,10 +1379,7 @@ class PlayerViewModel : ViewModel(),
 
   /** What to search for when mpv has not published a title for [mediaPath] yet. */
   private fun trackSearchTitle(mediaPath: String): String {
-    val fromMetadata =
-      currentMediaTitle.takeIf { it.isNotBlank() }
-        ?: PlaybackSession.getPropertyString("metadata/by-key/Title")
-        ?: PlaybackSession.getPropertyString("media-title")
+    val fromMetadata = currentLyricsTitle().takeIf { it.isNotBlank() }
     if (!fromMetadata.isNullOrBlank()) return fromMetadata
     return mediaPath
       .substringAfterLast('/')
@@ -1384,6 +1395,7 @@ class PlayerViewModel : ViewModel(),
     val path = currentLyricsPath() ?: return
     if (path.isBlank()) return
 
+    if (lyricsStatePath != path) return
     val current = lyricsUiState.value
     val autoTranslate = allowOnline && audioPreferences.lyricsAutoTranslate.get()
     val defaultTargetLang = audioPreferences.lyricsTargetLanguage.get().ifBlank { "en" }
@@ -1392,16 +1404,12 @@ class PlayerViewModel : ViewModel(),
       lyricsUiState.value = current.copy(isLoading = true)
       lyricsLoadJob?.cancel()
       lyricsTranslateJob?.cancel()
+      val generation = PlaybackSession.state.value.generation
       lyricsLoadJob = viewModelScope.launch(Dispatchers.IO) {
-        val title = currentMediaTitle.takeIf { it.isNotBlank() }
-          ?: PlaybackSession.getPropertyString("metadata/by-key/Title")
-          ?: PlaybackSession.getPropertyString("media-title")
-          ?: ""
-        val artist = PlaybackSession.getPropertyString("metadata/by-key/Artist")
-          ?: PlaybackSession.getPropertyString("metadata/by-key/ARTIST")
-          ?: PlaybackSession.getPropertyString("metadata/by-key/album_artist")
-          ?: ""
-        val duration = PlaybackSession.getPropertyDouble("duration")?.toInt() ?: 0
+        val title = currentLyricsTitle()
+        val artist = currentLyricsArtist()
+        val duration = PlaybackSession.state.value.currentItem?.durationSeconds?.takeIf { it > 0 }
+          ?: PlaybackSession.getPropertyDouble("duration")?.toInt() ?: 0
         val album = PlaybackSession.getPropertyString("metadata/by-key/Album")
           ?: PlaybackSession.getPropertyString("metadata/by-key/album")
 
@@ -1415,8 +1423,8 @@ class PlayerViewModel : ViewModel(),
         )
 
         ensureActive()
-        val stillCurrentPath = currentLyricsPath()
-        if (stillCurrentPath != path) return@launch
+        if (!PlaybackSession.isCurrentGeneration(generation) || currentLyricsPath() != path ||
+          lyricsStatePath != path) return@launch
 
         val updated = lyricsRepository.mergeOnline(path, fetched, allowOnline)
         val online = updated?.onlineLyrics ?: fetched.lyrics
@@ -1495,7 +1503,7 @@ class PlayerViewModel : ViewModel(),
     val allowOnline = PlaybackSession.state.value.currentItem?.audiobook == null
     if (!allowOnline) return
     val path = currentLyricsPath() ?: return
-    if (path.isBlank()) return
+    if (path.isBlank() || lyricsStatePath != path) return
     val generation = PlaybackSession.state.value.generation
 
     val current = lyricsUiState.value
@@ -1530,15 +1538,10 @@ class PlayerViewModel : ViewModel(),
 
     lyricsUiState.value = current.copy(isLoading = true, errorMessage = null, preferredProvider = provider)
     lyricsLoadJob = viewModelScope.launch(Dispatchers.IO) {
-      val title = currentMediaTitle.takeIf { it.isNotBlank() }
-        ?: PlaybackSession.getPropertyString("metadata/by-key/Title")
-        ?: PlaybackSession.getPropertyString("media-title")
-        ?: ""
-      val artist = PlaybackSession.getPropertyString("metadata/by-key/Artist")
-        ?: PlaybackSession.getPropertyString("metadata/by-key/ARTIST")
-        ?: PlaybackSession.getPropertyString("metadata/by-key/album_artist")
-        ?: ""
-      val duration = PlaybackSession.getPropertyDouble("duration")?.toInt() ?: 0
+      val title = currentLyricsTitle()
+      val artist = currentLyricsArtist()
+      val duration = PlaybackSession.state.value.currentItem?.durationSeconds?.takeIf { it > 0 }
+        ?: PlaybackSession.getPropertyDouble("duration")?.toInt() ?: 0
       val album = PlaybackSession.getPropertyString("metadata/by-key/Album")
         ?: PlaybackSession.getPropertyString("metadata/by-key/album")
 
@@ -1631,7 +1634,9 @@ class PlayerViewModel : ViewModel(),
     val current = lyricsUiState.value
     val baseLyrics = current.originalLyrics ?: current.lyrics ?: return
     val lang = targetLang ?: audioPreferences.lyricsTargetLanguage.get().ifBlank { "en" }
-    val path = PlaybackSession.getPropertyString("path") ?: PlaybackSession.getPropertyString("stream-open-filename") ?: ""
+    val path = currentLyricsPath() ?: return
+    if (lyricsStatePath != path) return
+    val generation = PlaybackSession.state.value.generation
 
     audioPreferences.lyricsAutoTranslate.set(true)
     audioPreferences.lyricsTargetLanguage.set(lang)
@@ -1653,9 +1658,9 @@ class PlayerViewModel : ViewModel(),
 
       // Bail out if the track changed while translation was in-flight, so a slow
       // translation for the previous song can't overwrite the new song's lyrics.
-      val stillCurrentPath = PlaybackSession.getPropertyString("path")
-        ?: PlaybackSession.getPropertyString("stream-open-filename")
-      if (stillCurrentPath != path) return@launch
+      ensureActive()
+      if (!PlaybackSession.isCurrentGeneration(generation) || currentLyricsPath() != path ||
+        lyricsStatePath != path) return@launch
 
       if (!outcome.isSuccessful) {
         lyricsUiState.value = lyricsUiState.value.copy(
@@ -2322,15 +2327,19 @@ val isBrightnessSliderShown = MutableStateFlow(false)
     // Clean up any stale ambient shader files left in cacheDir from previous abnormal exits
     appContext.cacheDir.listFiles { _, name -> name.startsWith("ambient_") && name.endsWith(".glsl") }
       ?.forEach { runCatching { it.delete() } }
-    // A track change while nobody is looking at the player (app backgrounded, screen off)
-    // never reaches onVideoLoadCompleted; follow the session directly instead. The short
-    // wait lets mpv publish the new file's tags before they are used as the search query.
+    // Immediately clear old lyrics when a track changes, even without a foreground Activity.
+    // Allow mpv to finish publishing the next song's tags before the fallback lookup.
     viewModelScope.launch {
       PlaybackSession.state
-        .map { it.currentItem?.originalUri }
+        .map { it.currentItem?.stableId to it.generation }
         .distinctUntilChanged()
         .drop(1)
         .collectLatest {
+          lyricsLoadJob?.cancel()
+          lyricsTranslateJob?.cancel()
+          lastLyricsLoadRequest = null
+          lyricsStatePath = null
+          lyricsUiState.value = LyricsUiState()
           delay(1_000)
           syncLyricsWithPlayback()
         }
@@ -3351,6 +3360,9 @@ val isBrightnessSliderShown = MutableStateFlow(false)
     const val ABSOLUTE_SEEK_FEEDBACK_HOLD_MS = 3000L
     // The thumb updates immediately; decoder previews only need a modest cadence.
     const val PREVIEW_SEEK_INTERVAL_MS = 200L
+    // Network previews open remote ranges; keep them rare so the final seek is not queued behind
+    // abandoned preview work.
+    const val NETWORK_PREVIEW_SEEK_INTERVAL_MS = 800L
     const val FRAME_SEEK_POLL_INTERVAL_MS = 10L
     const val FRAME_SEEK_MIN_SETTLE_POLLS = 8
     const val FRAME_SEEK_MAX_SETTLE_POLLS = 75
@@ -5105,6 +5117,13 @@ val isBrightnessSliderShown = MutableStateFlow(false)
 
   private suspend fun runSeekPreviewLoop(generation: Long) {
     var lastSentPosition: Float? = null
+    // Network seek previews each cost an upstream range open on some servers (SMB/WebDAV can take
+    // most of a second per open), so they run at a much lower cadence than local previews.
+    val isNetworkItem =
+      PlaybackSession.state.value.currentItem?.let { item ->
+        item.networkSource != null || item.originalUri.startsWith("mpvrx-network://")
+      } == true
+    val intervalMs = if (isNetworkItem) NETWORK_PREVIEW_SEEK_INTERVAL_MS else PREVIEW_SEEK_INTERVAL_MS
     while (kotlinx.coroutines.currentCoroutineContext().isActive) {
       val target =
         synchronized(seekPreviewLock) {
@@ -5120,7 +5139,7 @@ val isBrightnessSliderShown = MutableStateFlow(false)
       if (previous != null && kotlin.math.abs(target - previous) < 0.5f) continue
       if (!PlaybackSession.commandForGeneration(generation, "seek", target.toString(), "absolute+keyframes")) return
       lastSentPosition = target
-      delay(PREVIEW_SEEK_INTERVAL_MS)
+      delay(intervalMs)
     }
   }
 

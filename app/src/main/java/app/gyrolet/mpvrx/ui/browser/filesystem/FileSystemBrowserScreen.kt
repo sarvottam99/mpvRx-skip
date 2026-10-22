@@ -19,6 +19,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import app.gyrolet.mpvrx.ui.browser.fab.FabPlacement
 import app.gyrolet.mpvrx.ui.browser.fab.FabScrollHelper
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -73,6 +74,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
@@ -112,6 +114,7 @@ import app.gyrolet.mpvrx.ui.browser.dialogs.rememberBrowserSortDialogOpen
 import app.gyrolet.mpvrx.ui.browser.dialogs.FolderPickerDialog
 import app.gyrolet.mpvrx.ui.browser.dialogs.RenameDialog
 import app.gyrolet.mpvrx.ui.browser.dialogs.VideoCompressorOverlay
+import app.gyrolet.mpvrx.ui.browser.dialogs.rememberSelectionInfoAction
 import app.gyrolet.mpvrx.ui.browser.selection.rememberSelectionManager
 import app.gyrolet.mpvrx.ui.browser.sheets.PlayLinkSheet
 import app.gyrolet.mpvrx.ui.browser.states.EmptyState
@@ -321,6 +324,24 @@ fun FileSystemBrowserScreen(path: String? = null) {
   val totalCount = items.size
   val onlyVideosSelected = selectedVideos.isNotEmpty() && selectedFolders.isEmpty()
   val foldersBlacklistedMessage = stringResource(app.gyrolet.mpvrx.R.string.pref_folders_blacklisted)
+  val showSelectionInfo = rememberSelectionInfoAction(
+    videos = { selectedVideos },
+    onSingleOpened = { selectionManager.clear() },
+    folders = {
+      selectedFolders.map { folder ->
+        app.gyrolet.mpvrx.domain.media.model.VideoFolder(
+          bucketId = folder.path,
+          name = folder.name,
+          path = folder.path,
+          videoCount = folder.videoCount,
+          totalSize = folder.totalSize,
+          totalDuration = folder.totalDuration,
+          lastModified = folder.lastModified / 1000,
+        )
+      }
+    },
+    loadFolderVideos = { folder -> collectVideosForSelectionInfo(context, folder.path) },
+  )
 
   suspend fun selectedPlayableVideos(): List<app.gyrolet.mpvrx.domain.media.model.Video> {
     val videosFromFolders =
@@ -574,21 +595,7 @@ fun FileSystemBrowserScreen(path: String? = null) {
               backstack.navigateTo(app.gyrolet.mpvrx.ui.preferences.PreferencesScreen)
             },
             isSingleSelection = selectionManager.isSingleSelection,
-            onInfoClick =
-              if (selectedVideos.size == 1 && selectedFolders.isEmpty()) {
-                {
-                  val video = selectedVideos.firstOrNull()
-                  if (video != null) {
-                    val intent = Intent(context, app.gyrolet.mpvrx.ui.mediainfo.MediaInfoActivity::class.java)
-                    intent.action = Intent.ACTION_VIEW
-                    intent.data = video.uri
-                    context.startActivity(intent)
-                    selectionManager.clear()
-                  }
-                }
-              } else {
-                null
-              },
+            onInfoClick = showSelectionInfo,
             onShareClick = {
               coroutineScope.launch {
                 val videosToShare = selectedPlayableVideos()
@@ -630,8 +637,6 @@ fun FileSystemBrowserScreen(path: String? = null) {
         }
       },
       floatingActionButton = {
-        val navigationBarHeight = app.gyrolet.mpvrx.ui.browser.LocalNavigationBarHeight.current
-        val miniPlayerClearance = app.gyrolet.mpvrx.ui.browser.NavigationBarState.miniPlayerClearance
         if (isAppRoot) {
           val isFabShouldBeVisible =
             showQuickPlayFab &&
@@ -641,10 +646,7 @@ fun FileSystemBrowserScreen(path: String? = null) {
                 .getPermissionDeniedState()
 
           FloatingActionButtonMenu(
-            modifier =
-              Modifier.padding(
-                bottom = (navigationBarHeight - 16.dp).coerceAtLeast(0.dp) + miniPlayerClearance,
-              ),
+            modifier = Modifier.padding(bottom = FabPlacement.scaffoldBottomPadding()),
             expanded = isFabExpanded.value && !quickPlayFabDirect,
             button = {
               TooltipBox(
@@ -832,7 +834,7 @@ fun FileSystemBrowserScreen(path: String? = null) {
                   if (isInSelectionMode && !archiveEntry) {
                     selectionManager.toggleFromUser(videoFile)
                   } else if (!isInSelectionMode) {
-                    if (playlistMode || archiveEntry) {
+                    if (playerPreferences.shouldBuildAutomaticQueue(video.isAudio) || archiveEntry) {
                       val allVideos = videos
                       val startIndex = allVideos.indexOfFirst { it.id == video.id }
                       if (startIndex >= 0) {
@@ -967,6 +969,7 @@ fun FileSystemBrowserScreen(path: String? = null) {
       isOpen = sortDialogOpen.value,
       onDismiss = { sortDialogOpen.value = false },
       isAtRoot = isAppRoot,
+      onMetadataFieldEnabled = viewModel::refresh,
     )
 
     if (deleteDialogOpen) {
@@ -985,6 +988,9 @@ fun FileSystemBrowserScreen(path: String? = null) {
           },
         itemCount = selectedCount,
         itemNames = selectedItems.map { it.name },
+        itemPaths = selectedItems.map { item ->
+          if (item is FileSystemItem.VideoFile) item.video.uri.toString() else item.path
+        },
       )
     }
 
@@ -1206,6 +1212,33 @@ private fun fileSystemSelectionId(item: FileSystemItem): String =
 /**
  * Recursively collects all videos from a folder and its subfolders
  */
+private suspend fun collectVideosForSelectionInfo(
+  context: Context,
+  folderPath: String,
+): List<app.gyrolet.mpvrx.domain.media.model.Video> {
+  val pending = ArrayDeque<String>()
+  val visited = mutableSetOf<String>()
+  val videos = mutableListOf<app.gyrolet.mpvrx.domain.media.model.Video>()
+  pending.add(folderPath)
+  while (pending.isNotEmpty()) {
+    kotlinx.coroutines.currentCoroutineContext().ensureActive()
+    val path = pending.removeFirst()
+    if (!visited.add(path)) continue
+    val items = if (ZipArchiveMedia.isBrowserPath(path)) {
+      ZipArchiveMedia.scan(context, path, includeAudio = false)
+    } else {
+      app.gyrolet.mpvrx.repository.MediaFileRepository.scanDirectory(context, path)
+    }.getOrThrow()
+    items.forEach { item ->
+      when (item) {
+        is FileSystemItem.VideoFile -> videos.add(item.video)
+        is FileSystemItem.Folder -> pending.add(item.path)
+      }
+    }
+  }
+  return videos
+}
+
 private suspend fun collectVideosRecursively(
   context: Context,
   folderPath: String,
@@ -1289,6 +1322,8 @@ private fun FileSystemBrowserContent(
   val appearancePreferences = koinInject<AppearancePreferences>()
   val thumbnailRepository = koinInject<app.gyrolet.mpvrx.domain.thumbnail.ThumbnailRepository>()
   val mediaLayoutMode by browserPreferences.mediaLayoutMode.collectAsState()
+  val musicCoverArtSize by browserPreferences.musicCoverArtSize.collectAsState()
+  val audioCoverArtSizePx = with(LocalDensity.current) { musicCoverArtSize.dp.roundToPx() }
   val tapThumbnailToSelect by gesturePreferences.tapThumbnailToSelect.collectAsState()
   val showVideoThumbnails by browserPreferences.showVideoThumbnails.collectAsState()
   val unlimitedNameLines by appearancePreferences.unlimitedNameLines.collectAsState()
@@ -1304,6 +1339,7 @@ private fun FileSystemBrowserContent(
   val showDurationField by browserPreferences.showDurationField.collectAsState()
   val centerGridTitles by browserPreferences.centerGridTitles.collectAsState()
   val thumbnailQuality by browserPreferences.thumbnailQuality.collectAsState()
+  val thumbnailGenerator by browserPreferences.thumbnailGenerator.collectAsState()
   val swipeLeft by browserPreferences.videoSwipeLeft.collectAsState()
   val swipeRight by browserPreferences.videoSwipeRight.collectAsState()
   val videoCardUiConfig =
@@ -1322,6 +1358,7 @@ private fun FileSystemBrowserContent(
       centerGridTitles,
       showCodecSupportIndicator,
       thumbnailQuality,
+      thumbnailGenerator,
       swipeLeft,
       swipeRight,
     ) {
@@ -1340,6 +1377,7 @@ private fun FileSystemBrowserContent(
         showDurationField = showDurationField,
         centerGridTitles = centerGridTitles,
         thumbnailQuality = thumbnailQuality,
+        thumbnailGenerator = thumbnailGenerator,
         swipeLeft = swipeLeft,
         swipeRight = swipeRight,
       )
@@ -1406,12 +1444,9 @@ private fun FileSystemBrowserContent(
 
     else -> {
       val isGridMode = mediaLayoutMode == MediaLayoutMode.GRID
-      val isListScrolling by remember(listState, gridState, isGridMode) {
-        derivedStateOf { if (isGridMode) gridState.isScrollInProgress else listState.isScrollInProgress }
-      }
       val latestVideos by rememberUpdatedState(videos)
       // Root displays folders/cached art only; new thumbnails begin after opening a directory.
-      LaunchedEffect(folderId, isOpenedFolder, showVideoThumbnails, thumbWidthPx,
+      LaunchedEffect(folderId, isOpenedFolder, showVideoThumbnails, thumbnailGenerator, thumbWidthPx,
         thumbHeightPx, mediaLayoutMode, videos.size, listState, gridState) {
         val generationId = "tree:$folderId:${mediaLayoutMode.name}"
         try {
@@ -1533,7 +1568,6 @@ private fun FileSystemBrowserContent(
                     newVideoCount = folder.newCount,
                     isGridMode = true,
                     allowThumbnailGeneration = false,
-                    deferThumbnailLoading = isListScrolling,
                   )
                 }
 
@@ -1572,7 +1606,6 @@ private fun FileSystemBrowserContent(
                       useFolderNameStyle = false,
                       allowThumbnailGeneration = !archiveEntry && isOpenedFolder,
                       allowThumbnailLoading = !archiveEntry,
-                      deferThumbnailLoading = isListScrolling,
                       uiConfig = videoCardUiConfig,
                   )
                 }
@@ -1662,7 +1695,6 @@ private fun FileSystemBrowserContent(
                   newVideoCount = folder.newCount,
                   isGridMode = false,
                   allowThumbnailGeneration = false,
-                  deferThumbnailLoading = isListScrolling,
                   customIcon = if (ZipArchiveMedia.isArchiveRoot(folder.path)) Icons.RoundedFilled.FolderZip else null,
                   onSwipeAction =
                     swipeActions.folder.takeUnless { archiveFolder || selectionManager.isInSelectionMode || isInSelectionMode },
@@ -1705,8 +1737,9 @@ private fun FileSystemBrowserContent(
                     useFolderNameStyle = false,
                     allowThumbnailGeneration = !archiveEntry && isOpenedFolder,
                     allowThumbnailLoading = !archiveEntry,
-                    deferThumbnailLoading = isListScrolling,
                     uiConfig = videoCardUiConfig,
+                    thumbnailWidthPx = if (videoFile.video.isAudio) audioCoverArtSizePx else null,
+                    thumbnailHeightPx = if (videoFile.video.isAudio) audioCoverArtSizePx else null,
                 )
               }
             }
@@ -1765,6 +1798,8 @@ private fun FileSystemSearchContent(
   val gesturePreferences = koinInject<GesturePreferences>()
   val browserPreferences = koinInject<BrowserPreferences>()
   val appearancePreferences = koinInject<AppearancePreferences>()
+  val musicCoverArtSize by browserPreferences.musicCoverArtSize.collectAsState()
+  val audioCoverArtSizePx = with(LocalDensity.current) { musicCoverArtSize.dp.roundToPx() }
   val tapThumbnailToSelect by gesturePreferences.tapThumbnailToSelect.collectAsState()
   val showVideoThumbnails by browserPreferences.showVideoThumbnails.collectAsState()
   val showSizeChip by browserPreferences.showSizeChip.collectAsState()
@@ -1780,6 +1815,7 @@ private fun FileSystemSearchContent(
   val showDurationField by browserPreferences.showDurationField.collectAsState()
   val centerGridTitles by browserPreferences.centerGridTitles.collectAsState()
   val thumbnailQuality by browserPreferences.thumbnailQuality.collectAsState()
+  val thumbnailGenerator by browserPreferences.thumbnailGenerator.collectAsState()
   val swipeLeft by browserPreferences.videoSwipeLeft.collectAsState()
   val swipeRight by browserPreferences.videoSwipeRight.collectAsState()
   val videoCardUiConfig =
@@ -1798,6 +1834,7 @@ private fun FileSystemSearchContent(
       centerGridTitles,
       showCodecSupportIndicator,
       thumbnailQuality,
+      thumbnailGenerator,
       swipeLeft,
       swipeRight,
     ) {
@@ -1816,6 +1853,7 @@ private fun FileSystemSearchContent(
         showDurationField = showDurationField,
         centerGridTitles = centerGridTitles,
         thumbnailQuality = thumbnailQuality,
+        thumbnailGenerator = thumbnailGenerator,
         swipeLeft = swipeLeft,
         swipeRight = swipeRight,
       )
@@ -2087,6 +2125,8 @@ private fun FileSystemSearchContent(
                   allowThumbnailGeneration = !archiveEntry,
                   allowThumbnailLoading = !archiveEntry,
                   uiConfig = videoCardUiConfig,
+                  thumbnailWidthPx = if (videoFile.video.isAudio) audioCoverArtSizePx else null,
+                  thumbnailHeightPx = if (videoFile.video.isAudio) audioCoverArtSizePx else null,
                 )
               }
             }

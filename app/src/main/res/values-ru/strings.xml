@@ -77,6 +77,11 @@
   <string name="pref_appearance_thumbnail_quality_summary">Максимальное разрешение миниатюры: %1$d пкс. Более высокое качество требует больше места и может создаваться медленнее.</string>
   <string name="pref_appearance_thumbnail_position_title">Позиция кадра миниатюры</string>
   <string name="pref_appearance_thumbnail_position_summary">Захватывать кадр на отметке %1$d%% видео</string>
+  <string name="pref_appearance_thumbnail_parallelism_title">Ядра для миниатюр</string>
+  <string name="pref_appearance_thumbnail_parallelism_auto">Авто (%1$d из %2$d)</string>
+  <string name="pref_appearance_thumbnail_parallelism_value">%1$d из %2$d</string>
+  <string name="pref_appearance_thumbnail_parallelism_dialog_summary">Сколько миниатюр создаётся одновременно. Чем больше, тем быстрее, но тем выше расход памяти и батареи, а прокрутка может подтормаживать. Авто выбирает безопасное значение для этого устройства.</string>
+  <string name="pref_appearance_thumbnail_parallelism_warning">Больше рекомендованного для этого устройства (%1$d). Уменьшите, если списки тормозят или приложение закрывается в фоне.</string>
   <string name="pref_appearance_show_network_thumbnails_title">Показывать сетевые миниатюры (экспериментально)</string>
   <string name="pref_appearance_show_network_thumbnails_summary">Создавать миниатюры для сетевых потоков (может увеличить расход мобильного трафика)</string>
   <string name="pref_nav_network_title">Показывать вкладку «Сеть»</string>
@@ -613,7 +618,7 @@
   <string name="pref_section_general">Общие</string>
   <string name="pref_playlist_mode_title">Включить переход к следующему/предыдущему</string>
   <string name="pref_playlist_mode_summary">Показывать кнопки следующего/предыдущего для всех видео в папке</string>
-  <string name="pref_playlist_mode_summary_disabled">Воспроизводить видео по отдельности (выберите несколько для плейлиста)</string>
+  <string name="pref_playlist_mode_summary_disabled">Скрывать кнопки следующего/предыдущего файла; автовоспроизведение настраивается отдельно</string>
 
   <!-- Player - Seeking Section (additional)                      -->
   <string name="pref_online_skip_markers_title">Использовать сетевые метки пропуска</string>
@@ -1881,6 +1886,7 @@
   <string name="update_version_format">Версия %1$s</string>
   <string name="update_release_date">Дата выпуска</string>
   <string name="update_size">Размер</string>
+  <string name="update_package">Пакет</string>
   <string name="update_unknown_size">Размер неизвестен</string>
   <string name="update_beta_build_format">Бета r%1$d</string>
   <string name="ui_beta_badge_suffix">\u0020(Бета)</string>
@@ -2341,6 +2347,10 @@
   <string name="onboarding_configuration_restore_failed">Не удалось завершить настройку папки: %1$s</string>
   <string name="navbar_glow_title">Свечение стекла</string>
   <string name="navbar_glow_summary">Подсветка края и касаний панели навигации</string>
+  <string name="legacy_navigation_bar_title">Классическая панель навигации</string>
+  <string name="legacy_navigation_bar_summary">Использовать классическую панель навигации на всю ширину вместо плавающей панели.</string>
+  <string name="progressive_navigation_blur_title">Постепенное размытие панели навигации</string>
+  <string name="progressive_navigation_blur_summary">Использовать прогрессивное размытие Haze за плавающей панелью навигации. Автоматически отключается при включении классической панели.</string>
   <string name="pref_seekbar_preview_skip_markers">Метки пропуска</string>
   <string name="pref_liquid_glass_optics">Оптика</string>
   <string name="pref_liquid_glass_opacity">Непрозрачность фона</string>
@@ -2635,4 +2645,116 @@
   <string name="app_icon_shortcut_failed">Не удалось сохранить ярлык. Попробуйте ещё раз.</string>
   <string name="color_picker_wheel">Цветовой круг</string>
   <string name="color_picker_brightness">Яркость</string>
+    <string name="only_for_video_list">Только для списка видео</string>
+    <string name="only_for_folder_list">Только для списка папок</string>
+  <string name="selection_info_title">Сведения о выбранном</string>
+  <string name="selection_info_folders">Папки</string>
+  <string name="selection_info_total_size">Общий размер</string>
+  <string name="selection_info_total_duration">Общая длительность</string>
+  <string name="selection_info_average_duration">Средняя длительность</string>
+  <string name="selection_info_average_size">Средний размер</string>
+  <string name="selection_info_resolutions">Разрешения</string>
+  <string name="selection_info_codecs">Видеокодеки</string>
+  <string name="selection_info_formats">Форматы</string>
+  <string name="selection_info_frame_rates">Частоты кадров</string>
+  <string name="selection_info_subtitles">Встроенные субтитры</string>
+  <string name="selection_info_subtitles_value">%1$d / %2$d</string>
+  <string name="selection_info_longest">Самый длинный файл</string>
+  <string name="selection_info_largest">Самый большой файл</string>
+  <string name="selection_info_modified">Дата изменения</string>
+  <string name="selection_info_items">Выбранные элементы</string>
+  <string name="selection_info_scanning">Сканирование папок (%1$d/%2$d)…</string>
+  <string name="selection_info_scan_failed">Не удалось загрузить сведения о выбранном. Проверьте доступ к папкам и повторите попытку.</string>
+  <string name="selection_info_folder_unreadable">Не удалось прочитать медиафайлы в %1$s</string>
+  <string name="selection_info_fps_value">%1$.2f кадр/с</string>
+  <string name="selection_info_metadata_note">Сводка использует доступные метаданные библиотеки. Нажмите на файл, чтобы просмотреть все метаданные.</string>
+  <string name="selection_info_missing_metadata">Недоступные метаданные</string>
+  <string name="selection_info_missing_metadata_value">Файлов с неизвестным размером: %1$d; с неизвестной длительностью: %2$d. Итоги и средние значения учитывают только известные данные.</string>
+  <string name="selection_info_no_media">В выбранных папках не найдено воспроизводимых медиафайлов</string>
+  <string name="selection_info_copy_summary">Копировать сводку</string>
+  <string name="selection_info_open_media_info">Открыть полные сведения о медиафайле</string>
+  <plurals name="selection_info_video_count">
+    <item quantity="one">%1$d видео</item>
+    <item quantity="few">%1$d видео</item>
+    <item quantity="many">%1$d видео</item>
+    <item quantity="other">%1$d видео</item>
+  </plurals>
+  <plurals name="selection_info_audio_count">
+    <item quantity="one">%1$d аудиофайл</item>
+    <item quantity="few">%1$d аудиофайла</item>
+    <item quantity="many">%1$d аудиофайлов</item>
+    <item quantity="other">%1$d аудиофайла</item>
+  </plurals>
+  <plurals name="selection_info_file_count">
+    <item quantity="one">%1$d файл</item>
+    <item quantity="few">%1$d файла</item>
+    <item quantity="many">%1$d файлов</item>
+    <item quantity="other">%1$d файла</item>
+  </plurals>
+  <plurals name="selection_info_folder_count">
+    <item quantity="one">%1$d папка</item>
+    <item quantity="few">%1$d папки</item>
+    <item quantity="many">%1$d папок</item>
+    <item quantity="other">%1$d папки</item>
+  </plurals>
+
+  <!-- Audio format indicators -->
+  <string name="audio_quality_hi_res">Без потерь в высоком разрешении</string>
+  <string name="audio_quality_lossless">Без потерь</string>
+  <string name="audio_quality_lossy">С потерями</string>
+  <string name="audio_quality_dsd">Direct Stream Digital</string>
+  <string name="audio_quality_audio">Аудио</string>
+
+  <!-- Delete action size -->
+  <string name="delete_size_loading">Вычисление…</string>
+  <string name="delete_size_unknown">Размер неизвестен</string>
+  <string name="delete_size_description">Общий размер: %1$s</string>
+
+  <!-- Thumbnail information -->
+  <string name="media_info_tab_thumbnail">Миниатюра</string>
+  <string name="thumbnail_preview_description">Кэшированная миниатюра для %1$s</string>
+  <string name="thumbnail_status_disk">Кэширована на диске</string>
+  <string name="thumbnail_status_memory">Кэширована в памяти</string>
+  <string name="thumbnail_status_unreadable">Не удалось декодировать кэшированное изображение</string>
+  <string name="thumbnail_status_missing">Нет кэшированной миниатюры</string>
+  <string name="thumbnail_info_status">Состояние кэша</string>
+  <string name="thumbnail_info_generator">Политика генерации</string>
+  <string name="thumbnail_info_strategy">Выбор кадра или обложки</string>
+  <string name="thumbnail_strategy_artwork">Обложка альбома</string>
+  <string name="thumbnail_strategy_android">Кадр, выбранный Android</string>
+  <string name="thumbnail_info_quality">Заданное качество</string>
+  <string name="thumbnail_info_maximum">Заданное ограничение размера</string>
+  <string name="thumbnail_maximum_value">До %1$d пикс. по длинной стороне</string>
+  <string name="thumbnail_info_dimensions">Фактические размеры изображения</string>
+  <string name="thumbnail_dimensions_value">%1$d × %2$d пикс.</string>
+  <string name="thumbnail_info_format">Формат кэшированного изображения</string>
+  <string name="thumbnail_info_size">Размер файла кэша</string>
+  <string name="thumbnail_info_memory">Есть в кэше памяти обозревателя</string>
+  <string name="thumbnail_info_preview_memory">Память для предпросмотра</string>
+  <string name="thumbnail_info_frame">Заданная позиция кадра</string>
+  <string name="thumbnail_percent_value">%1$.1f%%</string>
+  <string name="thumbnail_info_jpeg_setting">Настройка JPEG-кодировщика приложения</string>
+  <string name="thumbnail_jpeg_value">%1$d%%</string>
+  <string name="thumbnail_info_modified">Время обновления файла кэша</string>
+  <string name="thumbnail_info_cache_path">Путь к файлу кэша</string>
+  <string name="thumbnail_info_source">URI источника</string>
+  <string name="thumbnail_yes">Да</string>
+  <string name="thumbnail_no">Нет</string>
+  <string name="thumbnail_refresh">Обновить сведения</string>
+  <string name="thumbnail_generate">Создать миниатюру</string>
+  <string name="thumbnail_quality_note">Предпросмотр показывает фактическое кэшированное изображение для текущих настроек. Плитки обозревателя могут кэшировать изображение меньше заданного ограничения размера. При открытии этой вкладки новый кадр не создаётся.</string>
+  <string name="thumbnail_inspection_failed">Не удалось прочитать сведения о миниатюре. Попробуйте обновить.</string>
+  <string name="thumbnail_generation_unavailable">Выбранный генератор не вернул миниатюру для этого файла.</string>
+
+  <!-- Automatic thumbnail generation -->
+  <string name="pref_appearance_thumbnail_generator_summary">Выберите Авто, Native или MediaStore для локальных миниатюр и обложек песен</string>
+  <string name="pref_thumbnail_generator_auto">Авто (по умолчанию)</string>
+  <string name="pref_thumbnail_generator_auto_summary">Сначала используется MediaStore; если миниатюра или обложка песни недоступна, используется Native, в том числе в скрытых папках. Смена режима очищает кэш миниатюр.</string>
+  <string name="thumbnail_strategy_auto">Сначала MediaStore, затем Native при неудаче</string>
+
+  <string name="update_download_failed">Ошибка загрузки. Нажмите «Повторить», чтобы продолжить.</string>
+  <string name="update_install_failed">Не удалось открыть установщик. Повторите попытку.</string>
+  <string name="update_install_permission">Разрешите этому приложению устанавливать обновления в настройках Android, затем снова нажмите «Установить».</string>
+  <string name="update_checking_download">Проверка загруженного APK…</string>
+  <string name="update_check_failed">Не удалось проверить обновления. Проверьте подключение или повторите попытку позже.</string>
 </resources>

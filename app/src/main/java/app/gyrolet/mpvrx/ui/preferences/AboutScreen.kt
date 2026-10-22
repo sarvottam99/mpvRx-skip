@@ -26,6 +26,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -41,7 +42,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -49,11 +49,11 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
@@ -83,7 +83,6 @@ import app.gyrolet.mpvrx.ui.utils.navigateTo
 import app.gyrolet.mpvrx.ui.utils.popSafely
 import app.gyrolet.mpvrx.utils.clipboard.SafeClipboard
 import java.util.Locale
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -98,7 +97,9 @@ object AboutScreen : Screen {
     val packageInfo = packageManager.getPackageInfo(context.packageName, 0)
     val versionName =
       packageInfo.versionName
-        ?.let { value -> if (BuildConfig.IS_PREVIEW_BUILD) value else value.substringBefore('-') }
+        ?.let { value ->
+          if (BuildConfig.IS_PREVIEW_BUILD || BuildConfig.IS_EXPERIMENTAL_BUILD) value else value.substringBefore('-')
+        }
         ?: BuildConfig.VERSION_NAME
     val buildType = BuildConfig.BUILD_TYPE
     val githubRepoUrl = stringResource(R.string.github_repo_url)
@@ -114,28 +115,6 @@ object AboutScreen : Screen {
       } else {
         null
       }
-    val updateState by (
-      updateViewModel?.updateState ?: MutableStateFlow(
-        UpdateViewModel.UpdateState.Idle,
-      )
-    ).collectAsState()
-
-    // Show toast when no update is available after manual check (only if update feature is enabled)
-    LaunchedEffect(updateState) {
-      if (BuildConfig.ENABLE_UPDATE_FEATURE &&
-        updateViewModel != null &&
-        updateState is UpdateViewModel.UpdateState.NoUpdate
-      ) {
-        Toast
-          .makeText(
-            context,
-            context.getString(app.gyrolet.mpvrx.R.string.ui_already_using_latest_version),
-            Toast.LENGTH_SHORT,
-          ).show()
-        updateViewModel.dismissNoUpdate()
-      }
-    }
-
     Scaffold(
       topBar = {
         SettingsTopAppBar(
@@ -251,7 +230,7 @@ object AboutScreen : Screen {
 
               Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(app.gyrolet.mpvrx.ui.theme.AppConnectedShapeTokens.spacing),
               ) {
                 val btnContainer = cs.primary
                 val btnContent = cs.onPrimary
@@ -261,7 +240,7 @@ object AboutScreen : Screen {
                     Modifier
                       .weight(1f)
                       .height(56.dp),
-                  shape = RoundedCornerShape(16.dp),
+                  shape = RoundedCornerShape(topStart = 24.dp, topEnd = 6.dp, bottomEnd = 6.dp, bottomStart = 6.dp),
                   colors =
                     ButtonDefaults.buttonColors(
                       containerColor = btnContainer,
@@ -294,7 +273,7 @@ object AboutScreen : Screen {
                     Modifier
                       .weight(1f)
                       .height(56.dp),
-                  shape = RoundedCornerShape(16.dp),
+                  shape = RoundedCornerShape(topStart = 6.dp, topEnd = 24.dp, bottomEnd = 6.dp, bottomStart = 6.dp),
                   colors =
                     ButtonDefaults.buttonColors(
                       containerColor = btnContainer,
@@ -317,14 +296,15 @@ object AboutScreen : Screen {
                 }
               }
 
-              Spacer(modifier = Modifier.height(12.dp))
+              Spacer(modifier = Modifier.height(app.gyrolet.mpvrx.ui.theme.AppConnectedShapeTokens.spacing))
 
-              OutlinedButton(
+              Button(
                 onClick = {
                   context.startActivity(Intent(Intent.ACTION_VIEW, privacyPolicyUrl.toUri()))
                 },
                 modifier = Modifier.fillMaxWidth().height(50.dp),
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp, bottomEnd = 24.dp, bottomStart = 24.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = cs.primary, contentColor = cs.onPrimary),
               ) {
                 Icon(Icons.RoundedFilled.Security, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(8.dp))
@@ -411,11 +391,11 @@ object AboutScreen : Screen {
               style = MaterialTheme.typography.bodyMedium,
               color = cs.onSurfaceVariant,
             )
-            Spacer(Modifier.height(14.dp))
-            Surface(
+          }
+          Surface(
               shape = RoundedCornerShape(12.dp),
               color = cs.primaryContainer.copy(alpha = 0.4f),
-              modifier = Modifier.fillMaxWidth(),
+              modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
             ) {
               Row(
                 modifier =
@@ -468,7 +448,7 @@ object AboutScreen : Screen {
                 )
               }
             }
-            Spacer(Modifier.height(12.dp))
+          Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
             Button(
               onClick = {
                 try {
@@ -515,8 +495,7 @@ object AboutScreen : Screen {
           PreferenceCard {
             val isAutoUpdateEnabled by updateViewModel.isAutoUpdateEnabled.collectAsState()
             val updateChannel by updateViewModel.updateChannel.collectAsState()
-            Column {
-              Row(
+            Row(
                 modifier =
                   Modifier
                     .fillMaxWidth()
@@ -553,7 +532,6 @@ object AboutScreen : Screen {
                 )
               }
 
-              PreferenceDivider()
 
               Column(
                 modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -566,25 +544,32 @@ object AboutScreen : Screen {
                   color = cs.onSurface,
                 )
                 Text(
-                  text = stringResource(R.string.ui_preview_builds_summary),
+                  text = stringResource(R.string.ui_update_channels_summary),
                   style = MaterialTheme.typography.bodyMedium,
                   color = cs.outline,
                 )
                 SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                   AppUpdateChannel.entries.forEachIndexed { index, channel ->
                     SegmentedButton(
+                      modifier = Modifier.weight(1f),
                       selected = updateChannel == channel,
                       onClick = { updateViewModel.setUpdateChannel(channel) },
                       shape = SegmentedButtonDefaults.itemShape(index, AppUpdateChannel.entries.size),
                       colors = themedSegmentedButtonColors(),
+                      contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                      icon = {},
                       label = {
                         Text(
                           stringResource(
                             when (channel) {
-                              AppUpdateChannel.STABLE -> R.string.ui_stable_releases
-                              AppUpdateChannel.PREVIEW -> R.string.ui_preview_builds
+                              AppUpdateChannel.STABLE -> R.string.ui_update_channel_stable_short
+                              AppUpdateChannel.PREVIEW -> R.string.ui_update_channel_preview_short
+                              AppUpdateChannel.EXPERIMENTAL -> R.string.ui_update_channel_experimental_short
                             },
                           ),
+                          maxLines = 1,
+                          overflow = TextOverflow.Ellipsis,
+                          style = MaterialTheme.typography.labelMedium,
                         )
                       },
                     )
@@ -592,7 +577,6 @@ object AboutScreen : Screen {
                 }
               }
 
-              PreferenceDivider()
 
               Column(modifier = Modifier.padding(16.dp)) {
                 Button(
@@ -616,7 +600,6 @@ object AboutScreen : Screen {
                   )
                 }
               }
-            }
           }
 
           Spacer(Modifier.height(8.dp))

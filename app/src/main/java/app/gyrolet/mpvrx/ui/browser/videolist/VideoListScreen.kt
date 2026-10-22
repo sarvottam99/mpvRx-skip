@@ -22,13 +22,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBars
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -105,8 +102,10 @@ import app.gyrolet.mpvrx.ui.browser.dialogs.FileOperationProgressDialog
 import app.gyrolet.mpvrx.ui.browser.dialogs.FolderPickerDialog
 import app.gyrolet.mpvrx.ui.browser.dialogs.LoadingDialog
 import app.gyrolet.mpvrx.ui.browser.dialogs.RenameDialog
+import app.gyrolet.mpvrx.ui.browser.dialogs.rememberSelectionInfoAction
 import app.gyrolet.mpvrx.ui.browser.dialogs.VideoCompressorOverlay
 import app.gyrolet.mpvrx.ui.browser.dialogs.VideoSortDialog
+import app.gyrolet.mpvrx.ui.browser.fab.FabPlacement
 import app.gyrolet.mpvrx.ui.browser.fab.FabScrollHelper
 import app.gyrolet.mpvrx.ui.browser.selection.SelectionManager
 import app.gyrolet.mpvrx.ui.browser.selection.rememberSelectionManager
@@ -153,7 +152,6 @@ data class VideoListScreen(
     val backstack = LocalBackStack.current
     val browserPreferences = koinInject<BrowserPreferences>()
     val playerPreferences = koinInject<PlayerPreferences>()
-    val playlistMode by playerPreferences.playlistMode.collectAsState()
     val appearancePreferences = koinInject<app.gyrolet.mpvrx.preferences.AppearancePreferences>()
     val showQuickPlayFab by appearancePreferences.showQuickPlayFab.collectAsState()
     val navigationBarHeight = app.gyrolet.mpvrx.ui.browser.LocalNavigationBarHeight.current
@@ -238,6 +236,10 @@ data class VideoListScreen(
         onOperationComplete = { viewModel.refresh() },
       )
     val selectedVideos = selectionManager.getSelectedItems()
+    val showSelectionInfo = rememberSelectionInfoAction(
+      videos = { selectionManager.getSelectedItems() },
+      onSingleOpened = { selectionManager.clear() },
+    )
     val watchedVideoIds = remember(sortedVideosWithInfo) {
       sortedVideosWithInfo.filter(VideoWithPlaybackInfo::isWatched).mapTo(hashSetOf()) { it.video.id }
     }
@@ -419,18 +421,7 @@ data class VideoListScreen(
           onTitleDoubleTap = { backstack.navigateTo(SecureFolderGateScreen) },
           onTitleLongPress = { backstack.navigateTo(SecureFolderGateScreen) },
           isSingleSelection = selectionManager.isSingleSelection,
-          onInfoClick = {
-            if (selectionManager.isSingleSelection) {
-              val video = selectionManager.getSelectedItems().firstOrNull()
-              if (video != null) {
-                val intent = Intent(context, app.gyrolet.mpvrx.ui.mediainfo.MediaInfoActivity::class.java)
-                intent.action = Intent.ACTION_VIEW
-                intent.data = video.uri
-                context.startActivity(intent)
-                selectionManager.clear()
-              }
-            }
-          },
+          onInfoClick = showSelectionInfo,
           onShareClick = { selectionManager.shareSelected() },
           onPlayClick = { selectionManager.playSelected() },
           onSelectAll = { selectionManager.selectAll() },
@@ -449,8 +440,6 @@ data class VideoListScreen(
         }
       },
       floatingActionButton = {
-        val navigationBarHeight = app.gyrolet.mpvrx.ui.browser.LocalNavigationBarHeight.current
-        val miniPlayerClearance = app.gyrolet.mpvrx.ui.browser.NavigationBarState.miniPlayerClearance
         if (sortedVideosWithInfo.isNotEmpty()) {
           val isFabShouldBeVisible =
             showQuickPlayFab && !selectionManager.isInSelectionMode && isFabVisible.value
@@ -471,8 +460,10 @@ data class VideoListScreen(
             FloatingActionButton(
               modifier =
                 Modifier
-                  .windowInsetsPadding(WindowInsets.systemBars)
-                  .padding(bottom = navigationBarHeight + miniPlayerClearance)
+                  .padding(
+                    end = FabPlacement.StandaloneEndPadding,
+                    bottom = FabPlacement.scaffoldBottomPadding(),
+                  )
                   .animateFloatingActionButton(
                     visible = isFabShouldBeVisible,
                     alignment = Alignment.BottomEnd,
@@ -486,7 +477,7 @@ data class VideoListScreen(
                         .firstOrNull { it.filePath in folderPaths }
                     val startIndex =
                       sortedVideos.indexOfFirst { it.path == lastPlayed?.filePath }.coerceAtLeast(0)
-                    if (playlistMode) {
+                    if (playerPreferences.shouldBuildAutomaticQueue(sortedVideos[startIndex].isAudio)) {
                       MediaUtils.playFiles(sortedVideos, context, startIndex, "video_list")
                     } else {
                       MediaUtils.playFile(sortedVideos[startIndex], context, "video_list")
@@ -544,7 +535,7 @@ data class VideoListScreen(
             if (selectionManager.isInSelectionMode && !archiveFolder) {
               selectionManager.toggleFromUser(video)
             } else if (!selectionManager.isInSelectionMode) {
-              if (archiveFolder || (scopedFolder && playlistMode)) {
+              if (archiveFolder || (scopedFolder && playerPreferences.shouldBuildAutomaticQueue(video.isAudio))) {
                 val startIndex = sortedVideos.indexOfFirst { it.uri == video.uri }.coerceAtLeast(0)
                 MediaUtils.playFiles(
                   sortedVideos,
@@ -630,63 +621,18 @@ data class VideoListScreen(
     }
   }
 
-      // Sort Dialog
-      if (isAudio) {
-        app.gyrolet.mpvrx.ui.browser.dialogs.MusicSortDialog(
-          isOpen = sortDialogOpen.value,
-          onDismiss = { sortDialogOpen.value = false },
-          sortField =
-            when (videoSortType) {
-              app.gyrolet.mpvrx.preferences.VideoSortType.Duration -> app.gyrolet.mpvrx.ui.browser.music.MusicSortField.DURATION
-              app.gyrolet.mpvrx.preferences.VideoSortType.Date -> app.gyrolet.mpvrx.ui.browser.music.MusicSortField.DATE_ADDED
-              else -> app.gyrolet.mpvrx.ui.browser.music.MusicSortField.TITLE
-            },
-          sortOrder =
-            if (videoSortOrder.isAscending) {
-              app.gyrolet.mpvrx.ui.browser.music.MusicSortOrder.ASCENDING
-            } else {
-              app.gyrolet.mpvrx.ui.browser.music.MusicSortOrder.DESCENDING
-            },
-          viewMode = if (mediaLayoutMode == MediaLayoutMode.GRID) app.gyrolet.mpvrx.ui.browser.music.MusicViewMode.GRID else app.gyrolet.mpvrx.ui.browser.music.MusicViewMode.LIST,
-          // VideoSortType has no Artist/Album, so only offer the fields it can actually persist
-          // (Title/Duration/Date Added) instead of silently collapsing Artist/Album back to Title.
-          availableFields =
-            listOf(
-              app.gyrolet.mpvrx.ui.browser.music.MusicSortField.TITLE,
-              app.gyrolet.mpvrx.ui.browser.music.MusicSortField.DURATION,
-              app.gyrolet.mpvrx.ui.browser.music.MusicSortField.DATE_ADDED,
-            ),
-          onSortFieldChange = { field ->
-            val mapped =
-              when (field) {
-                app.gyrolet.mpvrx.ui.browser.music.MusicSortField.DURATION -> app.gyrolet.mpvrx.preferences.VideoSortType.Duration
-                app.gyrolet.mpvrx.ui.browser.music.MusicSortField.DATE_ADDED -> app.gyrolet.mpvrx.preferences.VideoSortType.Date
-                else -> app.gyrolet.mpvrx.preferences.VideoSortType.Title
-              }
-            browserPreferences.videoSortType.set(mapped)
-          },
-          onSortOrderChange = { order ->
-            browserPreferences.videoSortOrder.set(
-              if (order == app.gyrolet.mpvrx.ui.browser.music.MusicSortOrder.ASCENDING) SortOrder.Ascending else SortOrder.Descending,
-            )
-          },
-          onViewModeChange = { mode ->
-            browserPreferences.folderViewVideoLayoutMode.set(
-              if (mode == app.gyrolet.mpvrx.ui.browser.music.MusicViewMode.GRID) MediaLayoutMode.GRID else MediaLayoutMode.LIST,
-            )
-          },
-        )
-      } else {
-        VideoSortDialog(
-          isOpen = sortDialogOpen.value,
-          onDismiss = { sortDialogOpen.value = false },
-          sortType = videoSortType,
-          sortOrder = videoSortOrder,
-          onSortTypeChange = { browserPreferences.videoSortType.set(it) },
-          onSortOrderChange = { browserPreferences.videoSortOrder.set(it) },
-          isDualPane = isDualPane,
-        )
-      }
+      // Audio folders use the same preferences and card fields as video folders.
+      VideoSortDialog(
+        isOpen = sortDialogOpen.value,
+        onDismiss = { sortDialogOpen.value = false },
+        sortType = videoSortType,
+        sortOrder = videoSortOrder,
+        onSortTypeChange = { browserPreferences.videoSortType.set(it) },
+        onSortOrderChange = { browserPreferences.videoSortOrder.set(it) },
+        isDualPane = isDualPane,
+        isAudio = isAudio,
+        onMetadataFieldEnabled = viewModel::refresh,
+      )
 
       // Delete Dialog
       DeleteConfirmationDialog(
@@ -696,6 +642,8 @@ data class VideoListScreen(
         itemType = "video",
         itemCount = selectionManager.selectedCount,
         itemNames = selectionManager.getSelectedItems().map { it.displayName },
+        itemPaths = selectionManager.getSelectedItems().map { it.uri.toString() },
+        totalSizeBytes = selectionManager.getSelectedItems().sumOf { it.size.coerceAtLeast(0L) }.takeIf { it > 0L },
       )
 
       // Rename Dialogs
@@ -905,16 +853,15 @@ internal fun VideoListContent(
   val appearancePreferences = koinInject<AppearancePreferences>()
   val musicGridCoverArtSize by browserPreferences.musicGridCoverArtSize.collectAsState()
   val configuration = androidx.compose.ui.platform.LocalConfiguration.current
-  val isTablet = configuration.smallestScreenWidthDp >= 600
   val density = LocalDensity.current
   val navigationBarHeight = app.gyrolet.mpvrx.ui.browser.LocalNavigationBarHeight.current
   val miniPlayerClearance = app.gyrolet.mpvrx.ui.browser.NavigationBarState.miniPlayerClearance
   val bottomPadding =
-    if (showFloatingBottomBar) {
-      if (isTablet) 108.dp else 88.dp
-    } else {
-      navigationBarHeight + miniPlayerClearance
-    }
+    maxOf(
+      navigationBarHeight,
+      miniPlayerClearance,
+      if (showFloatingBottomBar) app.gyrolet.mpvrx.ui.browser.NavigationBarState.selectionBarClearance else 0.dp,
+    )
   val tapThumbnailToSelect by gesturePreferences.tapThumbnailToSelect.collectAsState()
   val showSubtitleIndicator by browserPreferences.showSubtitleIndicator.collectAsState()
   val showVideoThumbnails by browserPreferences.showVideoThumbnails.collectAsState()
@@ -931,6 +878,7 @@ internal fun VideoListContent(
   val showDurationField by browserPreferences.showDurationField.collectAsState()
   val centerGridTitles by browserPreferences.centerGridTitles.collectAsState()
   val thumbnailQuality by browserPreferences.thumbnailQuality.collectAsState()
+  val thumbnailGenerator by browserPreferences.thumbnailGenerator.collectAsState()
   val swipeLeft by browserPreferences.videoSwipeLeft.collectAsState()
   val swipeRight by browserPreferences.videoSwipeRight.collectAsState()
   val manualGridColumnsEnabled by browserPreferences.manualGridColumnsEnabled.collectAsState()
@@ -956,6 +904,7 @@ internal fun VideoListContent(
       showDurationField,
       centerGridTitles,
       thumbnailQuality,
+      thumbnailGenerator,
       swipeLeft,
       swipeRight,
     ) {
@@ -974,6 +923,7 @@ internal fun VideoListContent(
         showDurationField = showDurationField,
         centerGridTitles = centerGridTitles,
         thumbnailQuality = thumbnailQuality,
+        thumbnailGenerator = thumbnailGenerator,
         swipeLeft = swipeLeft,
         swipeRight = swipeRight,
       )
@@ -1098,7 +1048,7 @@ internal fun VideoListContent(
           }
 
         LaunchedEffect(
-          folderId, showVideoThumbnails, thumbWidthPx, thumbHeightPx,
+          folderId, showVideoThumbnails, thumbnailGenerator, thumbWidthPx, thumbHeightPx,
           mediaLayoutMode, thumbnailListKey, listState, gridState,
         ) {
           val generationId = "$folderId:${mediaLayoutMode.name}"
@@ -1109,9 +1059,9 @@ internal fun VideoListContent(
                 else gridState.isScrollInProgress
               }.collectLatest { scrolling ->
                 // Visible cards have priority: bulk work resumes only after the scroll settles.
-                thumbnailRepository.cancelFolderThumbnailGeneration(generationId)
+                thumbnailRepository.pauseFolderThumbnailGeneration(generationId)
                 if (!scrolling) {
-                  delay(850L)
+                  delay(1_500L)
                   thumbnailRepository.startFolderThumbnailGeneration(
                     folderId = generationId,
                     videos = latestVideosWithInfo.map { it.video },
@@ -1231,7 +1181,7 @@ internal fun VideoListContent(
                   modifier =
                     Modifier
                       .align(Alignment.CenterEnd)
-                      .padding(end = 2.dp, top = 6.dp, bottom = navigationBarHeight + miniPlayerClearance + 6.dp)
+                      .padding(end = 2.dp, top = 6.dp, bottom = bottomPadding + 6.dp)
                       .graphicsLayer { alpha = scrollbarAlpha },
                 )
               }
@@ -1288,8 +1238,8 @@ internal fun VideoListContent(
                       allowThumbnailGeneration = !archiveFolder,
                       allowThumbnailLoading = !archiveFolder,
                       uiConfig = videoCardUiConfig,
-                      thumbnailWidthPx = if (isAudio) with(density) { musicCoverArtSize.dp.roundToPx() } else null,
-                      thumbnailHeightPx = if (isAudio) with(density) { musicCoverArtSize.dp.roundToPx() } else null,
+                      thumbnailWidthPx = if (isAudio || videoWithInfo.video.isAudio) with(density) { musicCoverArtSize.dp.roundToPx() } else null,
+                      thumbnailHeightPx = if (isAudio || videoWithInfo.video.isAudio) with(density) { musicCoverArtSize.dp.roundToPx() } else null,
                   )
                 }
               }
@@ -1303,7 +1253,7 @@ internal fun VideoListContent(
                   modifier =
                     Modifier
                       .align(Alignment.CenterEnd)
-                      .padding(end = 2.dp, top = 6.dp, bottom = navigationBarHeight + miniPlayerClearance + 6.dp)
+                      .padding(end = 2.dp, top = 6.dp, bottom = bottomPadding + 6.dp)
                       .graphicsLayer { alpha = scrollbarAlpha },
                 )
               }

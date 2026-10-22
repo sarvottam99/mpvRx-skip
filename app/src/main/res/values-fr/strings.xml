@@ -77,6 +77,11 @@
   <string name="pref_appearance_thumbnail_quality_summary">Résolution maximale des miniatures : %1$d px. Une qualité supérieure utilise plus de stockage et peut prendre plus de temps à générer.</string>
   <string name="pref_appearance_thumbnail_position_title">Position de l’image de la miniature</string>
   <string name="pref_appearance_thumbnail_position_summary">Capturer l’image à %1$d%% de la vidéo</string>
+  <string name="pref_appearance_thumbnail_parallelism_title">Cœurs pour les miniatures</string>
+  <string name="pref_appearance_thumbnail_parallelism_auto">Automatique (%1$d sur %2$d)</string>
+  <string name="pref_appearance_thumbnail_parallelism_value">%1$d sur %2$d</string>
+  <string name="pref_appearance_thumbnail_parallelism_dialog_summary">Nombre de miniatures créées en même temps. Plus est plus rapide, mais consomme plus de mémoire et de batterie et peut saccader le défilement. Automatique choisit une valeur sûre pour cet appareil.</string>
+  <string name="pref_appearance_thumbnail_parallelism_warning">Supérieur aux %1$d recommandés pour cet appareil. Réduisez-le si les listes ralentissent ou si l’application est fermée en arrière-plan.</string>
   <string name="pref_appearance_show_network_thumbnails_title">Afficher les miniatures réseau (expérimental)</string>
   <string name="pref_appearance_show_network_thumbnails_summary">Générer des miniatures pour les flux réseau (peut augmenter l’utilisation des données mobiles)</string>
   <string name="pref_nav_network_title">Afficher l’onglet Réseau</string>
@@ -613,7 +618,7 @@ Suivant : NEXT</string>
   <string name="pref_section_general">Général</string>
   <string name="pref_playlist_mode_title">Activer la navigation suivant/précédent</string>
   <string name="pref_playlist_mode_summary">Afficher les boutons suivant/précédent pour toutes les vidéos du dossier</string>
-  <string name="pref_playlist_mode_summary_disabled">Lire les vidéos individuellement (sélectionnez-en plusieurs pour une liste)</string>
+  <string name="pref_playlist_mode_summary_disabled">Masquer les boutons suivant/précédent ; la lecture automatique se règle séparément</string>
 
   <!-- Player - Seeking Section (additional)                      -->
   <string name="pref_online_skip_markers_title">Utiliser les marqueurs de saut en ligne</string>
@@ -1867,6 +1872,7 @@ Veuillez redémarrer l’application pour appliquer toutes les modifications.</s
   <string name="update_version_format">Version %1$s</string>
   <string name="update_release_date">Date de publication</string>
   <string name="update_size">Taille</string>
+  <string name="update_package">Paquet</string>
   <string name="update_unknown_size">Taille inconnue</string>
   <string name="update_beta_build_format">Bêta r%1$d</string>
   <string name="ui_beta_badge_suffix">\u0020(Bêta)</string>
@@ -2327,6 +2333,10 @@ Veuillez redémarrer l’application pour appliquer toutes les modifications.</s
   <string name="onboarding_configuration_restore_failed">La configuration du dossier a échoué : %1$s</string>
   <string name="navbar_glow_title">Éclat du verre</string>
   <string name="navbar_glow_summary">Afficher l’éclairage du bord et l’éclat au toucher de la barre de navigation</string>
+  <string name="legacy_navigation_bar_title">Barre de navigation classique</string>
+  <string name="legacy_navigation_bar_summary">Utiliser une barre de navigation classique sur toute la largeur au lieu de la barre flottante.</string>
+  <string name="progressive_navigation_blur_title">Flou progressif de navigation</string>
+  <string name="progressive_navigation_blur_summary">Utiliser le flou progressif Haze derrière la barre de navigation flottante. Désactivé automatiquement avec la barre classique.</string>
   <string name="pref_seekbar_preview_skip_markers">Marqueurs de saut</string>
   <string name="pref_liquid_glass_optics">Optique</string>
   <string name="pref_liquid_glass_opacity">Opacité du fond</string>
@@ -2613,4 +2623,108 @@ Veuillez redémarrer l’application pour appliquer toutes les modifications.</s
   <string name="app_icon_shortcut_failed">Impossible d\'enregistrer le raccourci. Veuillez réessayer.</string>
   <string name="color_picker_wheel">Roue chromatique</string>
   <string name="color_picker_brightness">Luminosité</string>
+    <string name="only_for_video_list">Uniquement pour la liste des vidéos</string>
+    <string name="only_for_folder_list">Uniquement pour la liste des dossiers</string>
+  <string name="selection_info_title">Détails de la sélection</string>
+  <string name="selection_info_folders">Dossiers</string>
+  <string name="selection_info_total_size">Taille totale</string>
+  <string name="selection_info_total_duration">Durée totale</string>
+  <string name="selection_info_average_duration">Durée moyenne</string>
+  <string name="selection_info_average_size">Taille moyenne</string>
+  <string name="selection_info_resolutions">Résolutions</string>
+  <string name="selection_info_codecs">Codecs vidéo</string>
+  <string name="selection_info_formats">Formats</string>
+  <string name="selection_info_frame_rates">Fréquences d\'images</string>
+  <string name="selection_info_subtitles">Sous-titres intégrés</string>
+  <string name="selection_info_subtitles_value">%1$d / %2$d</string>
+  <string name="selection_info_longest">Fichier le plus long</string>
+  <string name="selection_info_largest">Fichier le plus volumineux</string>
+  <string name="selection_info_modified">Date de modification</string>
+  <string name="selection_info_items">Éléments sélectionnés</string>
+  <string name="selection_info_scanning">Analyse des dossiers (%1$d/%2$d)…</string>
+  <string name="selection_info_scan_failed">Impossible de charger les détails de la sélection. Vérifiez l\'accès aux dossiers et réessayez.</string>
+  <string name="selection_info_folder_unreadable">Impossible de lire les médias dans %1$s</string>
+  <string name="selection_info_fps_value">%1$.2f images/s</string>
+  <string name="selection_info_metadata_note">Le résumé utilise les métadonnées disponibles dans la bibliothèque. Appuyez sur un fichier pour afficher toutes ses métadonnées.</string>
+  <string name="selection_info_missing_metadata">Métadonnées indisponibles</string>
+  <string name="selection_info_missing_metadata_value">Fichiers de taille inconnue : %1$d ; de durée inconnue : %2$d. Les totaux et les moyennes ne prennent en compte que les valeurs connues.</string>
+  <string name="selection_info_no_media">Aucun média lisible trouvé dans les dossiers sélectionnés</string>
+  <string name="selection_info_copy_summary">Copier le résumé</string>
+  <string name="selection_info_open_media_info">Ouvrir les informations complètes du média</string>
+  <plurals name="selection_info_video_count">
+    <item quantity="one">%1$d vidéo</item>
+    <item quantity="other">%1$d vidéos</item>
+  </plurals>
+  <plurals name="selection_info_audio_count">
+    <item quantity="one">%1$d fichier audio</item>
+    <item quantity="other">%1$d fichiers audio</item>
+  </plurals>
+  <plurals name="selection_info_file_count">
+    <item quantity="one">%1$d fichier</item>
+    <item quantity="other">%1$d fichiers</item>
+  </plurals>
+  <plurals name="selection_info_folder_count">
+    <item quantity="one">%1$d dossier</item>
+    <item quantity="other">%1$d dossiers</item>
+  </plurals>
+
+  <!-- Audio format indicators -->
+  <string name="audio_quality_hi_res">Sans perte en haute résolution</string>
+  <string name="audio_quality_lossless">Sans perte</string>
+  <string name="audio_quality_lossy">Avec perte</string>
+  <string name="audio_quality_dsd">Direct Stream Digital</string>
+  <string name="audio_quality_audio">Audio</string>
+
+  <!-- Delete action size -->
+  <string name="delete_size_loading">Calcul en cours…</string>
+  <string name="delete_size_unknown">Taille inconnue</string>
+  <string name="delete_size_description">Taille totale : %1$s</string>
+
+  <!-- Thumbnail information -->
+  <string name="media_info_tab_thumbnail">Miniature</string>
+  <string name="thumbnail_preview_description">Miniature en cache pour %1$s</string>
+  <string name="thumbnail_status_disk">En cache sur le disque</string>
+  <string name="thumbnail_status_memory">En cache en mémoire</string>
+  <string name="thumbnail_status_unreadable">Impossible de décoder l’image en cache</string>
+  <string name="thumbnail_status_missing">Aucune miniature en cache</string>
+  <string name="thumbnail_info_status">État du cache</string>
+  <string name="thumbnail_info_generator">Stratégie de génération</string>
+  <string name="thumbnail_info_strategy">Sélection de l’image vidéo ou de la pochette</string>
+  <string name="thumbnail_strategy_artwork">Pochette de l’album</string>
+  <string name="thumbnail_strategy_android">Image vidéo choisie par Android</string>
+  <string name="thumbnail_info_quality">Qualité configurée</string>
+  <string name="thumbnail_info_maximum">Taille maximale configurée</string>
+  <string name="thumbnail_maximum_value">Jusqu’à %1$d pixels sur le côté le plus long</string>
+  <string name="thumbnail_info_dimensions">Dimensions réelles de l’image</string>
+  <string name="thumbnail_dimensions_value">%1$d × %2$d pixels</string>
+  <string name="thumbnail_info_format">Format de l’image en cache</string>
+  <string name="thumbnail_info_size">Taille du fichier en cache</string>
+  <string name="thumbnail_info_memory">Présente dans le cache mémoire de l’explorateur</string>
+  <string name="thumbnail_info_preview_memory">Mémoire utilisée par l’aperçu</string>
+  <string name="thumbnail_info_frame">Position de capture configurée</string>
+  <string name="thumbnail_percent_value">%1$.1f%%</string>
+  <string name="thumbnail_info_jpeg_setting">Réglage de l’encodeur JPEG de l’application</string>
+  <string name="thumbnail_jpeg_value">%1$d%%</string>
+  <string name="thumbnail_info_modified">Dernière mise à jour du fichier de cache</string>
+  <string name="thumbnail_info_cache_path">Chemin du fichier de cache</string>
+  <string name="thumbnail_info_source">URI de la source</string>
+  <string name="thumbnail_yes">Oui</string>
+  <string name="thumbnail_no">Non</string>
+  <string name="thumbnail_refresh">Actualiser les informations</string>
+  <string name="thumbnail_generate">Générer une miniature</string>
+  <string name="thumbnail_quality_note">L’aperçu affiche l’image réellement mise en cache avec les réglages actuels. Les vignettes de l’explorateur peuvent mettre en cache une image plus petite que la taille maximale configurée. L’ouverture de cet onglet ne génère pas de nouvelle image vidéo.</string>
+  <string name="thumbnail_inspection_failed">Impossible de lire les informations de la miniature. Essayez de les actualiser.</string>
+  <string name="thumbnail_generation_unavailable">Le générateur sélectionné n’a renvoyé aucune miniature pour ce fichier.</string>
+
+  <!-- Automatic thumbnail generation -->
+  <string name="pref_appearance_thumbnail_generator_summary">Choisir Auto, Native ou MediaStore pour les miniatures et pochettes locales</string>
+  <string name="pref_thumbnail_generator_auto">Auto (par défaut)</string>
+  <string name="pref_thumbnail_generator_auto_summary">Essayer MediaStore en premier, puis utiliser Native si la miniature ou la pochette est indisponible, y compris dans les dossiers masqués. Changer de mode efface les miniatures en cache.</string>
+  <string name="thumbnail_strategy_auto">MediaStore en premier, puis Native en secours</string>
+
+  <string name="update_download_failed">Échec du téléchargement. Appuyez sur Réessayer pour reprendre.</string>
+  <string name="update_install_failed">Impossible d’ouvrir le programme d’installation. Vous pouvez réessayer.</string>
+  <string name="update_install_permission">Autorisez cette application à installer des mises à jour dans les paramètres Android, puis appuyez à nouveau sur Installer.</string>
+  <string name="update_checking_download">Vérification de l’APK téléchargé…</string>
+  <string name="update_check_failed">Impossible de rechercher des mises à jour. Vérifiez la connexion ou réessayez plus tard.</string>
 </resources>

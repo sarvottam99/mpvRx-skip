@@ -281,7 +281,16 @@ data class PlaylistDetailScreen(
     val selectedItems = selectionManager.getSelectedItems()
     val isReadOnlySource = playlist?.isM3uPlaylist == true || playlist?.isZipPlaylist == true
 
+    val showSelectionInfo = app.gyrolet.mpvrx.ui.browser.dialogs.rememberSelectionInfoAction(
+      videos = { selectionManager.getSelectedItems().map { it.video } },
+      onSingleOpened = { selectionManager.clear() },
+    )
+
     fun openSelectedItemInfo() {
+      if (selectedItems.size > 1) {
+        showSelectionInfo()
+        return
+      }
       selectedItems.firstOrNull()?.let { item ->
         if (playlist?.isM3uPlaylist == true) {
           urlDialogContent = item.video.path
@@ -496,7 +505,7 @@ data class PlaylistDetailScreen(
             useRemoveIcon = true, // Remove from playlist, not delete the backing media.
             onInfoClick =
               if (
-                selectionManager.isSingleSelection &&
+                selectedItems.isNotEmpty() &&
                   playlist?.isXtreamPlaylist != true &&
                   playlist?.isZipPlaylist != true
               ) {
@@ -616,17 +625,8 @@ data class PlaylistDetailScreen(
       floatingActionButton = {
         if (!isSearching && !isReorderMode && !selectionManager.isInSelectionMode && playlist?.isZipPlaylist != true) {
           val isAudioPlaylist = playlist?.isAudio == true || videoItems.any { it.video.isAudio }
-          val navigationBarHeight = app.gyrolet.mpvrx.ui.browser.LocalNavigationBarHeight.current
-          val miniPlayerClearance = app.gyrolet.mpvrx.ui.browser.NavigationBarState.miniPlayerClearance
           ExtendedFloatingActionButton(
-            modifier =
-              Modifier.padding(
-                bottom =
-                  maxOf(
-                    (navigationBarHeight - 16.dp).coerceAtLeast(0.dp),
-                    miniPlayerClearance,
-                  ),
-              ),
+            modifier = Modifier.padding(bottom = app.gyrolet.mpvrx.ui.browser.fab.FabPlacement.scaffoldBottomPadding()),
             onClick = { backStack.navigateTo(PlaylistAddVideosScreen(playlistId, isAudio = isAudioPlaylist)) },
             icon = { Icon(Icons.RoundedFilled.Add, contentDescription = null) },
               text = { Text(stringResource(if (isAudioPlaylist) R.string.playlist_add_songs else R.string.playlist_add_videos)) },
@@ -934,6 +934,7 @@ private fun PlaylistVideoListContent(
   val centerGridTitles by viewPreferences.centerGridTitles.collectAsState()
   val musicCoverArtSize by viewPreferences.audioCoverArtSize.collectAsState()
   val thumbnailQuality by browserPreferences.thumbnailQuality.collectAsState()
+  val thumbnailGenerator by browserPreferences.thumbnailGenerator.collectAsState()
   val swipeLeft by browserPreferences.videoSwipeLeft.collectAsState()
   val swipeRight by browserPreferences.videoSwipeRight.collectAsState()
   val density = LocalDensity.current
@@ -954,6 +955,7 @@ private fun PlaylistVideoListContent(
       showDurationField,
       centerGridTitles,
       thumbnailQuality,
+      thumbnailGenerator,
       swipeLeft,
       swipeRight,
     ) {
@@ -972,6 +974,7 @@ private fun PlaylistVideoListContent(
         showDurationField = showDurationField,
         centerGridTitles = centerGridTitles,
         thumbnailQuality = thumbnailQuality,
+        thumbnailGenerator = thumbnailGenerator,
         swipeLeft = swipeLeft,
         swipeRight = swipeRight,
       )

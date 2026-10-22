@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -33,6 +32,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
@@ -92,6 +93,7 @@ data class VideoCardUiConfig(
   val thumbnailQuality: ThumbnailQuality = ThumbnailQuality.High,
   val swipeLeft: VideoSwipeAction = VideoSwipeAction.AddToPlaylist,
   val swipeRight: VideoSwipeAction = VideoSwipeAction.ToggleWatched,
+  val thumbnailGenerator: app.gyrolet.mpvrx.preferences.ThumbnailGenerator = app.gyrolet.mpvrx.preferences.ThumbnailGenerator.Auto,
 )
 
 /** Hoist this once per screen and pass the result to every card rather than collecting per item. */
@@ -114,6 +116,7 @@ fun rememberVideoCardUiConfig(): VideoCardUiConfig {
   val showDurationFieldConfig by browserPreferences.showDurationField.collectAsState()
   val centerGridTitles by browserPreferences.centerGridTitles.collectAsState()
   val thumbnailQuality by browserPreferences.thumbnailQuality.collectAsState()
+  val thumbnailGenerator by browserPreferences.thumbnailGenerator.collectAsState()
   val swipeLeft by browserPreferences.videoSwipeLeft.collectAsState()
   val swipeRight by browserPreferences.videoSwipeRight.collectAsState()
 
@@ -132,6 +135,7 @@ fun rememberVideoCardUiConfig(): VideoCardUiConfig {
     showDurationFieldConfig,
     centerGridTitles,
     thumbnailQuality,
+    thumbnailGenerator,
     swipeLeft,
     swipeRight,
   ) {
@@ -150,6 +154,7 @@ fun rememberVideoCardUiConfig(): VideoCardUiConfig {
       showDurationField = showDurationFieldConfig,
       centerGridTitles = centerGridTitles,
       thumbnailQuality = thumbnailQuality,
+      thumbnailGenerator = thumbnailGenerator,
       swipeLeft = swipeLeft,
       swipeRight = swipeRight,
     )
@@ -223,7 +228,6 @@ fun VideoCard(
   useFolderNameStyle: Boolean = false,
   allowThumbnailGeneration: Boolean = true,
   allowThumbnailLoading: Boolean = true,
-  deferThumbnailLoading: Boolean = false,
   uiConfig: VideoCardUiConfig? = null,
   onSwipeAction: ((Video, Boolean, VideoSwipeAction) -> Unit)? = null,
   /** Source badge shown ahead of the metadata chips, e.g. "Local". Null renders nothing. */
@@ -236,11 +240,13 @@ fun VideoCard(
 ) {
   // Screens hoist this once and pass it down; collecting per card would register a dozen
   // preference observers for every visible item in a grid.
+  val thumbnailCacheRevision by koinInject<ThumbnailRepository>().cacheRevision.collectAsState()
   val resolvedUiConfig = uiConfig ?: rememberVideoCardUiConfig()
   val maxLines = if (resolvedUiConfig.unlimitedNameLines) Int.MAX_VALUE else 2
 
   val showThumbnails = resolvedUiConfig.showThumbnails
   val thumbnailQuality = resolvedUiConfig.thumbnailQuality
+  val thumbnailGenerator = resolvedUiConfig.thumbnailGenerator
   val showFramerateInResolution = resolvedUiConfig.showFramerateInResolution
   val showCodecSupportIndicator = resolvedUiConfig.showCodecSupportIndicator
   val showProgressBar = resolvedUiConfig.showProgressBar
@@ -256,13 +262,22 @@ fun VideoCard(
       video.sizeFormatted != "0 B" &&
       video.sizeFormatted != "--"
   val hasResolution = !video.isAudio && video.resolution.isNotBlank() && video.resolution != "--"
-  val fpsOnly = video.resolution.substringAfter("@", "")
-  val hasFps = hasResolution && fpsOnly.isNotEmpty()
+  // Some sources keep the frame rate in Video.fps without an '@' suffix in resolution.
+  // Prefer the numeric metadata, then fall back to older cached resolution strings.
+  val fpsOnly =
+    video.fps.takeIf { it.isFinite() && it > 0f }?.let { fps ->
+      if (fps % 1f == 0f) fps.toInt().toString()
+      else "%.2f".format(java.util.Locale.US, fps).trimEnd('0').trimEnd('.')
+    } ?: video.resolution.substringAfter("@", "").trim().removeSuffix("FPS").removeSuffix("fps").trim()
+  val hasFps = !video.isAudio && fpsOnly.isNotBlank()
+  val resolutionText = video.resolution.substringBefore("@").trim().let { base ->
+    if (showFramerateInResolution && hasFps) "${base}@$fpsOnly" else base
+  }
   val hasCodecChip = showCodecSupportIndicator && !video.isAudio && video.videoCodec.isNotBlank()
   val hasSubtitleChips = showSubtitleIndicator && !video.isAudio && video.hasEmbeddedSubtitles && video.subtitleCodec.isNotBlank()
   val hasDateMetadataChip = showDateChip && video.dateModified > 0
   val hasResolutionMetadataChip = !isGridMode && showResolutionChip && hasResolution
-  val hasFramerateMetadataChip = showFramerateInResolution && hasFps && (isGridMode || !showResolutionChip)
+  val hasFramerateMetadataChip = !isGridMode && showFramerateInResolution && hasFps && !showResolutionChip
   val hasMetadataChips =
     sourceLabel != null ||
       hasCodecChip ||
@@ -285,13 +300,9 @@ fun VideoCard(
 
   // Hold the last displayed thumbnail for this file across grid/list size changes.
   // Repository memory remains the source of truth for new requests.
-  var retainedThumbnail by remember(video.path, video.dateModified, video.size) { mutableStateOf<Bitmap?>(null) }
+  var retainedThumbnail by remember(video.path, video.dateModified, video.size, thumbnailGenerator, thumbnailCacheRevision) { mutableStateOf<Bitmap?>(null) }
 
   val cardShape = rememberMediaSelectionShape(isSelected, isGridMode, selectionNeighbors)
-  val gridFooterHeight = with(LocalDensity.current) {
-    MaterialTheme.typography.titleMedium.lineHeight.toDp() * 2 +
-      MaterialTheme.typography.labelSmall.lineHeight.toDp() * 3 + 64.dp
-  }
 
   VideoSwipeSurface(
     identity = video.path,
@@ -309,7 +320,6 @@ fun VideoCard(
     modifier =
       modifier
         .fillMaxWidth()
-        .then(if (isGridMode) Modifier.mediaGridTileHeight(if (video.isAudio) 1f else 16f / 10f, gridFooterHeight) else Modifier)
         .tvFocusHighlight(cardShape, focusedScale = 1.03f)
         .clip(cardShape)
                 .semantics { selected = isSelected }
@@ -321,7 +331,8 @@ fun VideoCard(
     shape = cardShape,
     colors = CardDefaults.cardColors(containerColor = Color.Transparent),
   ) {
-    Box(modifier = if (isGridMode) Modifier.fillMaxSize() else Modifier.fillMaxWidth()) {
+    // Measure visible content so short titles and fewer chips leave no reserved footer.
+    Box(modifier = Modifier.fillMaxWidth()) {
       Box(
         modifier =
           Modifier
@@ -363,6 +374,8 @@ fun VideoCard(
               resolvedThumbWidthPx,
               resolvedThumbHeightPx,
               thumbnailQuality,
+              thumbnailGenerator,
+              thumbnailCacheRevision,
             ) {
               Any()
             }
@@ -375,16 +388,19 @@ fun VideoCard(
           var thumbnail by remember(thumbnailRequestKey) {
             mutableStateOf<Bitmap?>(exactMemoryThumbnail ?: retainedThumbnail)
           }
+          var showingSoftPreview by remember(thumbnailRequestKey) {
+            mutableStateOf(exactMemoryThumbnail == null && retainedThumbnail != null)
+          }
 
           // Read cached thumbnail immediately from disk if not in memory, or generate if permitted
-          LaunchedEffect(thumbnailRequestKey, allowThumbnailGeneration, allowThumbnailLoading, showThumbnails, deferThumbnailLoading) {
+          LaunchedEffect(thumbnailRequestKey, allowThumbnailGeneration, allowThumbnailLoading, showThumbnails) {
             thumbnail?.let { retainedThumbnail = it }
             // A fallback frame from another size is displayed immediately; fetch the exact size
             // without clearing it. Memory hits require no disk read or decoding.
-            if (!deferThumbnailLoading && exactMemoryThumbnail == null && showThumbnails) {
+            if (allowThumbnailLoading && exactMemoryThumbnail == null && showThumbnails) {
               val loaded =
                 withContext(Dispatchers.IO) {
-                  if (allowThumbnailGeneration && allowThumbnailLoading) {
+                  if (allowThumbnailGeneration) {
                     thumbnailRepository.getThumbnail(video, resolvedThumbWidthPx, resolvedThumbHeightPx)
                   } else {
                     thumbnailRepository.getCachedThumbnail(video, resolvedThumbWidthPx, resolvedThumbHeightPx)
@@ -393,6 +409,7 @@ fun VideoCard(
               if (loaded != null) {
                 thumbnail = loaded
                 retainedThumbnail = loaded
+                showingSoftPreview = false
               }
             }
           }
@@ -414,7 +431,7 @@ fun VideoCard(
             contentAlignment = Alignment.Center,
           ) {
             if (showThumbnails) {
-              if (!video.artworkUrl.isNullOrBlank()) {
+              if (!video.artworkUrl.isNullOrBlank() && !app.gyrolet.mpvrx.domain.thumbnail.isLocalArtworkSource(video.path)) {
                 RemoteImage(
                   url = video.artworkUrl,
                   contentDescription = stringResource(R.string.ui_thumbnail),
@@ -427,7 +444,7 @@ fun VideoCard(
                   contentDescription =
                     androidx.compose.ui.res
                       .stringResource(app.gyrolet.mpvrx.R.string.ui_thumbnail),
-                  modifier = Modifier.matchParentSize(),
+                  modifier = Modifier.matchParentSize().then(if (showingSoftPreview) Modifier.blur(2.dp) else Modifier),
                   contentScale = ContentScale.Crop,
                 )
               } ?: run {
@@ -502,9 +519,9 @@ fun VideoCard(
               }
             }
 
-            if (isGridMode && showResolutionChip && hasResolution) {
+            if (isGridMode && ((showResolutionChip && hasResolution) || (showFramerateInResolution && hasFps))) {
               val displayResolution =
-                if (showFramerateInResolution) video.resolution else video.resolution.substringBefore("@")
+                if (showResolutionChip && hasResolution) resolutionText else "$fpsOnly FPS"
               Box(
                 modifier =
                   Modifier
@@ -627,12 +644,7 @@ fun VideoCard(
 
               if (!isGridMode && showResolutionChip && !video.isAudio) {
                 if (hasResolution) {
-                  val displayResolution =
-                    if (showFramerateInResolution) {
-                      video.resolution
-                    } else {
-                      video.resolution.substringBefore("@")
-                    }
+                  val displayResolution = resolutionText
 
                   Text(
                     displayResolution,
@@ -646,7 +658,8 @@ fun VideoCard(
                     color = MaterialTheme.colorScheme.onSurface,
                   )
                 }
-              } else if (!video.isAudio && showFramerateInResolution && hasFps) {
+              }
+              if (!video.isAudio && showFramerateInResolution && hasFps && !(showResolutionChip && hasResolution)) {
                 Text(
                   "$fpsOnly FPS",
                   style = MaterialTheme.typography.labelSmall,
@@ -706,6 +719,8 @@ fun VideoCard(
               thumbWidthPx,
               thumbHeightPx,
               thumbnailQuality,
+              thumbnailGenerator,
+              thumbnailCacheRevision,
             ) {
               Any()
             }
@@ -718,16 +733,19 @@ fun VideoCard(
           var thumbnail by remember(thumbnailRequestKey) {
             mutableStateOf<Bitmap?>(exactMemoryThumbnail ?: retainedThumbnail)
           }
+          var showingSoftPreview by remember(thumbnailRequestKey) {
+            mutableStateOf(exactMemoryThumbnail == null && retainedThumbnail != null)
+          }
 
           // Read cached thumbnail immediately from disk if not in memory, or generate if permitted
-          LaunchedEffect(thumbnailRequestKey, allowThumbnailGeneration, allowThumbnailLoading, showThumbnails, deferThumbnailLoading) {
+          LaunchedEffect(thumbnailRequestKey, allowThumbnailGeneration, allowThumbnailLoading, showThumbnails) {
             thumbnail?.let { retainedThumbnail = it }
             // A fallback frame from another size is displayed immediately; fetch the exact size
             // without clearing it. Memory hits require no disk read or decoding.
-            if (!deferThumbnailLoading && exactMemoryThumbnail == null && showThumbnails) {
+            if (allowThumbnailLoading && exactMemoryThumbnail == null && showThumbnails) {
               val loaded =
                 withContext(Dispatchers.IO) {
-                  if (allowThumbnailGeneration && allowThumbnailLoading) {
+                  if (allowThumbnailGeneration) {
                     thumbnailRepository.getThumbnail(video, thumbWidthPx, thumbHeightPx)
                   } else {
                     thumbnailRepository.getCachedThumbnail(video, thumbWidthPx, thumbHeightPx)
@@ -736,6 +754,7 @@ fun VideoCard(
               if (loaded != null) {
                 thumbnail = loaded
                 retainedThumbnail = loaded
+                showingSoftPreview = false
               }
             }
           }
@@ -756,7 +775,7 @@ fun VideoCard(
             contentAlignment = Alignment.Center,
           ) {
             if (showThumbnails) {
-              if (!video.artworkUrl.isNullOrBlank()) {
+              if (!video.artworkUrl.isNullOrBlank() && !app.gyrolet.mpvrx.domain.thumbnail.isLocalArtworkSource(video.path)) {
                 RemoteImage(
                   url = video.artworkUrl,
                   contentDescription = stringResource(R.string.ui_thumbnail),
@@ -769,7 +788,7 @@ fun VideoCard(
                   contentDescription =
                     androidx.compose.ui.res
                       .stringResource(app.gyrolet.mpvrx.R.string.ui_thumbnail),
-                  modifier = Modifier.matchParentSize(),
+                  modifier = Modifier.matchParentSize().then(if (showingSoftPreview) Modifier.blur(2.dp) else Modifier),
                   contentScale = ContentScale.Crop,
                 )
               } ?: run {
@@ -947,12 +966,7 @@ fun VideoCard(
                 // Resolution and Framerate logic (List view)
                 if (showResolutionChip && !video.isAudio) {
                   if (hasResolution) {
-                    val displayResolution =
-                      if (showFramerateInResolution) {
-                        video.resolution
-                      } else {
-                        video.resolution.substringBefore("@")
-                      }
+                    val displayResolution = resolutionText
 
                     Text(
                       displayResolution,
@@ -966,7 +980,8 @@ fun VideoCard(
                       color = MaterialTheme.colorScheme.onSurface,
                     )
                   }
-                } else if (showFramerateInResolution && hasFps) {
+                }
+                if (!video.isAudio && showFramerateInResolution && hasFps && !(showResolutionChip && hasResolution)) {
                   // Resolution is hidden, but framerate is enabled -> show only framerate
                   Text(
                     "$fpsOnly FPS",

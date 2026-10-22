@@ -21,6 +21,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import app.gyrolet.mpvrx.ui.theme.AppMotion
+import app.gyrolet.mpvrx.ui.browser.fab.FabPlacement
 import app.gyrolet.mpvrx.ui.browser.fab.FabScrollHelper
 import app.gyrolet.mpvrx.ui.components.InlineSearchBar
 import app.gyrolet.mpvrx.ui.components.themedSegmentedButtonColors
@@ -89,6 +90,7 @@ import app.gyrolet.mpvrx.ui.browser.dialogs.DeleteConfirmationDialog
 import app.gyrolet.mpvrx.ui.browser.dialogs.FileOperationProgressDialog
 import app.gyrolet.mpvrx.ui.browser.dialogs.FolderPickerDialog
 import app.gyrolet.mpvrx.ui.browser.dialogs.RenameDialog
+import app.gyrolet.mpvrx.ui.browser.dialogs.rememberSelectionInfoAction
 import app.gyrolet.mpvrx.ui.browser.dialogs.VideoCompressorOverlay
 import app.gyrolet.mpvrx.ui.browser.dialogs.VideoSortDialog
 import app.gyrolet.mpvrx.ui.browser.dialogs.rememberBrowserSortDialogOpen
@@ -141,7 +143,6 @@ fun MediaLibraryContent(forceAudio: Boolean = false) {
   val mediaLayoutMode by browserPreferences.mediaLayoutMode.collectAsState()
   val includeAudioBrowser by browserPreferences.includeAudioBrowser.collectAsState()
   val savedMediaType by browserPreferences.mediaLibraryType.collectAsState()
-  val playlistMode by playerPreferences.playlistMode.collectAsState()
   val mediaType = if (forceAudio) MediaLibraryType.Audio else if (includeAudioBrowser) savedMediaType else MediaLibraryType.Video
   val musicCoverArtSize by browserPreferences.musicCoverArtSize.collectAsState()
   val sortedVideos =
@@ -190,6 +191,10 @@ fun MediaLibraryContent(forceAudio: Boolean = false) {
       onOperationComplete = { viewModel.refresh() },
     )
   val selectedVideos = selectionManager.getSelectedItems()
+  val showSelectionInfo = rememberSelectionInfoAction(
+    videos = { selectionManager.getSelectedItems() },
+    onSingleOpened = { selectionManager.clear() },
+  )
   val watchedVideoIds = remember(filteredVideosWithInfo) {
     filteredVideosWithInfo.filter(VideoWithPlaybackInfo::isWatched).mapTo(hashSetOf()) { it.video.id }
   }
@@ -316,7 +321,7 @@ fun MediaLibraryContent(forceAudio: Boolean = false) {
   )
 
   fun playFromMediaLibrary(video: Video) {
-    if (!playlistMode || mediaTypeVideosWithInfo.size <= 1) {
+    if (!playerPreferences.shouldBuildAutomaticQueue(video.isAudio) || mediaTypeVideosWithInfo.size <= 1) {
       MediaUtils.playFile(video, context, "media_library")
       return
     }
@@ -364,6 +369,9 @@ fun MediaLibraryContent(forceAudio: Boolean = false) {
         putExtra("is_audio", video.isAudio)
         putExtra("title", video.displayName)
         putExtra("local_media_path", video.path)
+        putExtra(PlayerActivity.EXTRA_VIDEO_WIDTH, video.width)
+        putExtra(PlayerActivity.EXTRA_VIDEO_HEIGHT, video.height)
+        putExtra(PlayerActivity.EXTRA_VIDEO_ROTATION, video.rotation)
       }
     context.startActivity(intent)
   }
@@ -457,18 +465,7 @@ fun MediaLibraryContent(forceAudio: Boolean = false) {
           onTitleDoubleTap = { backstack.navigateTo(SecureFolderGateScreen) },
           onTitleLongPress = { backstack.navigateTo(SecureFolderGateScreen) },
           isSingleSelection = selectionManager.isSingleSelection,
-          onInfoClick = {
-            if (selectionManager.isSingleSelection) {
-              val video = selectionManager.getSelectedItems().firstOrNull()
-              if (video != null) {
-                val intent = Intent(context, app.gyrolet.mpvrx.ui.mediainfo.MediaInfoActivity::class.java)
-                intent.action = Intent.ACTION_VIEW
-                intent.data = video.uri
-                context.startActivity(intent)
-                selectionManager.clear()
-              }
-            }
-          },
+          onInfoClick = showSelectionInfo,
           onShareClick = { selectionManager.shareSelected() },
           onPlayClick = { selectionManager.playSelected() },
           onSelectAll = { selectionManager.selectAll() },
@@ -495,7 +492,7 @@ fun MediaLibraryContent(forceAudio: Boolean = false) {
           !MainScreen.getPermissionDeniedState()
 
       FloatingActionButtonMenu(
-        modifier = Modifier.padding(bottom = (navigationBarHeight - 16.dp).coerceAtLeast(0.dp)),
+        modifier = Modifier.padding(bottom = FabPlacement.scaffoldBottomPadding()),
         expanded = isFabExpanded.value && !quickPlayFabDirect,
         button = {
           TooltipBox(
@@ -762,6 +759,7 @@ fun MediaLibraryContent(forceAudio: Boolean = false) {
         isFolderView = false,
         enableViewModeOptions = !forceAudio,
         isAudio = mediaType == MediaLibraryType.Audio,
+        onMetadataFieldEnabled = viewModel::refresh,
       )
     }
 
@@ -775,6 +773,8 @@ fun MediaLibraryContent(forceAudio: Boolean = false) {
         itemCount = selectionManager.selectedCount,
         isOpen = deleteDialogOpen.value,
         itemType = if (mediaType == MediaLibraryType.Audio) "audio file" else "video",
+        itemPaths = selectionManager.getSelectedItems().map { it.uri.toString() },
+        totalSizeBytes = selectionManager.getSelectedItems().sumOf { it.size.coerceAtLeast(0L) }.takeIf { it > 0L },
       )
     }
 
@@ -888,4 +888,3 @@ fun MediaLibraryContent(forceAudio: Boolean = false) {
       onCancel = { secureFolderRepository.cancelOperation() },
     )
   }
-

@@ -36,6 +36,8 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -59,6 +61,8 @@ data class PlaybackSessionState(
   val paused: Boolean = true,
   val currentItem: PlaybackItem? = null,
   val error: String? = null,
+  /** The current network media is waiting for its cache, rather than merely loading or restarting. */
+  val isBuffering: Boolean = false,
 )
 
 data class PlaybackPositionRestoreOverride(
@@ -142,6 +146,7 @@ object PlaybackSession : MPVLib.EventObserver {
     MPVLib.removeObserver(observer)
   }
 
+  private val BUFFERING_STATUS_PROPERTIES = setOf("pause", "paused-for-cache", "demuxer-via-network", "eof-reached")
   private const val SEEK_AUDIO_RESTORE_DELAY_MS = 60L
   private const val SEEK_AUDIO_FALLBACK_RESTORE_MS = 750L
   private const val PLAYBACK_TRANSITION_AUDIO_RESTORE_DELAY_MS = 180L
@@ -157,6 +162,21 @@ object PlaybackSession : MPVLib.EventObserver {
       "percent-pos",
     )
   private val AUDIO_SUBTITLE_TRACK_PROPERTIES = setOf("aid", "sid", "secondary-sid")
+
+  /**
+   * Stronger libavformat probing only for local audio/video items whose library duration is
+   * missing. This check never reads files or metadata and is therefore safe on the load path.
+   * Network streams, archive entries, torrents and audiobooks keep their normal startup settings.
+   */
+  private fun shouldProbeMissingDuration(item: PlaybackItem, playableUri: String): Boolean {
+    if ((item.durationSeconds ?: 0) > 0 || item.audiobook != null || item.torrentFileIndex != null) return false
+    if (item.networkSource != null || item.declaredMediaKind() == DeclaredPlaybackMediaKind.UNKNOWN) return false
+    if (app.gyrolet.mpvrx.domain.archive.ZipArchiveMedia.isPlaybackUri(item.originalUri)) return false
+    return playableUri.startsWith("/") ||
+      playableUri.startsWith("file://", ignoreCase = true) ||
+      playableUri.startsWith("content://", ignoreCase = true) ||
+      playableUri.startsWith("fd://", ignoreCase = true)
+  }
 
   /** URI schemes whose playback goes through a network protocol in libmpv. */
   private val STREAMING_OPTION_SCHEMES =
@@ -1164,6 +1184,13 @@ internal fun userScriptsNeedReload(currentKey: String): Boolean {
           add("pause=yes")
           add(if (selectVideoForNewFile && (!deferVideoSelectionUntilSurface || ytdlVideoRequiresSelection)) "vid=auto" else "vid=no")
           initialPosition?.let { add("start=$it") }
+          // Keep ordinary files on mpv's fast path. Only files with no indexed duration need
+          // bounded stream probing; loadfile scopes these options to the current file.
+          if (shouldProbeMissingDuration(resolvedItem, playableUri)) {
+            add("demuxer-lavf-probe-info=yes")
+            add("demuxer-lavf-probesize=4MiB")
+            add("demuxer-lavf-analyzeduration=5")
+          }
           if (flattenEditions && !MpvConfigOverridePolicy.isOwnedByMpvConf("flatten-editions")) {
             add("flatten-editions=yes")
           }
@@ -1233,6 +1260,7 @@ internal fun userScriptsNeedReload(currentKey: String): Boolean {
       }
       publishTimelinePropertiesLocked()
       propBoolean.emit("pause", desiredPaused)
+      refreshBufferingState()
     }
   }
 
@@ -1477,6 +1505,7 @@ internal fun userScriptsNeedReload(currentKey: String): Boolean {
         }
         updateState { it.copy(paused = value) }
         propBoolean.emit(property, value)
+        refreshBufferingState()
       } else if (
         property == "mute" &&
         (playbackTransitionAudioGuardPreviousMute != null || seekAudioGuardPreviousMute != null)
@@ -1566,6 +1595,7 @@ internal fun userScriptsNeedReload(currentKey: String): Boolean {
       }
       updateState { it.copy(paused = nextPaused) }
       propBoolean.emit("pause", nextPaused)
+      refreshBufferingState()
       nextPaused
     }
 
@@ -1593,6 +1623,35 @@ internal fun userScriptsNeedReload(currentKey: String): Boolean {
   }
 
   fun getPropertyNode(property: String): MPVNode? = withReadyCore(null) { MPVLib.getPropertyNode(property) }
+
+  /**
+   * Read dimensions, pixel aspect and rotation from one native snapshot of the loaded file.
+   * Before the first decoded frame, mpv can expose only w/h without rotate. That incomplete
+   * fallback must not turn a rotation-tagged portrait video into a temporary landscape window.
+   */
+  internal fun videoDisplayAspect(expectedGeneration: Long = state.value.generation): Double? = withReadyCore(null) {
+    val current = _state.value
+    if (expectedGeneration <= 0L || current.generation != expectedGeneration ||
+      current.activeGeneration != expectedGeneration || loadedGeneration != expectedGeneration
+    ) return@withReadyCore null
+    val params = MPVLib.getPropertyNode("video-params")?.toObject<JsonObject>(Json)
+      ?: return@withReadyCore null
+    val rotation = (params["rotate"] as? JsonPrimitive)?.intOrNull ?: return@withReadyCore null
+    fun positive(name: String): Double? = (params[name] as? JsonPrimitive)?.doubleOrNull
+      ?.takeIf { it.isFinite() && it > 0.0 }
+    val aspect = positive("aspect") ?: run {
+      val width = positive("dw")
+      val height = positive("dh")
+      if (width != null && height != null) {
+        width / height
+      } else {
+        val sourceWidth = positive("w") ?: return@withReadyCore null
+        val sourceHeight = positive("h") ?: return@withReadyCore null
+        sourceWidth * (positive("par") ?: 1.0) / sourceHeight
+      }
+    }
+    PlayerOrientationPolicy.displayAspect(aspect, rotation)
+  }
 
   fun setPropertyString(
     property: String,
@@ -1690,6 +1749,7 @@ internal fun userScriptsNeedReload(currentKey: String): Boolean {
     propLong.emit(property, null)
     propInt.emit(property, null)
     propNode.emit(property, null)
+    if (property in BUFFERING_STATUS_PROPERTIES) refreshBufferingState()
     observerSnapshot().forEach { observer -> runCatching { observer.eventProperty(property) } }
   }
 
@@ -1715,6 +1775,7 @@ internal fun userScriptsNeedReload(currentKey: String): Boolean {
       if (property == "pause" && _state.value.phase == PlaybackPhase.LOADING) _state.value.paused else value
     if (property == "pause") updateState { it.copy(paused = effectiveValue) }
     propBoolean.emit(property, effectiveValue)
+    if (property in BUFFERING_STATUS_PROPERTIES) refreshBufferingState()
     observerSnapshot().forEach { observer -> runCatching { observer.eventProperty(property, effectiveValue) } }
   }
 
@@ -1818,6 +1879,7 @@ internal fun userScriptsNeedReload(currentKey: String): Boolean {
             propBoolean.emit("pause", appliedPaused)
             restoreSuspendedVideoTrackLocked()
             applyDeferredVideoSelectionLocked()
+            refreshBufferingState()
             true
           }
           MPVLib.MpvEvent.MPV_EVENT_PLAYBACK_RESTART -> {
@@ -1834,6 +1896,7 @@ internal fun userScriptsNeedReload(currentKey: String): Boolean {
             if (_state.value.phase != PlaybackPhase.STOPPING) {
               schedulePlaybackTransitionAudioGuardRestoreLocked(PLAYBACK_TRANSITION_AUDIO_RESTORE_DELAY_MS)
             }
+            refreshBufferingState()
             true
           }
           MPVLib.MpvEvent.MPV_EVENT_END_FILE -> {
@@ -1934,6 +1997,48 @@ internal fun userScriptsNeedReload(currentKey: String): Boolean {
     if (shouldForward) {
       observerSnapshot().forEach { observer -> runCatching { observer.event(eventId, data) } }
     }
+  }
+
+  /**
+   * Sample the active native file under the session lock instead of combining cached properties
+   * from different loads in Compose. core-idle/seeking also cover decoder and renderer restarts;
+   * only paused-for-cache establishes that playback is actually waiting for buffered media.
+   */
+  private fun refreshBufferingState() {
+    nativeLock.withLock {
+      val current = _state.value
+      val loadedItem = loadedPlaybackItem
+      val canBuffer =
+        initialized &&
+          current.phase in setOf(PlaybackPhase.READY, PlaybackPhase.BACKGROUND) &&
+          current.activeGeneration == current.generation &&
+          loadedGeneration == current.generation &&
+          loadedItem != null &&
+          loadedItem.stableId == current.currentItem?.stableId &&
+          loadedItem.playableUri == current.currentItem?.playableUri &&
+          !current.paused
+      val buffering =
+        canBuffer &&
+          MPVLib.getPropertyBoolean("paused-for-cache") == true &&
+          MPVLib.getPropertyBoolean("eof-reached") != true &&
+          activeFileUsesNetworkLocked()
+      if (buffering) {
+        // Never label a new stall with a previous file's cached fill values.
+        propInt.emit("cache-buffering-state", MPVLib.getPropertyInt("cache-buffering-state"))
+        propDouble.emit("demuxer-cache-duration", MPVLib.getPropertyDouble("demuxer-cache-duration"))
+      }
+      updateState { it.copy(isBuffering = buffering) }
+    }
+  }
+
+  private fun activeFileUsesNetworkLocked(): Boolean {
+    // Inspect the source mpv is actually playing: a downloaded URL is local, while SMB, HLS and
+    // torrent streams can arrive through an HTTP loopback proxy. Do not infer this from the
+    // original URL, the torrent engine's global state, or an external network subtitle/audio track.
+    val path = MPVLib.getPropertyString("path") ?: return false
+    val scheme = path.substringBefore("://", missingDelimiterValue = "").lowercase()
+    if (scheme.isEmpty() || scheme in setOf("file", "content", "fd", "archive", "memory", "hex")) return false
+    return path.requiresStreamingOptions() || MPVLib.getPropertyBoolean("demuxer-via-network") == true
   }
 
   private fun shouldSuppressTimelineUpdate(property: String): Boolean =
@@ -2292,11 +2397,14 @@ internal fun userScriptsNeedReload(currentKey: String): Boolean {
     )
     // demuxer-lavf-o only reaches demuxer-internal opens (HLS/DASH segments). The primary http(s)
     // URL is opened by stream_lavf, which reads stream-lavf-o; without it a dropped connection or
-    // one failed seek-reopen permanently stalls network playback (endless buffering).
+    // one failed seek-reopen permanently stalls network playback (endless buffering). Persistent
+    // connections are pointless against the loopback proxies, which close every response.
+    val viaLoopbackProxy = playableUri.startsWith("http://127.0.0.1:")
     setPropertyString(
       "stream-lavf-o",
-      "reconnect=1,reconnect_on_network_error=1,reconnect_on_http_error=5xx,reconnect_streamed=1," +
-        "reconnect_delay_max=5,reconnect_max_retries=5,reconnect_delay_total_max=20",
+      (if (viaLoopbackProxy) "http_persistent=0," else "") +
+        "reconnect=1,reconnect_on_network_error=1,reconnect_on_http_error=5xx," +
+        "reconnect_streamed=1,reconnect_delay_max=5,reconnect_max_retries=5,reconnect_delay_total_max=20",
     )
     Log.d(TAG, "Applied streaming options for the first network item of this core")
   }
@@ -2449,6 +2557,20 @@ internal fun userScriptsNeedReload(currentKey: String): Boolean {
     }
 
   private inline fun updateState(transform: (PlaybackSessionState) -> PlaybackSessionState) {
-    _state.update(transform)
+    _state.update { previous ->
+      val next = transform(previous)
+      // Every pause, stop, error, shutdown and source/generation change invalidates the old stall
+      // synchronously, including transitions that do not produce another cache-property event.
+      if (next.isBuffering &&
+        (next.paused || next.phase !in setOf(PlaybackPhase.READY, PlaybackPhase.BACKGROUND) ||
+          next.activeGeneration != next.generation || next.generation != previous.generation ||
+          next.currentItem?.stableId != previous.currentItem?.stableId ||
+          next.currentItem?.playableUri != previous.currentItem?.playableUri)
+      ) {
+        next.copy(isBuffering = false)
+      } else {
+        next
+      }
+    }
   }
 }

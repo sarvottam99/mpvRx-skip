@@ -31,6 +31,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -90,6 +91,7 @@ data class FolderCardUiConfig(
   val includeAudio: Boolean = false,
   val swipeLeft: VideoSwipeAction = VideoSwipeAction.AddToPlaylist,
   val swipeRight: VideoSwipeAction = VideoSwipeAction.ToggleWatched,
+  val thumbnailGenerator: app.gyrolet.mpvrx.preferences.ThumbnailGenerator = app.gyrolet.mpvrx.preferences.ThumbnailGenerator.Auto,
 )
 
 /** Hoist this once per screen and pass the result to every card rather than collecting per item. */
@@ -107,6 +109,7 @@ fun rememberFolderCardUiConfig(viewPreferences: BrowserPageViewPreferences? = nu
   val centerGridTitles by (viewPreferences?.centerGridTitles ?: browserPreferences.centerGridTitles).collectAsState()
   val showFolderThumbnails by (viewPreferences?.showThumbnails ?: browserPreferences.showFolderThumbnails).collectAsState()
   val thumbnailQuality by browserPreferences.thumbnailQuality.collectAsState()
+  val thumbnailGenerator by browserPreferences.thumbnailGenerator.collectAsState()
   val includeAudio by browserPreferences.includeAudioBrowser.collectAsState()
   val swipeLeft by browserPreferences.videoSwipeLeft.collectAsState()
   val swipeRight by browserPreferences.videoSwipeRight.collectAsState()
@@ -121,6 +124,7 @@ fun rememberFolderCardUiConfig(viewPreferences: BrowserPageViewPreferences? = nu
     centerGridTitles,
     showFolderThumbnails,
     thumbnailQuality,
+    thumbnailGenerator,
     includeAudio,
     swipeLeft,
     swipeRight,
@@ -135,6 +139,7 @@ fun rememberFolderCardUiConfig(viewPreferences: BrowserPageViewPreferences? = nu
       centerGridTitles = centerGridTitles,
       showFolderThumbnails = showFolderThumbnails,
       thumbnailQuality = thumbnailQuality,
+      thumbnailGenerator = thumbnailGenerator,
       includeAudio = includeAudio,
       swipeLeft = swipeLeft,
       swipeRight = swipeRight,
@@ -169,7 +174,6 @@ fun FolderCard(
   viewPreferences: BrowserPageViewPreferences? = null,
   uiConfig: FolderCardUiConfig? = null,
   allowThumbnailGeneration: Boolean = true,
-  deferThumbnailLoading: Boolean = false,
   selectionNeighbors: MediaSelectionNeighbors = MediaSelectionNeighbors(),
 ) {
   val resolvedUiConfig = uiConfig ?: rememberFolderCardUiConfig(viewPreferences)
@@ -182,14 +186,16 @@ fun FolderCard(
   val centerGridTitles = resolvedUiConfig.centerGridTitles
   val showFolderThumbnails = resolvedUiConfig.showFolderThumbnails
   val thumbnailQuality = resolvedUiConfig.thumbnailQuality
+  val thumbnailGenerator = resolvedUiConfig.thumbnailGenerator
   val includeAudio = resolvedUiConfig.includeAudio
   val swipeLeft = resolvedUiConfig.swipeLeft
   val swipeRight = resolvedUiConfig.swipeRight
   val context = androidx.compose.ui.platform.LocalContext.current
   val thumbnailRepository = koinInject<ThumbnailRepository>()
+  val thumbnailCacheRevision by thumbnailRepository.cacheRevision.collectAsState()
   var thumbnailSize by remember { mutableStateOf(IntSize.Zero) }
-  var folderThumbnail by remember(folder.bucketId) { mutableStateOf<android.graphics.Bitmap?>(null) }
-  var folderPreviewFrames by remember(folder.bucketId) { mutableStateOf<List<android.graphics.Bitmap?>>(emptyList()) }
+  var folderThumbnail by remember(folder.bucketId, thumbnailGenerator, thumbnailCacheRevision) { mutableStateOf<android.graphics.Bitmap?>(null) }
+  var folderPreviewFrames by remember(folder.bucketId, thumbnailGenerator, thumbnailCacheRevision) { mutableStateOf<List<android.graphics.Bitmap?>>(emptyList()) }
   // The available tile width, rather than device class alone, determines whether
   // four video previews remain readable at the current grid column count.
   val showPreviewCollage = with(LocalDensity.current) { thumbnailSize.width >= 148.dp.roundToPx() }
@@ -199,13 +205,14 @@ fun FolderCard(
     folder.path,
     showFolderThumbnails,
     thumbnailQuality,
+    thumbnailGenerator,
+    thumbnailCacheRevision,
     isGridMode,
     thumbnailSize,
     showPreviewCollage,
     allowThumbnailGeneration,
-    deferThumbnailLoading,
   ) {
-    if (!deferThumbnailLoading && folder.path.isNotBlank() && isGridMode && showFolderThumbnails && thumbnailSize.width > 0 && thumbnailSize.height > 0) {
+    if (folder.path.isNotBlank() && isGridMode && showFolderThumbnails && thumbnailSize.width > 0 && thumbnailSize.height > 0) {
       delay(350L)
       withContext(Dispatchers.IO) {
         // On a fresh install there is nothing to reuse. Avoid querying every folder

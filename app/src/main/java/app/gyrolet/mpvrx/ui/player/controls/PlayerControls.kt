@@ -10,7 +10,6 @@
 package app.gyrolet.mpvrx.ui.player.controls
 
 import app.gyrolet.mpvrx.ui.player.DeclaredPlaybackMediaKind
-import app.gyrolet.mpvrx.ui.player.PlaybackPhase
 import app.gyrolet.mpvrx.ui.player.PlaybackSession
 import app.gyrolet.mpvrx.ui.player.declaredMediaKind
 import app.gyrolet.mpvrx.domain.torrent.TorrentStreamingState
@@ -49,6 +48,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.areNavigationBarsVisible
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -200,6 +200,7 @@ fun <T> playerControlsEnterAnimationSpec(durationMillis: Int = 100): FiniteAnima
   ExperimentalMaterial3Api::class,
   ExperimentalMaterial3ExpressiveApi::class,
   ExperimentalFoundationApi::class,
+  androidx.compose.foundation.layout.ExperimentalLayoutApi::class,
 )
 @Composable
 @Suppress("CyclomaticComplexMethod", "ViewModelForwarding")
@@ -227,7 +228,9 @@ fun PlayerControls(
   val reduceMotion by playerPreferences.reduceMotion.collectAsState()
   val audioPreferences = koinInject<AudioPreferences>()
   val showSystemStatusBar by playerPreferences.showSystemStatusBar.collectAsState()
-  val showSystemNavigationBar by playerPreferences.showSystemNavigationBar.collectAsState()
+  // Insets follow the actual system UI, including bars revealed temporarily in immersive mode.
+  val navigationBarRequested by playerPreferences.showSystemNavigationBar.collectAsState()
+  val showSystemNavigationBar = navigationBarRequested || WindowInsets.areNavigationBarsVisible
   val showControlsDrawer by playerPreferences.showControlsDrawer.collectAsState()
   var seekRippleRequest by remember { mutableStateOf<SeekRippleRequest?>(null) }
   val controlsShown by viewModel.controlsShown.collectAsState()
@@ -247,7 +250,6 @@ fun PlayerControls(
   val scopeAudioTracks by viewModel.audioTracks.collectAsState(persistentListOf())
   val mediaScopesState by viewModel.mediaScopesUiState.collectAsState()
   val currentQueueItem = playbackSessionState.currentItem ?: playbackQueue.currentItem
-  val demuxerCacheTime by PlaybackSession.propDouble["demuxer-cache-time"].collectAsState()
   val playbackSpeed by PlaybackSession.propFloat["speed"].collectAsState()
   val seekbarDuration =
     if (preciseDuration > 0) {
@@ -265,18 +267,16 @@ fun PlayerControls(
   val showSeekbarDuringHorizontalSeeking by gesturePreferences.showSeekbarDuringHorizontalSeeking.collectAsState()
   val showBufferedRange by playerPreferences.showBufferedRange.collectAsState()
   val showChapterIndicators by playerPreferences.showChapterIndicators.collectAsState()
-  val torrentState by viewModel.torrentState.collectAsState()
+  // The buffering pill reads torrent details itself, so stats ticks do not re-run the controls tree.
+  val torrentStateHolder = viewModel.torrentState.collectAsState()
   val videoOpenAnimState by viewModel.videoOpenAnimationState.collectAsState()
   val showLoadingCircle by playerPreferences.showLoadingCircle.collectAsState()
 
-  val isTorrentConnecting = torrentState is TorrentStreamingState.Connecting
-  val isTorrentStreaming = torrentState is TorrentStreamingState.Streaming
+  var isSeeking by remember { mutableStateOf(false) }
   val bufferingState =
     rememberBufferingState(
-      enabled = showLoadingCircle,
-      // A torrent that has not produced a playable range yet never reaches mpv, so the engine's own
-      // connecting phase has to drive the spinner directly.
-      forceVisible = isTorrentConnecting || playbackSessionState.phase == PlaybackPhase.LOADING,
+      enabled = showLoadingCircle && !isSeeking,
+      sessionState = playbackSessionState,
     )
   val isMpvBuffering = bufferingState.isCacheStall
   val safeAreaWindow by playerPreferences.safeAreaWindow.collectAsState()
@@ -292,28 +292,12 @@ fun PlayerControls(
     } else {
       Modifier
     }
-  var isSeeking by remember { mutableStateOf(false) }
   var wasPlayerAlreadyPaused by remember { mutableStateOf(false) }
   val mpvSeeking by PlaybackSession.propBoolean["seeking"].collectAsState()
   val isPlayerSeeking = isSeeking || (mpvSeeking ?: false)
-  val showBufferingIndicator =
-    bufferingState.visible &&
-      (controlsShown || playbackSessionState.phase == PlaybackPhase.LOADING) &&
-      !isPlayerSeeking
-  var stableDemuxerCacheTime by remember { mutableFloatStateOf(0f) }
-  val currentDemuxerCacheTime =
-    demuxerCacheTime
-      ?.toFloat()
-      ?.takeIf { it > 0f && !it.isNaN() && !it.isInfinite() && seekbarDuration > 0f }
-      ?.coerceIn(0f, seekbarDuration)
-
-  LaunchedEffect(showBufferedRange, seekbarDuration, currentDemuxerCacheTime, isPlayerSeeking) {
-    when {
-      !showBufferedRange || seekbarDuration <= 0f -> stableDemuxerCacheTime = 0f
-      currentDemuxerCacheTime != null -> stableDemuxerCacheTime = currentDemuxerCacheTime
-      !isPlayerSeeking -> stableDemuxerCacheTime = 0f
-    }
-  }
+  // mpv can remain "seeking" until its cache refills. Only active scrubbing suppresses the spinner;
+  // a real cache wait stays visible even when the controls have faded out.
+  val showBufferingIndicator = bufferingState.visible
   var resetControlsTimestamp by remember { mutableStateOf(0L) }
   val configuredDecoder by PlaybackSession.propString["hwdec"].collectAsState()
   val activeDecoder by PlaybackSession.propString["hwdec-current"].collectAsState()
@@ -387,12 +371,19 @@ fun PlayerControls(
     }
   if (useAudioPlayer) {
     val audioBook by app.gyrolet.mpvrx.ui.player.AudiobookPlayback.book.collectAsState()
-    val audioPosition by viewModel.precisePosition.collectAsState()
-    val audioTimelinePosition = currentPlaybackItem?.audiobook?.let { info ->
-      audioBook?.takeIf { it.book.id == info.bookId }?.positionInBook(info.trackId, (audioPosition * 1000).toLong())?.div(1000f)
-    } ?: audioPosition
-    val audioChapterIndex = chapters.indexOfLast {
-      it.start <= audioTimelinePosition
+    val audioPositionState = viewModel.precisePosition.collectAsState()
+    // Only the chapter index is needed here. Reading the position clock directly re-ran this whole
+    // branch every polling tick; a derived index recomposes only when the chapter changes.
+    val audioChapterIndex by remember(chapters, currentPlaybackItem, audioBook) {
+      derivedStateOf {
+        val audioPosition = audioPositionState.value
+        val audioTimelinePosition = currentPlaybackItem?.audiobook?.let { info ->
+          audioBook?.takeIf { it.book.id == info.bookId }?.positionInBook(info.trackId, (audioPosition * 1000).toLong())?.div(1000f)
+        } ?: audioPosition
+        chapters.indexOfLast {
+          it.start <= audioTimelinePosition
+        }
+      }
     }
     val rawMediaTitle by PlaybackSession.propString["media-title"].collectAsState()
     val queuedTitle =
@@ -407,7 +398,6 @@ fun PlayerControls(
     val sheetShown by viewModel.sheetShown.collectAsState()
     val subtitles by viewModel.subtitleTracks.collectAsState(persistentListOf())
     val audioTracks by viewModel.audioTracks.collectAsState(persistentListOf())
-    val sleepTimerTimeRemaining by viewModel.remainingTime.collectAsState()
     val speedPresets by playerPreferences.speedPresets.collectAsState()
     val sortedSpeedPresets = remember(speedPresets) { speedPresets.map { it.toFloat() }.sorted() }
 
@@ -421,6 +411,7 @@ fun PlayerControls(
         onOpenSheet = onOpenSheet,
         onOpenPanel = onOpenPanel,
         modifier = if (enableLiquidGlass) Modifier.layerBackdrop(audioBackdrop) else Modifier,
+        sheetBackdrop = audioBackdrop.takeIf { enableLiquidGlass },
       )
 
       CompositionLocalProvider(
@@ -460,7 +451,6 @@ fun PlayerControls(
           if (currentPlaybackItem?.audiobook != null) app.gyrolet.mpvrx.ui.player.AudiobookPlayback.setSpeed(speed)
           else PlaybackSession.setPropertyFloat("speed", speed)
         },
-        sleepTimerTimeRemaining = sleepTimerTimeRemaining,
         onStartSleepTimer = viewModel::startTimer,
         onOpenPanel = onOpenPanel,
         onShowSheet = onOpenSheet,
@@ -826,7 +816,7 @@ fun PlayerControls(
           }
 
           val navigationBarsPadding =
-            if (showSystemNavigationBar) {
+            if (showSystemNavigationBar && !safeAreaWindow) {
               WindowInsets.navigationBars.asPaddingValues()
             } else {
               null
@@ -850,9 +840,8 @@ fun PlayerControls(
                 end = navBarPadding.calculateRightPadding(LayoutDirection.Ltr),
               )
             } ?: Modifier
-          val skipSegmentChipBottomOffset =
-            (if (isPortrait) 104.dp else 88.dp) +
-              (navigationBarsPadding?.calculateBottomPadding() ?: 0.dp)
+          // The parent already consumes the bottom navigation inset.
+          val skipSegmentChipBottomOffset = if (isPortrait) 104.dp else 88.dp
 
           AnimatedVisibility(
             isBrightnessSliderShown && showBrightnessGestureOverlay,
@@ -1349,7 +1338,7 @@ is PlayerUpdates.FrameInfo -> {
                     Modifier
                   },
                 ).then(
-                  if (showSystemNavigationBar) {
+                  if (showSystemNavigationBar && !safeAreaWindow) {
                     val navBarPadding = WindowInsets.navigationBars.asPaddingValues()
                     Modifier.padding(
                       start = navBarPadding.calculateLeftPadding(LayoutDirection.Ltr),
@@ -1449,7 +1438,7 @@ is PlayerUpdates.FrameInfo -> {
           AnimatedVisibility(
             visible = showBufferingIndicator,
             enter = fadeIn(),
-            exit = fadeOut(),
+            exit = fadeOut(animationSpec = tween(0)),
             modifier =
               Modifier.constrainAs(bufferingIndicator) {
                 start.linkTo(parent.absoluteLeft)
@@ -1471,13 +1460,12 @@ is PlayerUpdates.FrameInfo -> {
               )
               val cachePercent = bufferingState.cachePercent
               val cacheSeconds = bufferingState.cacheSeconds
+              val currentTorrentState = torrentStateHolder.value
               val bufferText =
                 when {
-                  isTorrentConnecting -> {
-                    (torrentState as TorrentStreamingState.Connecting).phase
-                  }
-                  isTorrentStreaming -> {
-                    val streamState = torrentState as TorrentStreamingState.Streaming
+                  currentTorrentState is TorrentStreamingState.Streaming &&
+                    currentQueueItem?.playableUri == currentTorrentState.localUrl -> {
+                    val streamState = currentTorrentState
                     val speed = app.gyrolet.mpvrx.domain.torrent.formatTorrentSpeed(streamState.downloadSpeed)
                     val peers = "${streamState.peers} peers"
                     val progress = "${(streamState.bufferProgress * 100).toInt()}%"
@@ -1734,7 +1722,7 @@ is PlayerUpdates.FrameInfo -> {
             modifier =
               Modifier
                 .then(
-                  if (showSystemNavigationBar) {
+                  if (showSystemNavigationBar && !safeAreaWindow) {
                     val navBarPadding = WindowInsets.navigationBars.asPaddingValues()
                     Modifier.padding(
                       start = navBarPadding.calculateLeftPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
@@ -1771,6 +1759,25 @@ is PlayerUpdates.FrameInfo -> {
                 if (showChapterIndicators) chapters.toImmutableList() else persistentListOf()
               }
             val skipSegmentsImmutable = remember(skipSegments) { skipSegments.toImmutableList() }
+
+            // mpv republishes the cache endpoint several times per second during playback. Reading
+            // it at the top of PlayerControls re-ran the whole controls tree (and re-solved its
+            // ConstraintLayout) on every update, even with the controls hidden; keep it here.
+            val demuxerCacheTimeFlow = remember { PlaybackSession.propDouble["demuxer-cache-time"] }
+            val demuxerCacheTime = if (showBufferedRange) demuxerCacheTimeFlow.collectAsState().value else null
+            val currentDemuxerCacheTime =
+              demuxerCacheTime
+                ?.toFloat()
+                ?.takeIf { it > 0f && !it.isNaN() && !it.isInfinite() && seekbarDuration > 0f }
+                ?.coerceIn(0f, seekbarDuration)
+            var stableDemuxerCacheTime by remember { mutableFloatStateOf(currentDemuxerCacheTime ?: 0f) }
+            LaunchedEffect(showBufferedRange, seekbarDuration, currentDemuxerCacheTime, isPlayerSeeking) {
+              when {
+                !showBufferedRange || seekbarDuration <= 0f -> stableDemuxerCacheTime = 0f
+                currentDemuxerCacheTime != null -> stableDemuxerCacheTime = currentDemuxerCacheTime
+                !isPlayerSeeking -> stableDemuxerCacheTime = 0f
+              }
+            }
 
             val effectiveRemaining =
               (remaining ?: 0f).takeIf { it > 0f }
@@ -1838,7 +1845,7 @@ is PlayerUpdates.FrameInfo -> {
                     Modifier
                   },
                 ).then(
-                  if (showSystemNavigationBar) {
+                  if (showSystemNavigationBar && !safeAreaWindow) {
                     val navBarPadding = WindowInsets.navigationBars.asPaddingValues()
                     Modifier.padding(
                       start = navBarPadding.calculateLeftPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
@@ -1905,7 +1912,7 @@ is PlayerUpdates.FrameInfo -> {
                     Modifier
                   },
                 ).then(
-                  if (showSystemNavigationBar) {
+                  if (showSystemNavigationBar && !safeAreaWindow) {
                     val navBarPadding = WindowInsets.navigationBars.asPaddingValues()
                     Modifier.padding(
                       start = navBarPadding.calculateLeftPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
@@ -1945,7 +1952,7 @@ is PlayerUpdates.FrameInfo -> {
             modifier =
               Modifier
                 .then(
-                  if (showSystemNavigationBar) {
+                  if (showSystemNavigationBar && !safeAreaWindow) {
                     val navBarPadding = WindowInsets.navigationBars.asPaddingValues()
                     Modifier.padding(
                       start = navBarPadding.calculateLeftPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
@@ -2016,7 +2023,7 @@ is PlayerUpdates.FrameInfo -> {
             modifier =
               Modifier
                 .then(
-                  if (showSystemNavigationBar) {
+                  if (showSystemNavigationBar && !safeAreaWindow) {
                     val navBarPadding = WindowInsets.navigationBars.asPaddingValues()
                     Modifier.padding(
                       start = navBarPadding.calculateLeftPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
@@ -2057,7 +2064,6 @@ is PlayerUpdates.FrameInfo -> {
     val sheetShown by viewModel.sheetShown.collectAsState()
     val subtitles by viewModel.subtitleTracks.collectAsState(persistentListOf())
     val audioTracks by viewModel.audioTracks.collectAsState(persistentListOf())
-    val sleepTimerTimeRemaining by viewModel.remainingTime.collectAsState()
     val speedPresets by playerPreferences.speedPresets.collectAsState()
     val sortedSpeedPresets =
       androidx.compose.runtime.remember(
@@ -2093,7 +2099,6 @@ is PlayerUpdates.FrameInfo -> {
       onResetDefaultSpeed = {
         PlaybackSession.setPropertyFloat("speed", playerPreferences.defaultSpeed.deleteAndGet().toFixed(2))
       },
-      sleepTimerTimeRemaining = sleepTimerTimeRemaining,
       onStartSleepTimer = viewModel::startTimer,
       onOpenPanel = onOpenPanel,
       onShowSheet = onOpenSheet,

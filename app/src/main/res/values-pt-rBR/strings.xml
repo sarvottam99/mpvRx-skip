@@ -77,6 +77,11 @@
   <string name="pref_appearance_thumbnail_quality_summary">Resolução máxima da miniatura: %1$d px. Uma qualidade maior usa mais armazenamento e pode levar mais tempo para ser gerada.</string>
   <string name="pref_appearance_thumbnail_position_title">Posição do quadro da miniatura</string>
   <string name="pref_appearance_thumbnail_position_summary">Capturar o quadro em %1$d%% do vídeo</string>
+  <string name="pref_appearance_thumbnail_parallelism_title">Núcleos para miniaturas</string>
+  <string name="pref_appearance_thumbnail_parallelism_auto">Automático (%1$d de %2$d)</string>
+  <string name="pref_appearance_thumbnail_parallelism_value">%1$d de %2$d</string>
+  <string name="pref_appearance_thumbnail_parallelism_dialog_summary">Quantas miniaturas são criadas ao mesmo tempo. Mais é mais rápido, mas usa mais memória e bateria e pode travar a rolagem. Automático escolhe um valor seguro para este dispositivo.</string>
+  <string name="pref_appearance_thumbnail_parallelism_warning">Acima dos %1$d recomendados para este dispositivo. Diminua se as listas travarem ou o app for fechado em segundo plano.</string>
   <string name="pref_appearance_show_network_thumbnails_title">Mostrar miniaturas de rede (experimental)</string>
   <string name="pref_appearance_show_network_thumbnails_summary">Gerar miniaturas para transmissões de rede (pode aumentar o uso de dados em redes móveis)</string>
   <string name="pref_nav_network_title">Mostrar aba Rede</string>
@@ -613,7 +618,7 @@ Próximo: NEXT</string>
   <string name="pref_section_general">Geral</string>
   <string name="pref_playlist_mode_title">Ativar navegação seguinte/anterior</string>
   <string name="pref_playlist_mode_summary">Mostrar botões seguinte/anterior para todos os vídeos da pasta</string>
-  <string name="pref_playlist_mode_summary_disabled">Reproduzir vídeos individualmente (selecione vários para uma playlist)</string>
+  <string name="pref_playlist_mode_summary_disabled">Ocultar botões de próximo/anterior; a reprodução automática é controlada separadamente</string>
 
   <!-- Player - Seeking Section (additional)                      -->
   <string name="pref_online_skip_markers_title">Usar marcadores de salto on-line</string>
@@ -1867,6 +1872,7 @@ Reinicie o aplicativo para que todas as alterações entrem em vigor.</string>
   <string name="update_version_format">Versão %1$s</string>
   <string name="update_release_date">Data de lançamento</string>
   <string name="update_size">Tamanho</string>
+  <string name="update_package">Pacote</string>
   <string name="update_unknown_size">Tamanho desconhecido</string>
   <string name="update_beta_build_format">Beta r%1$d</string>
   <string name="ui_beta_badge_suffix">\u0020(Beta)</string>
@@ -2327,6 +2333,10 @@ Reinicie o aplicativo para que todas as alterações entrem em vigor.</string>
   <string name="onboarding_configuration_restore_failed">Não foi possível concluir a configuração da pasta: %1$s</string>
   <string name="navbar_glow_title">Brilho do vidro</string>
   <string name="navbar_glow_summary">Mostrar iluminação da borda e brilho ao tocar na barra de navegação</string>
+  <string name="legacy_navigation_bar_title">Barra de navegação clássica</string>
+  <string name="legacy_navigation_bar_summary">Usar uma barra de navegação clássica em toda a largura em vez da barra flutuante.</string>
+  <string name="progressive_navigation_blur_title">Desfoque progressivo da navegação</string>
+  <string name="progressive_navigation_blur_summary">Usar o desfoque progressivo do Haze atrás da barra de navegação flutuante. Desativado automaticamente com a barra clássica.</string>
   <string name="pref_seekbar_preview_skip_markers">Marcadores de salto</string>
   <string name="pref_liquid_glass_optics">Óptica</string>
   <string name="pref_liquid_glass_opacity">Opacidade do fundo</string>
@@ -2613,4 +2623,108 @@ Reinicie o aplicativo para que todas as alterações entrem em vigor.</string>
   <string name="app_icon_shortcut_failed">Não foi possível salvar o atalho. Tente novamente.</string>
   <string name="color_picker_wheel">Círculo cromático</string>
   <string name="color_picker_brightness">Brilho</string>
+    <string name="only_for_video_list">Somente para a lista de vídeos</string>
+    <string name="only_for_folder_list">Somente para a lista de pastas</string>
+  <string name="selection_info_title">Detalhes da seleção</string>
+  <string name="selection_info_folders">Pastas</string>
+  <string name="selection_info_total_size">Tamanho total</string>
+  <string name="selection_info_total_duration">Duração total</string>
+  <string name="selection_info_average_duration">Duração média</string>
+  <string name="selection_info_average_size">Tamanho médio</string>
+  <string name="selection_info_resolutions">Resoluções</string>
+  <string name="selection_info_codecs">Codecs de vídeo</string>
+  <string name="selection_info_formats">Formatos</string>
+  <string name="selection_info_frame_rates">Taxas de quadros</string>
+  <string name="selection_info_subtitles">Legendas incorporadas</string>
+  <string name="selection_info_subtitles_value">%1$d / %2$d</string>
+  <string name="selection_info_longest">Arquivo mais longo</string>
+  <string name="selection_info_largest">Maior arquivo</string>
+  <string name="selection_info_modified">Data de modificação</string>
+  <string name="selection_info_items">Itens selecionados</string>
+  <string name="selection_info_scanning">Verificando pastas (%1$d/%2$d)…</string>
+  <string name="selection_info_scan_failed">Não foi possível carregar os detalhes da seleção. Verifique o acesso às pastas e tente novamente.</string>
+  <string name="selection_info_folder_unreadable">Não foi possível ler os arquivos de mídia em %1$s</string>
+  <string name="selection_info_fps_value">%1$.2f quadros/s</string>
+  <string name="selection_info_metadata_note">O resumo usa os metadados disponíveis na biblioteca. Toque em um arquivo para ver todos os metadados.</string>
+  <string name="selection_info_missing_metadata">Metadados indisponíveis</string>
+  <string name="selection_info_missing_metadata_value">Arquivos com tamanho desconhecido: %1$d; duração desconhecida: %2$d. Os totais e as médias consideram apenas os valores conhecidos.</string>
+  <string name="selection_info_no_media">Nenhuma mídia reproduzível encontrada nas pastas selecionadas</string>
+  <string name="selection_info_copy_summary">Copiar resumo</string>
+  <string name="selection_info_open_media_info">Abrir informações completas da mídia</string>
+  <plurals name="selection_info_video_count">
+    <item quantity="one">%1$d vídeo</item>
+    <item quantity="other">%1$d vídeos</item>
+  </plurals>
+  <plurals name="selection_info_audio_count">
+    <item quantity="one">%1$d arquivo de áudio</item>
+    <item quantity="other">%1$d arquivos de áudio</item>
+  </plurals>
+  <plurals name="selection_info_file_count">
+    <item quantity="one">%1$d arquivo</item>
+    <item quantity="other">%1$d arquivos</item>
+  </plurals>
+  <plurals name="selection_info_folder_count">
+    <item quantity="one">%1$d pasta</item>
+    <item quantity="other">%1$d pastas</item>
+  </plurals>
+
+  <!-- Audio format indicators -->
+  <string name="audio_quality_hi_res">Sem perdas em alta resolução</string>
+  <string name="audio_quality_lossless">Sem perdas</string>
+  <string name="audio_quality_lossy">Com perdas</string>
+  <string name="audio_quality_dsd">Direct Stream Digital</string>
+  <string name="audio_quality_audio">Áudio</string>
+
+  <!-- Delete action size -->
+  <string name="delete_size_loading">Calculando…</string>
+  <string name="delete_size_unknown">Tamanho desconhecido</string>
+  <string name="delete_size_description">Tamanho total: %1$s</string>
+
+  <!-- Thumbnail information -->
+  <string name="media_info_tab_thumbnail">Miniatura</string>
+  <string name="thumbnail_preview_description">Miniatura em cache de %1$s</string>
+  <string name="thumbnail_status_disk">Armazenada em cache no disco</string>
+  <string name="thumbnail_status_memory">Armazenada em cache na memória</string>
+  <string name="thumbnail_status_unreadable">Não foi possível decodificar a imagem em cache</string>
+  <string name="thumbnail_status_missing">Nenhuma miniatura em cache</string>
+  <string name="thumbnail_info_status">Status do cache</string>
+  <string name="thumbnail_info_generator">Política de geração</string>
+  <string name="thumbnail_info_strategy">Seleção de quadro ou capa</string>
+  <string name="thumbnail_strategy_artwork">Capa do álbum</string>
+  <string name="thumbnail_strategy_android">Quadro selecionado pelo Android</string>
+  <string name="thumbnail_info_quality">Qualidade configurada</string>
+  <string name="thumbnail_info_maximum">Limite de tamanho configurado</string>
+  <string name="thumbnail_maximum_value">Até %1$d pixels no lado mais longo</string>
+  <string name="thumbnail_info_dimensions">Dimensões reais da imagem</string>
+  <string name="thumbnail_dimensions_value">%1$d × %2$d pixels</string>
+  <string name="thumbnail_info_format">Formato da imagem em cache</string>
+  <string name="thumbnail_info_size">Tamanho do arquivo em cache</string>
+  <string name="thumbnail_info_memory">Presente no cache de memória do navegador de mídia</string>
+  <string name="thumbnail_info_preview_memory">Memória da prévia</string>
+  <string name="thumbnail_info_frame">Posição do quadro configurada</string>
+  <string name="thumbnail_percent_value">%1$.1f%%</string>
+  <string name="thumbnail_info_jpeg_setting">Configuração do codificador JPEG do aplicativo</string>
+  <string name="thumbnail_jpeg_value">%1$d%%</string>
+  <string name="thumbnail_info_modified">Última atualização do arquivo de cache</string>
+  <string name="thumbnail_info_cache_path">Caminho do arquivo de cache</string>
+  <string name="thumbnail_info_source">URI de origem</string>
+  <string name="thumbnail_yes">Sim</string>
+  <string name="thumbnail_no">Não</string>
+  <string name="thumbnail_refresh">Atualizar informações</string>
+  <string name="thumbnail_generate">Gerar miniatura</string>
+  <string name="thumbnail_quality_note">A prévia mostra a imagem realmente armazenada em cache com as configurações atuais. Os blocos do navegador de mídia podem armazenar uma imagem menor que o limite de tamanho configurado. Abrir esta aba não gera um novo quadro.</string>
+  <string name="thumbnail_inspection_failed">Não foi possível ler as informações da miniatura. Tente atualizar.</string>
+  <string name="thumbnail_generation_unavailable">O gerador selecionado não retornou uma miniatura para este arquivo.</string>
+
+  <!-- Automatic thumbnail generation -->
+  <string name="pref_appearance_thumbnail_generator_summary">Escolha Auto, Native ou MediaStore para miniaturas e capas locais</string>
+  <string name="pref_thumbnail_generator_auto">Automático (padrão)</string>
+  <string name="pref_thumbnail_generator_auto_summary">Tenta o MediaStore primeiro; usa Native se a miniatura ou capa da música estiver indisponível, inclusive em pastas ocultas. Mudar de modo limpa as miniaturas em cache.</string>
+  <string name="thumbnail_strategy_auto">Primeiro MediaStore, depois Native como alternativa</string>
+
+  <string name="update_download_failed">Falha no download. Toque em Tentar novamente para continuar.</string>
+  <string name="update_install_failed">Não foi possível abrir o instalador. Você pode tentar novamente.</string>
+  <string name="update_install_permission">Permita que este aplicativo instale atualizações nas configurações do Android e toque em Instalar novamente.</string>
+  <string name="update_checking_download">Verificando o APK baixado…</string>
+  <string name="update_check_failed">Não foi possível verificar atualizações. Verifique a conexão ou tente mais tarde.</string>
 </resources>

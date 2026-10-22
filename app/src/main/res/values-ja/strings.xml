@@ -77,6 +77,11 @@
   <string name="pref_appearance_thumbnail_quality_summary">サムネイルの最大解像度：%1$d px。高品質にするとストレージ使用量が増え、生成に時間がかかる場合があります。</string>
   <string name="pref_appearance_thumbnail_position_title">サムネイルのフレーム位置</string>
   <string name="pref_appearance_thumbnail_position_summary">動画の%1$d%%の位置のフレームを取得します</string>
+  <string name="pref_appearance_thumbnail_parallelism_title">サムネイル処理コア数</string>
+  <string name="pref_appearance_thumbnail_parallelism_auto">自動（%2$d中%1$d）</string>
+  <string name="pref_appearance_thumbnail_parallelism_value">%2$d中%1$d</string>
+  <string name="pref_appearance_thumbnail_parallelism_dialog_summary">同時に作成するサムネイルの数です。多いほど速くなりますが、メモリとバッテリーの消費が増え、スクロールがカクつくことがあります。自動ではこの端末に安全な値を選びます。</string>
+  <string name="pref_appearance_thumbnail_parallelism_warning">この端末の推奨値（%1$d）を超えています。リストが重い場合やアプリがバックグラウンドで終了する場合は下げてください。</string>
   <string name="pref_appearance_show_network_thumbnails_title">ネットワークのサムネイルを表示（試験的）</string>
   <string name="pref_appearance_show_network_thumbnails_summary">ネットワークストリームのサムネイルを生成します（モバイルネットワークでのデータ使用量が増える場合があります）</string>
   <string name="pref_nav_network_title">ネットワークタブを表示</string>
@@ -613,7 +618,7 @@
   <string name="pref_section_general">一般</string>
   <string name="pref_playlist_mode_title">次へ/前へ移動を有効にする</string>
   <string name="pref_playlist_mode_summary">フォルダー内のすべての動画に次へ/前へボタンを表示します</string>
-  <string name="pref_playlist_mode_summary_disabled">動画を個別に再生（複数選択するとプレイリスト）</string>
+  <string name="pref_playlist_mode_summary_disabled">次へ・前へボタンを非表示にします。自動再生は別の設定で制御します</string>
 
   <!-- Player - Seeking Section (additional)                      -->
   <string name="pref_online_skip_markers_title">オンラインのスキップマーカーを使用</string>
@@ -1860,6 +1865,7 @@
   <string name="update_version_format">バージョン %1$s</string>
   <string name="update_release_date">リリース日</string>
   <string name="update_size">サイズ</string>
+  <string name="update_package">パッケージ</string>
   <string name="update_unknown_size">サイズ不明</string>
   <string name="update_beta_build_format">ベータ r%1$d</string>
   <string name="ui_beta_badge_suffix">\u0020(ベータ)</string>
@@ -2320,6 +2326,10 @@
   <string name="onboarding_configuration_restore_failed">フォルダーの設定を完了できませんでした: %1$s</string>
   <string name="navbar_glow_title">ガラスの輝き</string>
   <string name="navbar_glow_summary">ナビゲーションバーの縁の光とタッチ時の輝きを表示</string>
+  <string name="legacy_navigation_bar_title">従来のナビゲーションバー</string>
+  <string name="legacy_navigation_bar_summary">フローティングピルの代わりに、画面幅いっぱいの従来型ナビゲーションバーを使用します。</string>
+  <string name="progressive_navigation_blur_title">ナビゲーションの段階的なぼかし</string>
+  <string name="progressive_navigation_blur_summary">フローティングナビゲーションバーの背後に Haze の段階的なぼかしを使用します。従来のナビゲーションバーを有効にすると自動的にオフになります。</string>
   <string name="pref_seekbar_preview_skip_markers">スキップマーカー</string>
   <string name="pref_liquid_glass_optics">光学</string>
   <string name="pref_liquid_glass_opacity">背景の不透明度</string>
@@ -2602,4 +2612,104 @@
   <string name="app_icon_shortcut_failed">ショートカットを保存できませんでした。もう一度お試しください。</string>
   <string name="color_picker_wheel">カラーホイール</string>
   <string name="color_picker_brightness">明るさ</string>
+    <string name="only_for_video_list">動画リストのみに適用</string>
+    <string name="only_for_folder_list">フォルダーリストのみに適用</string>
+  <string name="selection_info_title">選択項目の詳細</string>
+  <string name="selection_info_folders">フォルダー</string>
+  <string name="selection_info_total_size">合計サイズ</string>
+  <string name="selection_info_total_duration">合計再生時間</string>
+  <string name="selection_info_average_duration">平均再生時間</string>
+  <string name="selection_info_average_size">平均サイズ</string>
+  <string name="selection_info_resolutions">解像度</string>
+  <string name="selection_info_codecs">動画コーデック</string>
+  <string name="selection_info_formats">形式</string>
+  <string name="selection_info_frame_rates">フレームレート</string>
+  <string name="selection_info_subtitles">埋め込み字幕</string>
+  <string name="selection_info_subtitles_value">%1$d / %2$d</string>
+  <string name="selection_info_longest">最も長いファイル</string>
+  <string name="selection_info_largest">最も大きいファイル</string>
+  <string name="selection_info_modified">更新日時</string>
+  <string name="selection_info_items">選択した項目</string>
+  <string name="selection_info_scanning">フォルダーをスキャン中（%1$d/%2$d）…</string>
+  <string name="selection_info_scan_failed">選択項目の詳細を読み込めませんでした。フォルダーへのアクセス権を確認して、もう一度お試しください。</string>
+  <string name="selection_info_folder_unreadable">%1$s 内のメディアを読み込めませんでした</string>
+  <string name="selection_info_fps_value">%1$.2f フレーム/秒</string>
+  <string name="selection_info_metadata_note">概要にはライブラリで利用可能なメタデータを使用します。ファイルをタップすると、すべてのメタデータを表示できます。</string>
+  <string name="selection_info_missing_metadata">利用できないメタデータ</string>
+  <string name="selection_info_missing_metadata_value">サイズ不明のファイル：%1$d、再生時間不明のファイル：%2$d。合計と平均には既知の値のみを使用します。</string>
+  <string name="selection_info_no_media">選択したフォルダーに再生可能なメディアが見つかりませんでした</string>
+  <string name="selection_info_copy_summary">概要をコピー</string>
+  <string name="selection_info_open_media_info">メディア情報をすべて表示</string>
+  <plurals name="selection_info_video_count">
+    <item quantity="other">動画 %1$d 本</item>
+  </plurals>
+  <plurals name="selection_info_audio_count">
+    <item quantity="other">音声ファイル %1$d 個</item>
+  </plurals>
+  <plurals name="selection_info_file_count">
+    <item quantity="other">ファイル %1$d 個</item>
+  </plurals>
+  <plurals name="selection_info_folder_count">
+    <item quantity="other">フォルダー %1$d 個</item>
+  </plurals>
+
+  <!-- Audio format indicators -->
+  <string name="audio_quality_hi_res">ハイレゾ・ロスレス</string>
+  <string name="audio_quality_lossless">ロスレス</string>
+  <string name="audio_quality_lossy">非可逆圧縮</string>
+  <string name="audio_quality_dsd">ダイレクトストリームデジタル</string>
+  <string name="audio_quality_audio">音声</string>
+
+  <!-- Delete action size -->
+  <string name="delete_size_loading">計算中…</string>
+  <string name="delete_size_unknown">サイズ不明</string>
+  <string name="delete_size_description">合計サイズ: %1$s</string>
+
+  <!-- Thumbnail information -->
+  <string name="media_info_tab_thumbnail">サムネイル</string>
+  <string name="thumbnail_preview_description">%1$s のキャッシュ済みサムネイル</string>
+  <string name="thumbnail_status_disk">ディスクにキャッシュ済み</string>
+  <string name="thumbnail_status_memory">メモリにキャッシュ済み</string>
+  <string name="thumbnail_status_unreadable">キャッシュされた画像をデコードできませんでした</string>
+  <string name="thumbnail_status_missing">キャッシュされたサムネイルはありません</string>
+  <string name="thumbnail_info_status">キャッシュの状態</string>
+  <string name="thumbnail_info_generator">生成ポリシー</string>
+  <string name="thumbnail_info_strategy">フレームまたはカバー画像の選択</string>
+  <string name="thumbnail_strategy_artwork">アルバムのカバー画像</string>
+  <string name="thumbnail_strategy_android">Android が選択したフレーム</string>
+  <string name="thumbnail_info_quality">設定された画質</string>
+  <string name="thumbnail_info_maximum">設定されたサイズ上限</string>
+  <string name="thumbnail_maximum_value">長辺が最大 %1$d ピクセル</string>
+  <string name="thumbnail_info_dimensions">実際の画像サイズ</string>
+  <string name="thumbnail_dimensions_value">%1$d × %2$d ピクセル</string>
+  <string name="thumbnail_info_format">キャッシュされた画像の形式</string>
+  <string name="thumbnail_info_size">キャッシュファイルのサイズ</string>
+  <string name="thumbnail_info_memory">メディアブラウザのメモリキャッシュに存在</string>
+  <string name="thumbnail_info_preview_memory">プレビューのメモリ使用量</string>
+  <string name="thumbnail_info_frame">設定されたフレーム位置</string>
+  <string name="thumbnail_percent_value">%1$.1f%%</string>
+  <string name="thumbnail_info_jpeg_setting">アプリの JPEG エンコーダ設定</string>
+  <string name="thumbnail_jpeg_value">%1$d%%</string>
+  <string name="thumbnail_info_modified">キャッシュファイルの更新日時</string>
+  <string name="thumbnail_info_cache_path">キャッシュファイルのパス</string>
+  <string name="thumbnail_info_source">ソース URI</string>
+  <string name="thumbnail_yes">はい</string>
+  <string name="thumbnail_no">いいえ</string>
+  <string name="thumbnail_refresh">情報を更新</string>
+  <string name="thumbnail_generate">サムネイルを生成</string>
+  <string name="thumbnail_quality_note">プレビューには、現在の設定で実際にキャッシュされた画像が表示されます。メディアブラウザのタイルには、設定されたサイズ上限より小さい画像がキャッシュされることがあります。このタブを開いても、新しいフレームは生成されません。</string>
+  <string name="thumbnail_inspection_failed">サムネイル情報を読み取れませんでした。更新してください。</string>
+  <string name="thumbnail_generation_unavailable">選択した生成方法では、このファイルのサムネイルを取得できませんでした。</string>
+
+  <!-- Automatic thumbnail generation -->
+  <string name="pref_appearance_thumbnail_generator_summary">ローカルのサムネイルと曲のカバーに自動、Native、MediaStoreのいずれかを選択</string>
+  <string name="pref_thumbnail_generator_auto">自動（デフォルト）</string>
+  <string name="pref_thumbnail_generator_auto_summary">最初にMediaStoreを試し、サムネイルや曲のカバーを取得できない場合はNativeを使用します。隠しフォルダにも適用されます。モードを切り替えるとキャッシュ済みのサムネイルが消去されます。</string>
+  <string name="thumbnail_strategy_auto">最初にMediaStore、取得できない場合はNative</string>
+
+  <string name="update_download_failed">ダウンロードに失敗しました。「再試行」をタップすると再開します。</string>
+  <string name="update_install_failed">インストーラーを開けませんでした。もう一度お試しください。</string>
+  <string name="update_install_permission">Android の設定でこのアプリによる更新のインストールを許可し、再度「インストール」をタップしてください。</string>
+  <string name="update_checking_download">ダウンロードした APK を確認中…</string>
+  <string name="update_check_failed">更新を確認できませんでした。接続を確認するか、後でもう一度お試しください。</string>
 </resources>

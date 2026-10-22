@@ -99,6 +99,10 @@ import app.gyrolet.mpvrx.preferences.AppearancePreferences
 import app.gyrolet.mpvrx.preferences.AudioChannels
 import app.gyrolet.mpvrx.preferences.AudioPreferences
 import app.gyrolet.mpvrx.preferences.BrowserPreferences
+import app.gyrolet.mpvrx.domain.media.model.UNKNOWN_VIDEO_ROTATION
+import app.gyrolet.mpvrx.domain.thumbnail.ThumbnailRepository
+import app.gyrolet.mpvrx.domain.thumbnail.getArtwork
+import app.gyrolet.mpvrx.domain.thumbnail.isLocalArtworkSource
 import app.gyrolet.mpvrx.preferences.FoldersPreferences
 import app.gyrolet.mpvrx.preferences.DecoderPreferences
 import app.gyrolet.mpvrx.preferences.MpvConfigOverridePolicy
@@ -279,6 +283,7 @@ class PlayerActivity :
    * Preferences for browser settings.
    */
   private val browserPreferences: BrowserPreferences by inject()
+  private val thumbnailRepository: ThumbnailRepository by inject()
   private val foldersPreferences: FoldersPreferences by inject()
 
   /**
@@ -819,11 +824,11 @@ class PlayerActivity :
       }
     }
 
-    // Only auto-generate playlist from folder if playlist mode is enabled and no playlist_id
+    // Autoplay and visible navigation controls independently need a sibling queue.
     if (playlist.isEmpty() &&
       playlistId == null &&
       !intent.hasExtra(AudiobookPlayback.EXTRA_BOOK_ID) &&
-      playerPreferences.playlistMode.get() &&
+      playerPreferences.shouldBuildAutomaticQueue(isKnownAudioLaunch(intent)) &&
       !hasReusableSavedPlaybackSession
     ) {
       val path = parsePathFromIntent(intent)
@@ -892,6 +897,15 @@ class PlayerActivity :
     setupPlayerControls()
     setupAudioPlayerViewObserver()
     setupMediaSession()
+    lifecycleScope.launch {
+      thumbnailRepository.cacheRevision.drop(1).collect {
+        backgroundServiceSyncJob?.cancel()
+        lastBackgroundThumbnailKey = null
+        lastBackgroundThumbnail = null
+        pendingBackgroundThumbnailKey = null
+        syncBackgroundPlaybackService(updateThumbnail = true)
+      }
+    }
     observePlaybackSessionQueue()
     observeTorrentStreamingState()
     setupCastPlayback()
@@ -2887,6 +2901,9 @@ class PlayerActivity :
     PlaybackActivityOwner.beginRequest(playbackOwnerToken) {
       lastExitBackPressAtMs = null
       mediaRequestGeneration++
+      videoParamRefreshJob?.cancel()
+      videoParamRefreshJob = null
+      pendingVideoParamRefreshRequiresShaderReload = false
     }
 
   private fun isCurrentMediaRequest(requestGeneration: Long): Boolean =
@@ -4436,10 +4453,11 @@ class PlayerActivity :
     when (property) {
       "video-params/w",
       "video-params/h",
+      "video-params/rotate",
       -> {
         // Safety check: don't access MPV during cleanup
         if (!mpvInitialized || player.isExiting || isFinishing) return
-        scheduleVideoParamRefresh(reloadShaders = true)
+        scheduleVideoParamRefresh(reloadShaders = property != "video-params/rotate")
       }
     }
   }
@@ -4532,7 +4550,7 @@ class PlayerActivity :
     val autoplay = isAudiobook || if (isAudio) playerPreferences.autoplayNextAudio.get() else playerPreferences.autoplayNextVideo.get()
     val repeatAll = repeatMode == RepeatMode.ALL
 
-    if (playlist.isNotEmpty()) {
+    if (playlist.size > 1 || PlaybackSession.queue.value.isExplicitQueue) {
       val hasNext = PlaybackSession.hasNext()
       if ((autoplay && hasNext) || repeatAll) {
         isAdvancingAtEof = true
@@ -4543,14 +4561,19 @@ class PlayerActivity :
       return
     }
 
-    if (playerPreferences.playlistMode.get() && (autoplay || repeatAll)) {
+    if (autoplay || repeatAll) {
       val path = parsePathFromIntent(intent)
       if (path != null) {
+        val requestGeneration = mediaRequestGeneration
+        val playbackGeneration = PlaybackSession.state.value.generation
         isAdvancingAtEof = true
         eofAdvanceJob =
           lifecycleScope.launch(Dispatchers.IO) {
-            generatePlaylistFromFolderInternal(path)
+            generatePlaylistFromFolderInternal(path, requestGeneration)
             withContext(Dispatchers.Main) {
+              if (!isCurrentMediaRequest(requestGeneration) ||
+                !PlaybackSession.isCurrentGeneration(playbackGeneration)
+              ) return@withContext
               val hasNext = PlaybackSession.hasNext()
               when {
                 (autoplay && hasNext) || (repeatAll && playlist.isNotEmpty()) -> playNextQueueItem()
@@ -4654,6 +4677,8 @@ class PlayerActivity :
 
   @Synchronized
   private fun scheduleVideoParamRefresh(reloadShaders: Boolean) {
+    val generation = PlaybackSession.state.value.generation
+    val requestGeneration = mediaRequestGeneration
     pendingVideoParamRefreshRequiresShaderReload =
       pendingVideoParamRefreshRequiresShaderReload ||
       reloadShaders
@@ -4663,11 +4688,13 @@ class PlayerActivity :
       lifecycleScope.launch {
         delay(100)
         if (!mpvInitialized || player.isExiting || isFinishing) return@launch
+        if (!isCurrentMediaRequest(requestGeneration) || !PlaybackSession.isCurrentGeneration(generation)) return@launch
 
         val aspect =
           withContext(playbackRenderDispatcher) {
-            player.getVideoOutAspect()
+            player.getVideoOutAspect(generation)
           }
+        if (!isCurrentMediaRequest(requestGeneration) || !PlaybackSession.isCurrentGeneration(generation)) return@launch
         Log.d(TAG, "Coalesced video params refresh, aspect: $aspect")
         PlayerOrientationPolicy.rememberVideoAspect(PlaybackSession.state.value.currentItem?.stableId, aspect)
         pipHelper.updatePictureInPictureParams()
@@ -5794,7 +5821,6 @@ private suspend fun restorePlaybackPosition(state: PlaybackStateEntity?, loadGen
     val previousItemWasReady = isReady
 
     setIntent(intent)
-    applyInitialVideoOrientation(intent)
     applyPlaybackBrightnessPolicy(isAudio = isCurrentMediaKnownAudio())
     if (!beginMediaRequest()) return
     cancelPlaybackLoadRecovery()
@@ -5885,8 +5911,10 @@ private suspend fun restorePlaybackPosition(state: PlaybackStateEntity?, loadGen
       }
     }
 
-    // Auto-generate playlist from folder if playlist mode is enabled and no playlist_id
-    if (playlist.isEmpty() && playlistId == null && playerPreferences.playlistMode.get()) {
+    // Prepare autoplay independently of the next/previous button preference.
+    if (playlist.isEmpty() && playlistId == null &&
+      playerPreferences.shouldBuildAutomaticQueue(isKnownAudioLaunch(intent))
+    ) {
       val path = parsePathFromIntent(intent)
       if (path != null) {
         generatePlaylistFromFolder(path)
@@ -5931,6 +5959,7 @@ private suspend fun restorePlaybackPosition(state: PlaybackStateEntity?, loadGen
         return@let
       }
 
+      applyInitialVideoOrientation(intent)
       currentPlayableUri = uri
       isReady = false
       viewModel.onVideoLoadStarted()
@@ -6120,6 +6149,10 @@ private suspend fun restorePlaybackPosition(state: PlaybackStateEntity?, loadGen
                 mimeType = resolvedMimeType,
                 headers = requestedHeaders,
                 networkSource = networkSource,
+                durationSeconds = sourceIntent
+                  .takeIf { it.getBooleanExtra("internal_launch", false) }
+                  ?.getIntExtra("duration", 0)
+                  ?.takeIf { it > 0 },
                 torrentFileIndex = torrentResult?.selectedFile?.index,
               )
 
@@ -6722,8 +6755,9 @@ private suspend fun restorePlaybackPosition(state: PlaybackStateEntity?, loadGen
    * PlayerActivity handles orientation|screenSize|screenLayout itself, so the late assignment does
    * not recreate the Activity; it relayouts the window mid-transition.
    *
-   * Media library launches carry width/height/rotation in the intent, so this is a pure lookup.
-   * Anything else falls back to MediaMetadataRetriever for the missing fields.
+   * Use only geometry already supplied by the launch intent. Missing metadata must not delay
+   * playback: MediaMetadataRetriever can stall on the same files as thumbnail extraction. The
+   * normal mpv video-parameter observer applies the orientation once complete geometry arrives.
    */
   private fun applyInitialVideoOrientation(sourceIntent: Intent) {
     if (isTelevision) {
@@ -6732,47 +6766,13 @@ private suspend fun restorePlaybackPosition(state: PlaybackStateEntity?, loadGen
     }
     if (playerPreferences.orientation.get() != PlayerOrientation.Video || isKnownAudioLaunch(sourceIntent)) return
 
-    var width = sourceIntent.getIntExtra(EXTRA_VIDEO_WIDTH, 0)
-    var height = sourceIntent.getIntExtra(EXTRA_VIDEO_HEIGHT, 0)
-    var rotation = sourceIntent.getIntExtra(EXTRA_VIDEO_ROTATION, 0)
-
-    // Only invoke expensive MediaMetadataRetriever synchronously if the intent carried no geometry.
-    if (width <= 0 || height <= 0 || rotation == 0) {
-      extractUriFromIntent(sourceIntent)
-        ?.takeIf { uri -> uri.scheme.equals("content", true) || uri.scheme.equals("file", true) }
-        ?.let { uri ->
-          runCatching {
-            val retriever = android.media.MediaMetadataRetriever()
-            try {
-              retriever.setDataSource(this, uri)
-              if (width <= 0) {
-                width =
-                  retriever
-                    .extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
-                    ?.toIntOrNull()
-                    ?: 0
-              }
-              if (height <= 0) {
-                height =
-                  retriever
-                    .extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
-                    ?.toIntOrNull()
-                    ?: 0
-              }
-              if (rotation == 0) {
-                rotation =
-                  retriever
-                    .extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
-                    ?.toIntOrNull()
-                    ?: 0
-              }
-            } finally {
-              retriever.release()
-            }
-          }
-        }
-    }
-    val initialOrientation = PlayerOrientationPolicy.forSourceGeometry(width, height, rotation) ?: return
+    val width = sourceIntent.getIntExtra(EXTRA_VIDEO_WIDTH, 0)
+    val height = sourceIntent.getIntExtra(EXTRA_VIDEO_HEIGHT, 0)
+    // A missing angle is different from a confirmed zero. Hold the launch configuration until
+    // mpv supplies a complete snapshot instead of guessing landscape from encoded dimensions.
+    val rotation = sourceIntent.getIntExtra(EXTRA_VIDEO_ROTATION, UNKNOWN_VIDEO_ROTATION)
+    val initialOrientation = PlayerOrientationPolicy.forSourceGeometry(width, height, rotation)
+      ?: ActivityInfo.SCREEN_ORIENTATION_LOCKED
     if (requestedOrientation != initialOrientation) requestedOrientation = initialOrientation
   }
 
@@ -7903,39 +7903,14 @@ private suspend fun restorePlaybackPosition(state: PlaybackStateEntity?, loadGen
           delay(150)
           val generatedThumbnail =
             withContext(Dispatchers.IO) {
-              app.gyrolet.mpvrx.domain.thumbnail.EmbeddedArtworkResolver.decodeArtworkUri(
-                this@PlayerActivity,
-                currentQueueItem?.artworkUri,
-              ) ?: runCatching { PlaybackSession.grabThumbnail(480) }.getOrNull() ?: runCatching {
-                val uriStr = currentPlayableUri
-                if (!uriStr.isNullOrBlank()) {
-                  val parsedUri = Uri.parse(uriStr)
-                  val cleanPath =
-                    when (parsedUri.scheme) {
-                      null, "file" -> parsedUri.path ?: uriStr
-                      "content" -> null
-                      // Probing a remote/proxied URL opens a second upstream stream that competes
-                      // with live playback and audibly stalls it during Mini Player handoffs.
-                      else -> return@runCatching null
-                    }
-                  val retriever = android.media.MediaMetadataRetriever()
-                  try {
-                    if (cleanPath != null) {
-                      retriever.setDataSource(cleanPath)
-                    } else {
-                      retriever.setDataSource(this@PlayerActivity, parsedUri)
-                    }
-                    app.gyrolet.mpvrx.domain.thumbnail.EmbeddedArtworkResolver.decodeEmbeddedArtwork(
-                      cleanPath,
-                      retriever,
-                    )
-                  } finally {
-                    retriever.release()
-                  }
-                } else {
-                  null
-                }
-              }.getOrNull()
+              val source = currentQueueItem?.originalUri ?: currentPlayableUri
+              if (isLocalArtworkSource(source)) {
+                thumbnailRepository.getArtwork(source, isAudio = isCurrentPlaybackAudio(), widthPx = 480)
+              } else {
+                app.gyrolet.mpvrx.domain.thumbnail.EmbeddedArtworkResolver.decodeArtworkUri(
+                  this@PlayerActivity, currentQueueItem?.artworkUri,
+                ) ?: runCatching { PlaybackSession.grabThumbnail(480) }.getOrNull()
+              }
             }
 
           if (!ownsPlaybackSession() || !mpvInitialized || player.isExiting || isFinishing) return@launch
@@ -7959,7 +7934,7 @@ private suspend fun restorePlaybackPosition(state: PlaybackStateEntity?, loadGen
   private fun buildBackgroundThumbnailKey(): String {
     if (mediaIdentifier.isBlank()) return ""
     val artworkUri = PlaybackSession.queue.value.currentItem?.artworkUri.orEmpty()
-    return "$mediaIdentifier|$playlistIndex|$artworkUri"
+    return "$mediaIdentifier|$playlistIndex|$artworkUri|${browserPreferences.thumbnailGenerator.get()}|${thumbnailRepository.cacheRevision.value}"
   }
 
   /**

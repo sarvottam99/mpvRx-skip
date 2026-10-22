@@ -99,6 +99,14 @@
   <string name="pref_appearance_unplayed_old_video_days_summary">Videos added within the last %d days without playback history will be marked as new</string>
   <string name="pref_appearance_show_video_thumbnails_title">Show video thumbnails</string>
   <string name="pref_appearance_show_video_thumbnails_summary">Display generated thumbnails in video lists and folders</string>
+  <string name="pref_appearance_thumbnail_generator_title">Thumbnail generator</string>
+  <string name="pref_appearance_thumbnail_generator_summary">Choose Auto, Native or MediaStore for local thumbnails and song covers</string>
+  <string name="pref_thumbnail_generator_auto">Auto (Default)</string>
+  <string name="pref_thumbnail_generator_auto_summary">Try MediaStore first; use Native if a thumbnail or song cover is unavailable, including in hidden folders. Switching clears cached thumbnails.</string>
+  <string name="pref_thumbnail_generator_native">Native</string>
+  <string name="pref_thumbnail_generator_mediastore">MediaStore</string>
+  <string name="pref_thumbnail_generator_native_summary">Extract local video thumbnails and song covers from the media file. Switching clears cached thumbnails.</string>
+  <string name="pref_thumbnail_generator_mediastore_summary">Use Android thumbnails and album art for local videos and songs. Switching clears cached thumbnails; unavailable artwork shows a placeholder. Network previews use Native.</string>
   <string name="pref_appearance_thumbnail_generation_title">Thumbnail generation strategy</string>
   <string name="pref_appearance_thumbnail_generation_summary">Choose how thumbnails are generated, including embedded artwork or a specific frame position</string>
   <string name="pref_appearance_thumbnail_generation_change_title">Change thumbnail strategy?</string>
@@ -107,6 +115,11 @@
   <string name="pref_appearance_thumbnail_quality_summary">Maximum thumbnail resolution: %1$d px. Higher quality uses more storage and may generate more slowly.</string>
   <string name="pref_appearance_thumbnail_position_title">Thumbnail frame position</string>
   <string name="pref_appearance_thumbnail_position_summary">Capture the frame at %1$d%% of the video</string>
+  <string name="pref_appearance_thumbnail_parallelism_title">Thumbnail processing cores</string>
+  <string name="pref_appearance_thumbnail_parallelism_auto">Auto (%1$d of %2$d)</string>
+  <string name="pref_appearance_thumbnail_parallelism_value">%1$d of %2$d</string>
+  <string name="pref_appearance_thumbnail_parallelism_dialog_summary">How many thumbnails are created at the same time. More is faster but uses more memory and battery and can make scrolling stutter. Auto picks a safe value for this device.</string>
+  <string name="pref_appearance_thumbnail_parallelism_warning">Higher than the %1$d recommended for this device. Lower it if lists lag or the app is closed in the background.</string>
   <string name="pref_appearance_show_network_thumbnails_title">Show network thumbnails (Experimental)</string>
   <string name="pref_appearance_show_network_thumbnails_summary">Generate thumbnails for network streams (May increase data usage on mobile networks)</string>
   <string name="pref_nav_music_title">Show Music tab</string>
@@ -614,6 +627,49 @@
   <string name="sort">Sort</string>
   <string name="rename">Rename</string>
   <string name="info">Info</string>
+  <!-- Selection details sheet (Info on multi-selections) -->
+  <string name="selection_info_title">Selection details</string>
+  <string name="selection_info_folders">Folders</string>
+  <string name="selection_info_total_size">Total size</string>
+  <string name="selection_info_total_duration">Total duration</string>
+  <string name="selection_info_average_duration">Average length</string>
+  <string name="selection_info_average_size">Average size</string>
+  <string name="selection_info_resolutions">Resolutions</string>
+  <string name="selection_info_codecs">Video codecs</string>
+  <string name="selection_info_formats">Formats</string>
+  <string name="selection_info_frame_rates">Frame rates</string>
+  <string name="selection_info_subtitles">Embedded subtitles</string>
+  <string name="selection_info_subtitles_value">%1$d / %2$d</string>
+  <string name="selection_info_longest">Longest</string>
+  <string name="selection_info_largest">Largest</string>
+  <string name="selection_info_modified">Date modified</string>
+  <string name="selection_info_items">Selected items</string>
+  <string name="selection_info_scanning">Scanning folders (%1$d/%2$d)…</string>
+  <string name="selection_info_scan_failed">Could not load selection details. Check folder access and try again.</string>
+  <string name="selection_info_folder_unreadable">Could not read media in %1$s</string>
+  <string name="selection_info_fps_value">%1$.2f FPS</string>
+  <string name="selection_info_metadata_note">Summary uses available library metadata. Tap a file for full metadata.</string>
+  <string name="selection_info_missing_metadata">Unavailable metadata</string>
+  <string name="selection_info_missing_metadata_value">Files with unknown size: %1$d; unknown duration: %2$d. Totals and averages use known values only.</string>
+  <string name="selection_info_no_media">No playable media found in the selected folders</string>
+  <string name="selection_info_copy_summary">Copy summary</string>
+  <string name="selection_info_open_media_info">Open full media info</string>
+  <plurals name="selection_info_video_count">
+    <item quantity="one">%1$d video</item>
+    <item quantity="other">%1$d videos</item>
+  </plurals>
+  <plurals name="selection_info_audio_count">
+    <item quantity="one">%1$d audio file</item>
+    <item quantity="other">%1$d audio files</item>
+  </plurals>
+  <plurals name="selection_info_file_count">
+    <item quantity="one">%1$d file</item>
+    <item quantity="other">%1$d files</item>
+  </plurals>
+  <plurals name="selection_info_folder_count">
+    <item quantity="one">%1$d folder</item>
+    <item quantity="other">%1$d folders</item>
+  </plurals>
   <string name="delete">Delete</string>
   <string name="got_it">Got it</string>
   <string name="general">General</string>
@@ -753,7 +809,7 @@
   <string name="pref_section_general">General</string>
   <string name="pref_playlist_mode_title">Enable next/previous navigation</string>
   <string name="pref_playlist_mode_summary">Show next/previous buttons for all videos in folder</string>
-  <string name="pref_playlist_mode_summary_disabled">Play videos individually (select multiple for playlist)</string>
+  <string name="pref_playlist_mode_summary_disabled">Hide next/previous buttons; autoplay is controlled separately</string>
 
   <!-- Player - Seeking Section (additional)                      -->
   <string name="pref_online_skip_markers_title">Use online skip markers</string>
@@ -1664,6 +1720,11 @@
   <string name="ui_check_on_startup">Check on startup</string>
   <string name="ui_check_for_updates_now">Check for Updates Now</string>
   <string name="ui_update_channel">Update Channel</string>
+  <string name="ui_update_channel_stable_short" translatable="false">Stable</string>
+  <string name="ui_update_channel_preview_short" translatable="false">Nightly</string>
+  <string name="ui_update_channel_experimental_short" translatable="false">Exp.</string>
+  <string name="ui_update_channels_summary">Stable releases, nightly previews, or experimental CI builds.</string>
+  <string name="update_experimental_build_format">Exp. r%1$d</string>
   <string name="ui_stable_releases">Stable</string>
   <string name="ui_preview_builds">Preview (Nightly)</string>
   <string name="ui_preview_builds_summary">Preview builds are signed test versions published from the latest mpvRx changes and may be unstable.</string>
@@ -1674,6 +1735,7 @@
   <string name="update_version_format">Version %1$s</string>
   <string name="update_release_date">Release Date</string>
   <string name="update_size">Size</string>
+  <string name="update_package">Package</string>
   <string name="update_unknown_size">Unknown size</string>
   <string name="update_beta_build_format">Beta r%1$d</string>
   <string name="ui_beta_badge_suffix">\u0020(Beta)</string>
@@ -2521,6 +2583,10 @@
   <string name="onboarding_configuration_restore_failed">Folder setup could not be completed: %1$s</string>
   <string name="navbar_glow_title">Glass Glow</string>
   <string name="navbar_glow_summary">Show navbar rim lighting and touch glow</string>
+  <string name="legacy_navigation_bar_title">Legacy navigation bar</string>
+  <string name="legacy_navigation_bar_summary">Use a classic full-width navigation bar instead of the floating pill.</string>
+  <string name="progressive_navigation_blur_title">Progressive navigation blur</string>
+  <string name="progressive_navigation_blur_summary">Use Haze progressive blur behind the floating navigation bar. Automatically disabled with legacy navigation.</string>
   <string name="pref_seekbar_preview_skip_markers">Skip markers</string>
   <string name="debug_logs_save_to_config">Save logs to config folder</string>
   <string name="debug_logs_config_required">Select a configuration folder in Advanced Settings first.</string>
@@ -2669,6 +2735,7 @@
     <string name="app_icon_shortcut_failed">Could not save the shortcut. Please try again.</string>
   <string name="color_picker_wheel">Wheel</string>
   <string name="color_picker_brightness">Brightness</string>
+
 
   <string name="generic_unit_ms">ms</string>
   <string name="pref_appearance_material_you_title">Material You</string>
@@ -3116,4 +3183,64 @@ Files extracted: %4$d</string>
   <string name="chapter_maker_wipe_title">Wipe all chapters?</string>
   <string name="chapter_maker_wipe_message">This permanently removes all chapter markers from the selected folder and its subfolders, or the selected file. Video, audio, subtitles, and other tracks are preserved. Continue?</string>
   <string name="chapter_maker_wipe_confirm">Wipe chapters</string>
+
+
+    <string name="only_for_video_list">Only for video list</string>
+    <string name="only_for_folder_list">Only for folder list</string>
+
+  <!-- Audio format indicators -->
+  <string name="audio_quality_hi_res">Hi-Res lossless</string>
+  <string name="audio_quality_lossless">Lossless</string>
+  <string name="audio_quality_lossy">Lossy</string>
+  <string name="audio_quality_dsd">Direct Stream Digital</string>
+  <string name="audio_quality_audio">Audio</string>
+
+  <!-- Delete action size -->
+  <string name="delete_size_loading">Calculating…</string>
+  <string name="delete_size_unknown">Size unknown</string>
+  <string name="delete_size_description">Total size: %1$s</string>
+
+  <!-- Thumbnail information -->
+  <string name="media_info_tab_thumbnail">Thumbnail</string>
+  <string name="thumbnail_preview_description">Cached thumbnail for %1$s</string>
+  <string name="thumbnail_status_disk">Cached on disk</string>
+  <string name="thumbnail_status_memory">Cached in memory</string>
+  <string name="thumbnail_status_unreadable">Cached image could not be decoded</string>
+  <string name="thumbnail_status_missing">No cached thumbnail</string>
+  <string name="thumbnail_info_status">Cache status</string>
+  <string name="thumbnail_info_generator">Generator policy</string>
+  <string name="thumbnail_info_strategy">Frame or artwork selection</string>
+  <string name="thumbnail_strategy_artwork">Album artwork</string>
+  <string name="thumbnail_strategy_auto">MediaStore first, then Native fallback</string>
+  <string name="thumbnail_strategy_android">Android-selected frame</string>
+  <string name="thumbnail_info_quality">Configured quality</string>
+  <string name="thumbnail_info_maximum">Configured size limit</string>
+  <string name="thumbnail_maximum_value">Up to %1$d px on the longest side</string>
+  <string name="thumbnail_info_dimensions">Actual image dimensions</string>
+  <string name="thumbnail_dimensions_value">%1$d × %2$d px</string>
+  <string name="thumbnail_info_format">Cached image format</string>
+  <string name="thumbnail_info_size">Cached file size</string>
+  <string name="thumbnail_info_memory">Present in browser memory cache</string>
+  <string name="thumbnail_info_preview_memory">Preview memory</string>
+  <string name="thumbnail_info_frame">Configured frame position</string>
+  <string name="thumbnail_percent_value">%1$.1f%%</string>
+  <string name="thumbnail_info_jpeg_setting">App JPEG encoder setting</string>
+  <string name="thumbnail_jpeg_value">%1$d%%</string>
+  <string name="thumbnail_info_modified">Cache file updated</string>
+  <string name="thumbnail_info_cache_path">Cache file path</string>
+  <string name="thumbnail_info_source">Source URI</string>
+  <string name="thumbnail_yes">Yes</string>
+  <string name="thumbnail_no">No</string>
+  <string name="thumbnail_refresh">Refresh info</string>
+  <string name="thumbnail_generate">Generate thumbnail</string>
+  <string name="thumbnail_quality_note">The preview is the actual cached image for the current settings. Browser tiles may cache a smaller image than the configured size limit. Opening this tab does not generate a new frame.</string>
+  <string name="thumbnail_inspection_failed">Thumbnail information could not be read. Try refreshing.</string>
+  <string name="thumbnail_generation_unavailable">The selected generator did not return a thumbnail for this file.</string>
+
+  <string name="update_download_failed">Download failed. Tap Retry to resume.</string>
+  <string name="update_install_failed">Could not open the installer. You can try again.</string>
+  <string name="update_install_permission">Allow this app to install updates in Android settings, then tap Install again.</string>
+  <string name="update_checking_download">Checking downloaded APK…</string>
+  <string name="update_check_failed">Could not check for updates. Check your connection or try again later.</string>
+
 </resources>

@@ -10,6 +10,7 @@
 package app.gyrolet.mpvrx.data.network.client
 
 import android.net.Uri
+import android.os.SystemClock
 import app.gyrolet.mpvrx.domain.network.NetworkConnection
 import app.gyrolet.mpvrx.domain.network.NetworkFile
 import app.gyrolet.mpvrx.domain.network.SmbSharePath
@@ -17,9 +18,11 @@ import app.gyrolet.mpvrx.domain.network.SmbUsername
 import app.gyrolet.mpvrx.domain.network.normalizedAddress
 import app.gyrolet.mpvrx.domain.network.NetworkPath
 import com.hierynomus.msdtyp.AccessMask
-import com.hierynomus.msfscc.fileinformation.FileIdBothDirectoryInformation
+import com.hierynomus.msfscc.fileinformation.FileIdFullDirectoryInformation
 import com.hierynomus.mssmb2.SMB2CreateDisposition
+import com.hierynomus.mssmb2.SMB2Packet
 import com.hierynomus.mssmb2.SMB2ShareAccess
+import com.hierynomus.mssmb2.messages.SMB2Echo
 import com.hierynomus.smbj.SMBClient
 import com.hierynomus.smbj.SmbConfig
 import com.hierynomus.smbj.auth.AuthenticationContext
@@ -27,10 +30,12 @@ import com.hierynomus.mssmb2.SMBApiException
 import com.hierynomus.smbj.connection.Connection
 import com.hierynomus.smbj.session.Session
 import com.hierynomus.smbj.share.DiskShare
+import com.hierynomus.smbj.share.Directory
 import com.hierynomus.smbj.share.PipeShare
-import com.hierynomus.smbj.transport.tcp.async.AsyncDirectTcpTransportFactory
+import com.hierynomus.smbj.transport.tcp.direct.DirectTcpTransportFactory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.ensureActive
 import kotlin.coroutines.coroutineContext
@@ -60,13 +65,24 @@ class SmbClient(
     private val LOGON_FAILURE_CODES = setOf(0xC000006DL, 0xC000006AL, 0xC0000064L, 0xC0000072L, 0xC0000234L)
     private val AUTH_FAILURE_CODES = LOGON_FAILURE_CODES + 0xC0000022L
 
-    private fun newClient(directoryLeasingEnabled: Boolean): SMBClient =
+    // With no socket read timeout, a socket that died silently (Wi-Fi change, device sleep) is only
+    // noticed when a request times out. After idling, a short ECHO finds that out before the real
+    // request would wait out the full transaction timeout.
+    private const val IDLE_LIVENESS_CHECK_MS = 30_000L
+    private const val ECHO_TIMEOUT_MS = 3_000L
+
+    private fun newClient(): SMBClient =
       SMBClient(
         SmbConfig
           .builder()
-          .withTransportLayerFactory(AsyncDirectTcpTransportFactory())
+          // The async transport's idle read timeout closes its channel without failing pending
+          // requests or updating isConnected(). Use the standard transport, as Material Files does.
+          .withTransportLayerFactory(DirectTcpTransportFactory())
+          .withSocketFactory(SmbSocketFactory(15_000))
           .withTimeout(60000, TimeUnit.MILLISECONDS)
-          .withSoTimeout(15000, TimeUnit.MILLISECONDS)
+          .withTransactTimeout(15_000, TimeUnit.MILLISECONDS)
+          // An idle browser session is healthy. Bound SMB requests, not the background reader.
+          .withSoTimeout(0, TimeUnit.MILLISECONDS)
           .withReadBufferSize(SMB_TRANSPORT_BUFFER_SIZE)
           .withWriteBufferSize(SMB_TRANSPORT_BUFFER_SIZE)
           .withTransactBufferSize(SMB_TRANSPORT_BUFFER_SIZE)
@@ -77,11 +93,9 @@ class SmbClient(
             com.hierynomus.mssmb2.SMB2Dialect.SMB_2_1,
             com.hierynomus.mssmb2.SMB2Dialect.SMB_2_0_2,
           ).withDfsEnabled(false)
-          // SMBJ 0.15.0 keys directory leases by relative path, not by the
-          // share/tree. Separate shares have identical "" roots on one session.
-          // Disable directory leases for multi-share server-root connections;
-          // keep the optimized cache for pinned single-share connections.
-          .withDirectoryLeasingEnabled(directoryLeasingEnabled)
+          // Explicit directory handles avoid SMBJ's connection-wide relative-path lease cache,
+          // which can return another share's root or reuse a stale enumeration handle.
+          .withDirectoryLeasingEnabled(false)
           .withMultiProtocolNegotiate(true)
           .withSigningRequired(false)
           .withEncryptData(false)
@@ -89,10 +103,35 @@ class SmbClient(
       )
   }
 
-  private var smbClient: SMBClient? = null
-  private var smbConnection: Connection? = null
-  private var session: Session? = null
+  @Volatile private var smbClient: SMBClient? = null
+  @Volatile private var smbConnection: Connection? = null
+  @Volatile private var session: Session? = null
+  @Volatile private var lastActivityAt = 0L
   private val connectionMutex = Mutex()
+
+  private fun markActive() {
+    lastActivityAt = SystemClock.elapsedRealtime()
+  }
+
+  /** Returns false when an idle transport no longer answers, so it is replaced right away. */
+  private suspend fun isResponsiveAfterIdle(): Boolean {
+    if (SystemClock.elapsedRealtime() - lastActivityAt < IDLE_LIVENESS_CHECK_MS) return true
+    val activeConnection = smbConnection ?: return false
+    return try {
+      runInterruptible(Dispatchers.IO) {
+        activeConnection
+          .send<SMB2Packet>(SMB2Echo(activeConnection.negotiatedProtocol.dialect))
+          .get(ECHO_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+      }
+      markActive()
+      true
+    } catch (cancellation: CancellationException) {
+      throw cancellation
+    } catch (_: Exception) {
+      android.util.Log.w("SmbClient", "SMB transport did not answer after idling; reconnecting")
+      false
+    }
+  }
 
   /**
    * Recursively traverses the exception chain to detect underlying network transport or timeout failures.
@@ -121,10 +160,10 @@ class SmbClient(
     val sessionAtStart = session
 
     return try {
-      if (session == null) {
-        throw java.net.SocketException("Session is null on execute")
+      if (!isConnected() || !isResponsiveAfterIdle()) {
+        throw java.net.SocketException("SMB transport is disconnected")
       }
-      block()
+      block().also { markActive() }
     } catch (e: CancellationException) {
       throw e
     } catch (e: Exception) {
@@ -132,14 +171,15 @@ class SmbClient(
         android.util.Log.w("SmbClient", "SMB transport failed; reconnecting")
 
         connectionMutex.withLock {
-          if (session === sessionAtStart) {
-            disconnect()
-            connect().getOrThrow()
+          if (session === sessionAtStart || !isConnected()) {
+            connectSession().getOrThrow()
           }
         }
 
-        block()
+        block().also { markActive() }
       } else {
+        // A protocol-level error (missing file, access denied) still proves the session answers.
+        markActive()
         throw e
       }
     }
@@ -161,6 +201,13 @@ class SmbClient(
 
   override suspend fun connect(): Result<Unit> =
     withContext(Dispatchers.IO) {
+      connectionMutex.withLock { connectSession() }
+    }
+
+  /** Called with connectionMutex held so a stale transport is replaced only once. */
+  private suspend fun connectSession(): Result<Unit> =
+    withContext(Dispatchers.IO) {
+      disconnectSession()
       var candidateClient: SMBClient? = null
       var candidateConnection: Connection? = null
       var candidateSession: Session? = null
@@ -176,7 +223,7 @@ class SmbClient(
           runInterruptible(Dispatchers.IO) {
             for ((index, authContext) in authentication.withIndex()) {
               try {
-                val newClient = newClient(directoryLeasingEnabled = configuredShare != null)
+                val newClient = newClient()
                   .also { candidateClient = it }
                 val newConnection = newClient.connect(connection.host, connection.port).also { candidateConnection = it }
                 val newSession = newConnection.authenticate(authContext).also { candidateSession = it }
@@ -188,8 +235,8 @@ class SmbClient(
                   }
                 } else {
                   val diskShare = newSession.connectDiskShare(configuredShare)
-                  // Keep the session-cached tree alive after validating the configured directory.
-                  diskShare.list(sharePath.directory.relative)
+                  // Validate browse permission without enumerating the entire folder twice.
+                  diskShare.openListingDirectory(sharePath.directory.relative).closeNoWait()
                 }
                 break
               } catch (error: SMBApiException) {
@@ -209,6 +256,7 @@ class SmbClient(
         smbClient = candidateClient
         smbConnection = candidateConnection
         session = candidateSession
+        markActive()
         candidateClient = null
         candidateConnection = null
         candidateSession = null
@@ -227,78 +275,116 @@ class SmbClient(
 
   override suspend fun disconnect() {
     withContext(Dispatchers.IO) {
-      val oldSession = session
-      val oldConnection = smbConnection
-      val oldClient = smbClient
-      session = null
-      smbConnection = null
-      smbClient = null
-      closeResources(oldSession, oldConnection, oldClient)
+      connectionMutex.withLock { disconnectSession() }
     }
   }
 
-  override fun isConnected(): Boolean = session != null && smbConnection != null
+  private fun disconnectSession() {
+    val oldSession = session
+    val oldConnection = smbConnection
+    val oldClient = smbClient
+    session = null
+    smbConnection = null
+    smbClient = null
+    closeResources(oldSession, oldConnection, oldClient)
+  }
+
+  override fun isConnected(): Boolean = session != null && smbConnection?.isConnected == true
+
+  private fun DiskShare.openListingDirectory(path: String): Directory =
+    openDirectory(
+      path,
+      EnumSet.of(AccessMask.FILE_LIST_DIRECTORY, AccessMask.FILE_READ_ATTRIBUTES, AccessMask.FILE_READ_EA),
+      null,
+      EnumSet.allOf(SMB2ShareAccess::class.java),
+      SMB2CreateDisposition.FILE_OPEN,
+      null,
+    )
+
+  private fun listDirectory(share: DiskShare, path: String): List<FileIdFullDirectoryInformation> {
+    val directory = share.openListingDirectory(path)
+    try {
+      val files = mutableListOf<FileIdFullDirectoryInformation>()
+      val iterator = directory.iterator(FileIdFullDirectoryInformation::class.java)
+      while (iterator.hasNext()) {
+        if (Thread.currentThread().isInterrupted) throw InterruptedException("SMB listing cancelled")
+        files += iterator.next()
+      }
+      return files
+    } finally {
+      // Not waiting for the CLOSE reply saves a round trip per folder, and unlike close() it still
+      // releases the server handle when cancellation has interrupted this thread.
+      runCatching { directory.closeNoWait() }
+    }
+  }
 
   override suspend fun listFiles(path: String): Result<List<NetworkFile>> =
     withContext(Dispatchers.IO) {
       try {
         val result =
-          executeWithRetry {
-            val sess = session ?: throw java.net.SocketException("Not connected")
-            val directory = parseNetworkPath(path)
-            if (sharePath.isServerRoot && directory.isRoot) {
-              return@executeWithRetry withTimeout(15_000) {
-                runInterruptible(Dispatchers.IO) { SmbShareDiscovery.listShares(sess) }
-              }
-            }
-            val target = sharePath.resolve(directory)
-
-            val diskShare =
-              try {
-                withTimeout(15_000) {
-                  runInterruptible(Dispatchers.IO) { sess.connectDiskShare(target.shareName) }
+          withTimeout(30_000) {
+            executeWithRetry {
+              val sess = session ?: throw java.net.SocketException("Not connected")
+              val directory = parseNetworkPath(path)
+              if (sharePath.isServerRoot && directory.isRoot) {
+                return@executeWithRetry withTimeout(15_000) {
+                  runInterruptible(Dispatchers.IO) { SmbShareDiscovery.listShares(sess) }
                 }
-              } catch (_: TimeoutCancellationException) {
-                throw java.net.SocketTimeoutException("SMB share connection timed out")
               }
+              val target = sharePath.resolve(directory)
 
-            // The DiskShare returned by Session.connectShare() is cached and shared by
-            // all requests on this session. Never close it from a per-request operation:
-            // closing it here would disconnect the tree out from under active streams.
-            val rawFiles: List<FileIdBothDirectoryInformation> =
-              try {
-                withTimeout(15_000) {
-                  runInterruptible(Dispatchers.IO) {
-                    // Server-root connections now disable directory leasing entirely,
-                    // including SMBJ's lease manager (not merely its list cache).
-                    // Pinned single-share connections retain directory caching.
-                    diskShare.list(target.path.relative)
+              val diskShare =
+                try {
+                  withTimeout(15_000) {
+                    runInterruptible(Dispatchers.IO) { sess.connectDiskShare(target.shareName) }
                   }
+                } catch (_: TimeoutCancellationException) {
+                  throw java.net.SocketTimeoutException("SMB share connection timed out")
                 }
-              } catch (_: TimeoutCancellationException) {
-                throw IOException("SMB directory listing timed out")
-              }
 
-            rawFiles.mapNotNull { fileInfo ->
-              val fileName = fileInfo.fileName
-              if (fileName == "." || fileName == "..") return@mapNotNull null
-              runCatching {
-                val isDirectory = fileInfo.fileAttributes and 0x10 != 0L
-                NetworkFile(
-                  name = fileName,
-                  path = directory.child(fileName).value,
-                  isDirectory = isDirectory,
-                  size = if (isDirectory) 0L else fileInfo.endOfFile,
-                  lastModified = fileInfo.lastWriteTime.toEpochMillis(),
-                  mimeType = if (!isDirectory) NetworkMimeTypes.forFileName(fileName) else null,
-                )
-              }.getOrNull()
+              // The DiskShare returned by Session.connectShare() is cached and shared by
+              // all requests on this session. Never close it from a per-request operation:
+              // closing it here would disconnect the tree out from under active streams.
+              val rawFiles: List<FileIdFullDirectoryInformation> =
+                try {
+                  withTimeout(15_000) {
+                    runInterruptible(Dispatchers.IO) {
+                      // Each enumeration owns its directory handle, never the session-cached tree.
+                      listDirectory(diskShare, target.path.relative)
+                    }
+                  }
+                } catch (_: TimeoutCancellationException) {
+                  throw java.net.SocketTimeoutException("SMB directory listing timed out")
+                }
+
+              rawFiles.mapNotNull { fileInfo ->
+                val fileName = fileInfo.fileName
+                if (fileName == "." || fileName == "..") return@mapNotNull null
+                runCatching {
+                  val isDirectory = fileInfo.fileAttributes and 0x10 != 0L
+                  NetworkFile(
+                    name = fileName,
+                    path = directory.child(fileName).value,
+                    isDirectory = isDirectory,
+                    size = if (isDirectory) 0L else fileInfo.endOfFile,
+                    lastModified = fileInfo.lastWriteTime.toEpochMillis(),
+                    mimeType = if (!isDirectory) NetworkMimeTypes.forFileName(fileName) else null,
+                  )
+                }.getOrNull()
+              }
             }
           }
         Result.success(result)
       } catch (_: TimeoutCancellationException) {
+        // A caller's deadline (e.g. an availability probe) arrives as the same exception type; it
+        // only cancels that caller and must not discard the shared session.
+        coroutineContext.ensureActive()
+        // Both attempts ran out of time: the transport cannot be trusted for the next request.
+        withContext(NonCancellable) { disconnect() }
         Result.failure(IOException("SMB directory listing timed out"))
       } catch (cancellation: CancellationException) {
+        // A superseded or abandoned listing leaves the session healthy. Its outstanding replies are
+        // matched by message id, so keep the connection warm for the next folder.
         throw cancellation
       } catch (error: Exception) {
         Result.failure(connectionError(error))
@@ -492,8 +578,9 @@ class SmbClient(
     networkConnection: Connection?,
     client: SMBClient?,
   ) {
-    runCatching { smbSession?.close() }
-    runCatching { networkConnection?.close() }
+    // Each SmbClient owns its transport. Do not send TREE_DISCONNECT/LOGOFF and wait for replies
+    // on a dead socket: that held the repository's lifecycle mutex throughout recovery.
+    runCatching { (networkConnection ?: smbSession?.connection)?.close(true) }
     runCatching { client?.close() }
   }
 }
