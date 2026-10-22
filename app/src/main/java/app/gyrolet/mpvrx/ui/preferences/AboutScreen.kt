@@ -570,7 +570,7 @@ object AboutScreen : Screen {
                           icon = {},
                           label = {
                             Text(
-                              text = when (channel) {
+                              when (channel) {
                                 AppUpdateChannel.STABLE -> stringResource(R.string.ui_update_channel_stable_short)
                                 AppUpdateChannel.PREVIEW -> stringResource(R.string.ui_update_channel_preview_short)
                                 AppUpdateChannel.EXPERIMENTAL -> stringResource(R.string.ui_update_channel_experimental_short)
