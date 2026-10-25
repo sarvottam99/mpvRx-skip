@@ -826,6 +826,10 @@
   <!-- Player - Display & Controls Section                        -->
   <string name="batch_editor_title">Batch Editor</string>
   <string name="batch_editor_summary">Batch tools for chapters and subtitle tracks</string>
+  <string name="chapter_maker_title">Chapter Maker</string>
+  <string name="chapter_maker_summary">Add chapters to videos in a folder and its subfolders</string>
+  <string name="subtitle_editor_title">Subtitle Editor</string>
+  <string name="subtitle_editor_summary">Edit subtitle names, defaults, and track order</string>
   <string name="pref_section_display_controls">Display &amp; Controls</string>
   <string name="pref_player_controls_drawer_title">Controls drawer</string>
   <string name="pref_player_controls_drawer_summary">Display edge handle to drag open the controls panel</string>
