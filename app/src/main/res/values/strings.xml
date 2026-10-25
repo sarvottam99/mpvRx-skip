@@ -824,6 +824,8 @@
   <string name="pref_auto_skip_outro_summary">Automatically skip ending markers during playback</string>
 
   <!-- Player - Display & Controls Section                        -->
+  <string name="batch_editor_title">Batch Editor</string>
+  <string name="batch_editor_summary">Batch tools for chapters and subtitle tracks</string>
   <string name="pref_section_display_controls">Display &amp; Controls</string>
   <string name="pref_player_controls_drawer_title">Controls drawer</string>
   <string name="pref_player_controls_drawer_summary">Display edge handle to drag open the controls panel</string>
