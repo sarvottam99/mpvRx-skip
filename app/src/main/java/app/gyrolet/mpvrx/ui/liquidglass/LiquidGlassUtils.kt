@@ -16,18 +16,33 @@ import androidx.compose.runtime.remember
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.addOutline
+import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalGraphicsContext
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastCoerceIn
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.BackdropEffectScope
@@ -55,6 +70,23 @@ val LocalKyantPlayerBackdrop = staticCompositionLocalOf<Backdrop?> { null }
 
 /** Prevent HDR playback from refracting the sampled video across player glass surfaces. */
 internal val LocalPlayerHdrOutputEnabled = staticCompositionLocalOf { false }
+
+/**
+ * False inside the video player while the video sits on a native surface Liquid Glass cannot
+ * sample (HDR output without "Liquid glass in HDR"); null everywhere else, where the preference
+ * alone decides.
+ */
+internal val LocalPlayerLiquidGlassActive = staticCompositionLocalOf<Boolean?> { null }
+
+/**
+ * Whether Liquid Glass applies here. Player components read this instead of the raw preference,
+ * so they fall back to their regular, non-glass form whenever the player turns glass off.
+ */
+@Composable
+fun liquidGlassActive(): Boolean {
+    val enabled by koinInject<AppearancePreferences>().liquidGlassEnabled.collectAsState()
+    return enabled && LocalPlayerLiquidGlassActive.current != false
+}
 
 object LiquidControlColors {
     val accent: Color
@@ -165,6 +197,47 @@ fun BackdropEffectScope.liquidGlassEffects(
         )
     }
     if (settings.opacity < 1f) opacity(settings.opacity)
+}
+
+/**
+ * A drop shadow kept outside [shape]. An elevation shadow also darkens the area under the shape,
+ * which translucent fills reveal as a faint band.
+ */
+@Composable
+fun Modifier.outsideShadow(
+    shape: Shape,
+    radius: Dp,
+    color: Color = Color.Black.copy(alpha = 0.22f),
+    offsetY: Dp = radius / 4,
+): Modifier {
+    if (radius <= 0.dp) return this
+    val shadowContext = LocalGraphicsContext.current.shadowContext
+    val painter = remember(shadowContext, shape, radius, color, offsetY) {
+        shadowContext.createDropShadowPainter(
+            shape,
+            Shadow(radius = radius, color = color, offset = DpOffset(0.dp, offsetY)),
+        )
+    }
+    return drawWithCache {
+        val shapePath = Path().apply { addOutline(shape.createOutline(size, layoutDirection, this@drawWithCache)) }
+        onDrawBehind {
+            clipPath(shapePath, ClipOp.Difference) { with(painter) { draw(size) } }
+        }
+    }
+}
+
+/** Glass surfaces are painted on a rectangular layer; fill only the capsule so no box shows around it. */
+fun DrawScope.drawCapsuleTint(color: Color) {
+    drawRoundRect(color, cornerRadius = CornerRadius(size.minDimension / 2f))
+}
+
+/** [drawCapsuleTint] for any shape. */
+fun DrawScope.drawShapeTint(shape: Shape, color: Color) {
+    drawOutline(shape.createOutline(size, layoutDirection, this), color)
+}
+
+fun DrawScope.drawShapeTint(shape: Shape, brush: Brush) {
+    drawOutline(shape.createOutline(size, layoutDirection, this), brush)
 }
 
 suspend fun PointerInputScope.inspectDragGestures(

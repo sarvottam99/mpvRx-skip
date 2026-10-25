@@ -31,6 +31,7 @@ import app.gyrolet.mpvrx.utils.media.ScopedHiddenFolderScanner
 import app.gyrolet.mpvrx.utils.storage.FolderViewScanner
 import app.gyrolet.mpvrx.utils.storage.MediaStoreGenerationGuard
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
@@ -42,6 +43,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
@@ -103,6 +105,7 @@ class FolderListViewModel(
 
   // Track the current scan job to prevent concurrent scans
   private var currentScanJob: Job? = null
+  @Volatile private var currentListingReady: CompletableDeferred<Unit>? = null
   private var cacheWriteJob: Job? = null
   private var lastHiddenMarkerSnapshot: Map<String, Boolean>? = null
   private var lastExternalFolderRecheckAt = android.os.SystemClock.elapsedRealtime()
@@ -148,7 +151,7 @@ class FolderListViewModel(
     }
 
     // Refresh on media events and every preference that changes scan/index semantics. Settings UI
-    // may emit both; collectLatest plus the debounce collapses them into one refresh.
+    // may emit both. Conflate bursts without restarting the delay for every scanner row.
     viewModelScope.launch(Dispatchers.IO) {
       val scanPreferenceChanges =
         combine(
@@ -163,8 +166,11 @@ class FolderListViewModel(
         ) { _ -> Unit }
           .drop(1)
 
-      merge(MediaLibraryEvents.changes.map { true }, scanPreferenceChanges.map { false }).collectLatest { mediaChanged ->
+      merge(MediaLibraryEvents.changes.map { true }, scanPreferenceChanges.map { false }).conflate().collect { mediaChanged ->
         delay(MEDIA_LIBRARY_REFRESH_DEBOUNCE_MS)
+        // Let an in-flight basic listing publish even during a continuous scanner burst.
+        // This does not wait for hidden discovery or optional metadata enrichment.
+        currentListingReady?.await()
         // A media event affects the MediaStore snapshot, not the tree cache or persisted
         // .nomedia fingerprints. Known hidden roots will be checked incrementally below.
         MediaFileRepository.invalidateFolderCache()
@@ -187,9 +193,15 @@ class FolderListViewModel(
     }
 
     viewModelScope.launch {
-      combine(_allVideoFolders, blacklistFlow, pendingFolderDeletionKeys) { folders, blacklist, pendingDeletions ->
+      combine(
+        _allVideoFolders,
+        blacklistFlow,
+        foldersPreferences.whitelistChanges(),
+        pendingFolderDeletionKeys,
+      ) { folders, blacklist, (whitelistEnabled, whitelist), pendingDeletions ->
         folders.filter { folder ->
           folderKey(folder) !in pendingDeletions &&
+            app.gyrolet.mpvrx.utils.storage.isWhitelistedMediaPath(folder.path, whitelistEnabled, whitelist) &&
             blacklist.none { blacklisted ->
               app.gyrolet.mpvrx.utils.storage.isMediaPathInFolder(folder.path, blacklisted)
             }
@@ -315,7 +327,8 @@ class FolderListViewModel(
       "_m${foldersPreferences.sharedScanMarkedFolders.get()}_d${foldersPreferences.sharedScanDotFolders.get()}" +
       "_markers${foldersPreferences.hiddenFolderMarkerNames.get().sorted().joinToString(",")}" +
       "_ignore${foldersPreferences.sharedIgnoredMarkers.get().sorted().joinToString(",")}" +
-      "_audio_${browserPreferences.includeAudioBrowser.get()}_${browserPreferences.minimumAudioDurationSeconds.get()}"
+      "_audio_${browserPreferences.includeAudioBrowser.get()}_${browserPreferences.minimumAudioDurationSeconds.get()}" +
+      "_${MediaFileRepository.currentScanOptions().mediaFilterKey}"
 
   private fun serializeFoldersToJson(folders: List<VideoFolder>): String {
     // Simple JSON serialization
@@ -557,7 +570,10 @@ class FolderListViewModel(
     if (_allVideoFolders.value.isEmpty()) _isLoading.value = true
     MediaFileRepository.invalidateFolderCache()
     MediaStoreGenerationGuard.invalidate(getApplication())
-    viewModelScope.launch(Dispatchers.IO) { loadVideoFolders() }
+    viewModelScope.launch(Dispatchers.IO) {
+      loadVideoFolders()
+      app.gyrolet.mpvrx.utils.storage.UnindexedVideoDiscovery.refresh(getApplication(), force = true)
+    }
   }
 
   /**
@@ -636,6 +652,8 @@ class FolderListViewModel(
     skipMediaStoreScan: Boolean = false,
   ) {
     currentScanJob?.cancel()
+    val listingReady = CompletableDeferred<Unit>()
+    currentListingReady = listingReady
     folderContentRevision.update { it + 1 }
     // Reassigned per pass, not set once: a later real scan must be able to record the generation
     // again, otherwise the cold-boot fast path would stay off for the rest of the session.
@@ -665,6 +683,7 @@ class FolderListViewModel(
             }
             _isLoading.value = false
             _hasCompletedInitialLoad.value = true
+            listingReady.complete(Unit)
             if (MetadataRetrieval.isFolderMetadataNeeded(browserPreferences)) {
               enrichDeferredFolderDurations(folders, emptySet())
             }
@@ -675,6 +694,7 @@ class FolderListViewModel(
             Log.e(TAG, "Error loading audio folders", e)
             _hasCompletedInitialLoad.value = true
           } finally {
+            listingReady.complete(Unit)
             if (isActive) {
               _isLoading.value = false
               _isEnriching.value = false
@@ -738,9 +758,12 @@ class FolderListViewModel(
             emptyList()
           }
           var visibleFolders = mergeFolders(mediaStoreFolders, indexedFolders, scopedFolders)
-          if (!hasExistingData) {
+          // This already includes the last hidden-folder index. Publish new ordinary folders now,
+          // rather than holding them behind hidden discovery and optional metadata enrichment.
+          if (_allVideoFolders.value != visibleFolders) {
             _allVideoFolders.value = visibleFolders
           }
+          listingReady.complete(Unit)
           Log.d(TAG, "Scanned ${mediaStoreFolders.size} MediaStore and ${indexedFolders.size} indexed folders")
 
           var hiddenFolderKeys: Set<String> = indexedKeys
@@ -851,6 +874,7 @@ class FolderListViewModel(
           Log.e(TAG, "Error loading video folders", e)
           _hasCompletedInitialLoad.value = true
         } finally {
+          listingReady.complete(Unit)
           if (isActive) {
             _isLoading.value = false
             _isEnriching.value = false

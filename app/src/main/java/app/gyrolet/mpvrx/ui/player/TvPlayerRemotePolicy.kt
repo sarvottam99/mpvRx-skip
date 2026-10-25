@@ -17,6 +17,12 @@ internal enum class TvPlayerRemoteAction {
   SEEK_BACKWARD,
   SEEK_FORWARD,
   TOGGLE_PLAYBACK,
+  TOGGLE_MENU,
+  TOGGLE_SUBTITLES,
+  PLAY,
+  PAUSE,
+  PREVIOUS,
+  NEXT,
 }
 
 internal object TvPlayerRemotePolicy {
@@ -26,6 +32,18 @@ internal object TvPlayerRemotePolicy {
     overlayVisible: Boolean,
   ): TvPlayerRemoteAction =
     when (keyCode) {
+      // Transport keys must work independently of the phone gesture configuration, even
+      // while a sheet is open. Directional keys still belong to the focused sheet/control.
+      KeyEvent.KEYCODE_MEDIA_REWIND -> TvPlayerRemoteAction.SEEK_BACKWARD
+      KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> TvPlayerRemoteAction.SEEK_FORWARD
+      KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+      KeyEvent.KEYCODE_HEADSETHOOK,
+      -> TvPlayerRemoteAction.TOGGLE_PLAYBACK
+      KeyEvent.KEYCODE_MEDIA_PLAY -> TvPlayerRemoteAction.PLAY
+      KeyEvent.KEYCODE_MEDIA_PAUSE -> TvPlayerRemoteAction.PAUSE
+      KeyEvent.KEYCODE_MEDIA_PREVIOUS -> TvPlayerRemoteAction.PREVIOUS
+      KeyEvent.KEYCODE_MEDIA_NEXT -> TvPlayerRemoteAction.NEXT
+
       KeyEvent.KEYCODE_DPAD_UP,
       KeyEvent.KEYCODE_SYSTEM_NAVIGATION_UP,
       KeyEvent.KEYCODE_DPAD_DOWN,
@@ -46,6 +64,16 @@ internal object TvPlayerRemotePolicy {
       KeyEvent.KEYCODE_BUTTON_A,
       KeyEvent.KEYCODE_BUTTON_START,
       -> if (controlsVisible || overlayVisible) TvPlayerRemoteAction.DELEGATE else TvPlayerRemoteAction.TOGGLE_PLAYBACK
+
+      KeyEvent.KEYCODE_MENU,
+      KeyEvent.KEYCODE_SETTINGS,
+      -> TvPlayerRemoteAction.TOGGLE_MENU
+
+      KeyEvent.KEYCODE_CAPTIONS -> TvPlayerRemoteAction.TOGGLE_SUBTITLES
+
+      KeyEvent.KEYCODE_INFO,
+      KeyEvent.KEYCODE_GUIDE,
+      -> if (controlsVisible || overlayVisible) TvPlayerRemoteAction.DELEGATE else TvPlayerRemoteAction.SHOW_CONTROLS
 
       else -> TvPlayerRemoteAction.DELEGATE
     }

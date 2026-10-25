@@ -10,7 +10,7 @@
 package app.gyrolet.mpvrx.ui.browser
 
 import android.annotation.SuppressLint
-import androidx.activity.compose.BackHandler
+import app.gyrolet.mpvrx.ui.utils.NavigationBackHandler as BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -27,22 +27,30 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -57,6 +65,7 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -82,6 +91,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ClipOp
@@ -148,12 +158,14 @@ import dev.chrisbanes.haze.rememberHazeState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import app.gyrolet.mpvrx.ui.theme.AppMotion
 import app.gyrolet.mpvrx.ui.theme.LocalAppBackgroundBackdrop
 import app.gyrolet.mpvrx.ui.theme.wallpaperAwareBackgroundColor
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.drawBackdrop
+import app.gyrolet.mpvrx.ui.liquidglass.drawCapsuleTint
 import app.gyrolet.mpvrx.ui.liquidglass.liquidGlassEffects
 import app.gyrolet.mpvrx.ui.liquidglass.rememberLiquidGlassSettings
 import com.kyant.backdrop.highlight.Highlight
@@ -161,9 +173,14 @@ import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.Capsule
 import kotlinx.serialization.Serializable
 import org.koin.compose.koinInject
+import app.gyrolet.mpvrx.ui.tv.RegisterTvContentFocus
+import app.gyrolet.mpvrx.ui.tv.TvEdgeToEdgeScreen
+import app.gyrolet.mpvrx.ui.tv.TvFocusMemory
+import app.gyrolet.mpvrx.ui.tv.TvSafeArea
+import app.gyrolet.mpvrx.ui.tv.tryRequestFocus
 
 @Serializable
-object MainScreen : Screen {
+object MainScreen : Screen, TvEdgeToEdgeScreen {
   internal enum class MainTab {
     HOME,
     MUSIC,
@@ -260,6 +277,28 @@ object MainScreen : Screen {
         )
       }
     val navigationTabs = visibleTabs.takeIf { it.size > 1 }.orEmpty()
+    val isTelevision = app.gyrolet.mpvrx.utils.device.DeviceFormFactor.isTelevision(
+      androidx.compose.ui.platform.LocalContext.current,
+    )
+    // The legacy bar spans the bottom edge, so it would ride on top of the keyboard while typing.
+    // It leaves as soon as the keyboard starts to open and returns once it has fully closed.
+    val density = LocalDensity.current
+    val imeInsets = WindowInsets.ime
+    val isImeOpen by remember(imeInsets, density) { derivedStateOf { imeInsets.getBottom(density) > 0 } }
+    val showBottomNavigation =
+      !isTelevision && !hideNavigationBar && navigationTabs.isNotEmpty() && !isPermissionDenied &&
+        !(legacyNavigationBar && isImeOpen)
+    val showTvRail = isTelevision && visibleTabs.isNotEmpty() && !isPermissionDenied
+    val tvRailFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+    // TV: follows the settled tab page, so the rail and the screen host can send focus into it.
+    val tvContentFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+    var isTvRailFocused by remember { mutableStateOf(false) }
+    var isTvScreenFocused by remember { mutableStateOf(false) }
+    RegisterTvContentFocus(tvContentFocusRequester)
+    // The exact card that was left when focus went to the rail, else the current tab's first item.
+    val focusTvContent: () -> Boolean = {
+      TvFocusMemory.restore(MainScreen) || tvContentFocusRequester.tryRequestFocus()
+    }
 
     // Track whether the floating pill nav bar is on screen so the mini player can
     // sit at the very bottom when navigating to screens without it.
@@ -270,8 +309,7 @@ object MainScreen : Screen {
       }
     }
     SideEffect {
-      NavigationBarState.isNavBarVisible =
-        backStack.lastOrNull() == MainScreen && !hideNavigationBar && navigationTabs.isNotEmpty() && !isPermissionDenied
+      NavigationBarState.isNavBarVisible = backStack.lastOrNull() == MainScreen && showBottomNavigation
       NavigationBarState.navigationBarBottomSpacing =
         if (legacyNavigationBar) 0.dp else NavigationBarState.floatingBarSpacing
     }
@@ -421,6 +459,36 @@ object MainScreen : Screen {
     BackHandler(enabled = backStack.lastOrNull() == MainScreen && shouldReturnHome) {
       onTabSelected(MainTab.HOME)
     }
+    // TV: Back from page content first moves focus to the side rail (NuvioTV behaviour); once the
+    // rail owns focus, Back falls through to the return-home handler above and then exits.
+    BackHandler(enabled = showTvRail && backStack.lastOrNull() == MainScreen && !isTvRailFocused) {
+      runCatching { tvRailFocusRequester.requestFocus() }
+    }
+    val onTvTabSelected: (MainTab) -> Unit = { tab ->
+      onTabSelected(tab)
+      val pendingJob = tabNavigationJob
+      coroutineScope.launch {
+        pendingJob?.join()
+        // The new tab may still be loading. Retry briefly; if it never gets anything focusable,
+        // or the user moves on first, focus simply stays where it is.
+        repeat(TV_TAB_FOCUS_ATTEMPTS) {
+          withFrameNanos { }
+          if (!isTvRailFocused || tvContentFocusRequester.tryRequestFocus()) return@launch
+          delay(TV_TAB_FOCUS_RETRY_MS)
+        }
+      }
+    }
+    // Focus must never be left on nothing: if a tab change took the focused item with it, move
+    // into the tab that is now showing. Opening the screen is left to the screen host.
+    LaunchedEffect(isTelevision, pagerState) {
+      if (!isTelevision) return@LaunchedEffect
+      snapshotFlow { pagerState.settledPage }
+        .drop(1)
+        .collect {
+          withFrameNanos { }
+          if (!isTvScreenFocused && !isTvRailFocused && backStack.lastOrNull() == MainScreen) focusTvContent()
+        }
+    }
 
     // Keep the app's established Haze path for the normal navigation bar. Liquid Glass uses the
     // separate Kyant layer backdrop declared with the screen state above.
@@ -454,7 +522,25 @@ object MainScreen : Screen {
       NavigationBarState.isDualPaneLayout = backStack.lastOrNull() == MainScreen && isDualPaneLayout
     }
     val contentBottomPadding =
-      if (isDualPaneLayout) NavigationBarState.bottomBarClearance else NavigationBarState.bottomOverlayClearance
+      when {
+        // Lists still scroll to the screen edge, but their last row rests above the overscan
+        // margin, the selection bar and the mini player card.
+        isTelevision -> TvSafeArea.Vertical + NavigationBarState.bottomOverlayClearance
+        isDualPaneLayout -> NavigationBarState.bottomBarClearance
+        else -> NavigationBarState.bottomOverlayClearance
+      }
+    // TV: reserve the rail on the start edge, but avoid wasting a full overscan gutter on
+    // the trailing edge. TV lists reserve their own clearance for scaled focus highlights.
+    val tvContentPadding =
+      if (isTelevision) {
+        PaddingValues(
+          start = if (showTvRail) TvSideNavigationDefaults.CollapsedWidth else TvSafeArea.Horizontal,
+          top = TvSafeArea.Vertical,
+          end = 12.dp,
+        )
+      } else {
+        PaddingValues(0.dp)
+      }
     val context = androidx.compose.ui.platform.LocalContext.current
     val jellyfinViewModel: app.gyrolet.mpvrx.ui.browser.jellyfin.JellyfinViewModel =
       androidx.lifecycle.viewmodel.compose.viewModel(
@@ -475,12 +561,18 @@ object MainScreen : Screen {
       modifier = Modifier.fillMaxSize(),
       containerColor = wallpaperAwareBackgroundColor(),
     ) { paddingValues ->
-      Box(modifier = Modifier.fillMaxSize()) {
+      Box(
+        modifier =
+          Modifier
+            .fillMaxSize()
+            .onFocusChanged { isTvScreenFocused = it.hasFocus },
+      ) {
         if (visibleTabs.isEmpty()) {
           Box(
             modifier =
               Modifier
                 .fillMaxSize()
+                .padding(tvContentPadding)
                 .then(
                     when {
                       liquidGlassEnabled -> Modifier.layerBackdrop(liquidLayerBackdrop)
@@ -508,6 +600,7 @@ object MainScreen : Screen {
               modifier =
                 Modifier
                   .fillMaxSize()
+                  .padding(tvContentPadding)
                   .clipToBounds()
                   .graphicsLayer { alpha = tabContentAlpha.value }
                   .nestedScroll(NavigationBarState.navScrollConnection)
@@ -520,7 +613,8 @@ object MainScreen : Screen {
                   ),
               key = { page -> visibleTabs[page].name },
               beyondViewportPageCount = if (adjacentTabsWarm) 1 else 0,
-              userScrollEnabled = !isPermissionDenied && !isDirectTabJumpInProgress,
+              userScrollEnabled = !isTelevision && !isPermissionDenied && !isDirectTabJumpInProgress,
+              activePageFocusRequester = tvContentFocusRequester.takeIf { isTelevision },
             ) { page ->
               val tab = visibleTabs.getOrNull(page) ?: return@NavigationPager
               when (tab) {
@@ -718,13 +812,26 @@ object MainScreen : Screen {
           }
         }
 
+        if (showTvRail) {
+          TvSideNavigation(
+            tabs = visibleTabs,
+            selectedTab = selectedTab,
+            onTabSelected = onTvTabSelected,
+            onOpenSettings = { backStack.navigateTo(app.gyrolet.mpvrx.ui.preferences.PreferencesScreen) },
+            selectedItemFocusRequester = tvRailFocusRequester,
+            onRailFocusChanged = { isTvRailFocused = it },
+            onFocusContent = focusTvContent,
+            modifier = Modifier.align(Alignment.CenterStart),
+          )
+        }
+
         // Animated bottom navigation bar with slide animations
         ProvideLiquidGlassBackdrop(
           backdrop = liquidLayerBackdrop,
           enabled = liquidGlassEnabled,
         ) {
           AnimatedVisibility(
-            visible = !hideNavigationBar && navigationTabs.isNotEmpty() && !isPermissionDenied,
+            visible = showBottomNavigation,
             enter = if (navStyle == NavigationAnimStyle.None) EnterTransition.None else
               slideInVertically(
                 animationSpec = tween(duration, easing = FastOutSlowInEasing),
@@ -741,6 +848,22 @@ object MainScreen : Screen {
                 .align(Alignment.BottomStart),
           ) {
             Box(Modifier.fillMaxWidth()) {
+              // The safe drawing area without the keyboard: the legacy bar leaves while the
+              // keyboard is open, so it stays at the bottom edge instead of rising with it.
+              val legacyBarInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout)
+              // The legacy bar is edge-to-edge, but its controls must stay above the system
+              // navigation area. Paint that bottom inset with the same surface as the bar
+              // so content cannot peek through below it (gesture and 3-button modes).
+              if (legacyNavigationBar) {
+                Spacer(
+                  modifier =
+                    Modifier
+                      .align(Alignment.BottomCenter)
+                      .fillMaxWidth()
+                      .windowInsetsBottomHeight(legacyBarInsets)
+                      .background(NavigationBarDefaults.containerColor),
+                )
+              }
               Box(Modifier.matchParentSize()) {
                 // Haze only runs while its navigation surface is visible.
                 if (!liquidGlassEnabled && progressiveNavigationBlur && !legacyNavigationBar) {
@@ -758,7 +881,10 @@ object MainScreen : Screen {
                 modifier =
                   Modifier
                     .fillMaxWidth()
-                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
+                    .windowInsetsPadding(
+                      (if (legacyNavigationBar) legacyBarInsets else WindowInsets.safeDrawing)
+                        .only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom),
+                    )
                     .padding(
                       top = 24.dp,
                       bottom = if (legacyNavigationBar) 0.dp else NavigationBarState.floatingBarSpacing,
@@ -1066,7 +1192,7 @@ internal fun ExpressivePillNavigationBar(
                   )
                 },
                 onDrawSurface = {
-                  drawRect(glassSettings.surfaceColor(surfaceColor.copy(alpha = 0.34f)))
+                  drawCapsuleTint(glassSettings.surfaceColor(surfaceColor.copy(alpha = 0.34f)))
                 },
               ).navigationGlassRim(glowStrength * glassSettings.highlightStrength.coerceAtMost(1f))
               .drawWithContent {
@@ -1125,7 +1251,7 @@ internal fun ExpressivePillNavigationBar(
 }
 
 @Composable
-private fun mainNavigationLabel(tab: MainScreen.MainTab): String =
+internal fun mainNavigationLabel(tab: MainScreen.MainTab): String =
   stringResource(when (tab) {
     MainScreen.MainTab.HOME -> R.string.ui_home
     MainScreen.MainTab.MUSIC -> R.string.ui_music
@@ -1169,7 +1295,7 @@ private fun LegacyMaterialNavigationBar(
 }
 
 @Composable
-private fun MainTabIcon(
+internal fun MainTabIcon(
   tab: MainScreen.MainTab,
   tint: Color,
   contentDescription: String?,
@@ -1211,6 +1337,8 @@ private val MainNavigationIconSize = 28.dp
 private val NavigationBarEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 private const val ADJACENT_TAB_WARMUP_DELAY_MS = 2_500L
 private const val ADJACENT_TAB_IDLE_MS = 1_200L
+private const val TV_TAB_FOCUS_ATTEMPTS = 6
+private const val TV_TAB_FOCUS_RETRY_MS = 100L
 
 /**
  * Bottom-navigation tab order. Home is the permanent root so Back never exits directly from another

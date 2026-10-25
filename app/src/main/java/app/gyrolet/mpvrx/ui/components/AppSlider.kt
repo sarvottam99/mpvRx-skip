@@ -1,6 +1,8 @@
 package app.gyrolet.mpvrx.ui.components
 
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.focusable
+import app.gyrolet.mpvrx.ui.liquidglass.liquidGlassActive
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.progressSemantics
@@ -17,11 +19,19 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
+import app.gyrolet.mpvrx.ui.tv.isTelevision
+import app.gyrolet.mpvrx.ui.player.controls.components.tvFocusHighlight
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
-import app.gyrolet.mpvrx.preferences.AppearancePreferences
-import app.gyrolet.mpvrx.preferences.preference.collectAsState
 import app.gyrolet.mpvrx.ui.liquidglass.LiquidSlider
 import app.gyrolet.mpvrx.ui.liquidglass.LiquidSliderThumb
 import app.gyrolet.mpvrx.ui.liquidglass.LiquidSliderTrack
@@ -32,7 +42,6 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberCanvasBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
-import org.koin.compose.koinInject
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -48,8 +57,7 @@ fun AppSlider(
   interactionSource: MutableInteractionSource = remember { MutableInteractionSource() },
   onInteractionChange: (Boolean) -> Unit = {},
 ) {
-  val appearancePreferences = koinInject<AppearancePreferences>()
-  val glassEnabled by appearancePreferences.liquidGlassEnabled.collectAsState()
+  val glassEnabled = liquidGlassActive()
   if (!glassEnabled ||
     !valueRange.start.isFinite() ||
     !valueRange.endInclusive.isFinite() ||
@@ -97,6 +105,15 @@ fun AppSlider(
     backdrop = backdrop,
     modifier =
       modifier
+        .tvSliderKeys(
+          value = { sliderState.value },
+          valueRange = valueRange,
+          steps = steps,
+          enabled = enabled,
+          interactionSource = interactionSource,
+          onValueChange = updateValue,
+          onValueChangeFinished = onValueChangeFinished,
+        )
         .progressSemantics(sliderState.value, valueRange, steps)
         .semantics {
           if (!enabled) disabled()
@@ -122,6 +139,39 @@ fun AppSlider(
     accentColor = if (enabled) colors.activeTrackColor else colors.disabledActiveTrackColor,
     trackColor = if (enabled) colors.inactiveTrackColor else colors.disabledInactiveTrackColor,
   )
+}
+
+/** The glass slider has pointer input; give TV remotes an explicit, visible adjustment target. */
+private fun Modifier.tvSliderKeys(
+  value: () -> Float,
+  valueRange: ClosedFloatingPointRange<Float>,
+  steps: Int,
+  enabled: Boolean,
+  interactionSource: MutableInteractionSource,
+  onValueChange: (Float) -> Unit,
+  onValueChangeFinished: (() -> Unit)?,
+): Modifier = composed {
+  if (!isTelevision()) return@composed this
+  val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+  this
+    .tvFocusHighlight()
+    .onKeyEvent { event ->
+      if (!enabled) return@onKeyEvent false
+      val direction = when (event.key) {
+        Key.DirectionRight -> if (rtl) -1 else 1
+        Key.DirectionLeft -> if (rtl) 1 else -1
+        else -> return@onKeyEvent false
+      }
+      if (event.type == KeyEventType.KeyDown) {
+        val span = valueRange.endInclusive - valueRange.start
+        val increment = span / (if (steps > 0) steps + 1 else 20)
+        val changed = (value() + direction * increment).coerceIn(valueRange)
+        onValueChange(changed)
+        onValueChangeFinished?.invoke()
+      }
+      true
+    }
+    .focusable(enabled, interactionSource)
 }
 
 @Composable
@@ -168,8 +218,7 @@ fun AppRangeSlider(
   onValueChangeFinished: (() -> Unit)? = null,
   colors: SliderColors = SliderDefaults.colors(),
 ) {
-  val preferences = koinInject<AppearancePreferences>()
-  val glassEnabled by preferences.liquidGlassEnabled.collectAsState()
+  val glassEnabled = liquidGlassActive()
   val state = remember(steps, valueRange) { RangeSliderState(value.start, value.endInclusive, steps, valueRange) }
   if (
     !glassEnabled ||

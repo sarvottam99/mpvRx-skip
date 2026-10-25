@@ -28,6 +28,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -80,7 +81,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
-import me.zhanghai.compose.preference.ListPreference
+import app.gyrolet.mpvrx.ui.preferences.components.AppListPreference as ListPreference
 import me.zhanghai.compose.preference.Preference
 import app.gyrolet.mpvrx.ui.preferences.components.AppSliderPreference as SliderPreference
 import org.koin.compose.koinInject
@@ -97,6 +98,7 @@ object AppearancePreferencesScreen : Screen {
     val gesturePreferences = koinInject<GesturePreferences>()
     val playerPreferences = koinInject<PlayerPreferences>()
     val thumbnailRepository = koinInject<ThumbnailRepository>()
+    val television = app.gyrolet.mpvrx.ui.tv.isTelevision()
     val backstack = LocalBackStack.current
     val scope = rememberCoroutineScope()
     val systemDarkTheme = isSystemInDarkTheme()
@@ -111,6 +113,10 @@ object AppearancePreferencesScreen : Screen {
     var pendingThumbnailMode by remember { mutableStateOf<ThumbnailMode?>(null) }
     var pendingAppUiScale by remember { mutableStateOf<Float?>(null) }
     var isThemeSectionExpanded by rememberSaveable { mutableStateOf(true) }
+    val searchTarget by SettingsSearchNavigation.target.collectAsState()
+    LaunchedEffect(searchTarget) {
+      if (searchTarget?.screen == AppearancePreferencesScreen) isThemeSectionExpanded = true
+    }
     var isAppFontSheetOpen by rememberSaveable { mutableStateOf(false) }
     val backgroundType by preferences.backgroundType.collectAsState()
     val storedThumbnailMode by browserPreferences.thumbnailMode.collectAsState()
@@ -243,7 +249,7 @@ object AppearancePreferencesScreen : Screen {
               .then(settingsHighlight),
         ) {
           item {
-            PreferenceSectionHeader(position = PreferenceSectionPosition.First, 
+            PreferenceSectionHeader(position = PreferenceSectionPosition.First,
               title = stringResource(id = R.string.pref_appearance_category_theme),
               modifier = Modifier.settingsSearchTarget(R.string.pref_appearance_title),
             )
@@ -257,6 +263,7 @@ object AppearancePreferencesScreen : Screen {
                 modifier =
                   Modifier
                     .fillMaxWidth()
+                    .settingsSearchTarget(R.string.pref_appearance_category_theme)
                     .clickable { isThemeSectionExpanded = !isThemeSectionExpanded }
                     .padding(horizontal = 20.dp, vertical = 12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -351,26 +358,29 @@ object AppearancePreferencesScreen : Screen {
                   PreferenceDivider()
 
                   WallpaperPreferenceCard(
+                    modifier = Modifier.settingsSearchTarget(R.string.pref_appearance_custom_wallpaper_title),
                     wallpaperUri = customWallpaperUri,
                     onClick = { backstack.navigateTo(WallpaperEditorScreen()) },
                   )
 
                   PreferenceCard {
-                   ExpressivePreferenceItem {
-                   Preference(
-                     modifier = Modifier.settingsSearchTarget(R.string.pref_app_icon_title),
-                     title = { Text(stringResource(R.string.pref_app_icon_title)) },
-                     summary = {
-                       Text(
-                         stringResource(R.string.pref_app_icon_summary),
-                         color = MaterialTheme.colorScheme.outline,
-                       )
-                     },
-                     onClick = { backstack.navigateTo(AppIconPreferencesScreen) },
-                   )
-                   }
+                   DevicePreference(R.string.pref_app_icon_title) {
+                     ExpressivePreferenceItem {
+                     Preference(
+                       modifier = Modifier.settingsSearchTarget(R.string.pref_app_icon_title),
+                       title = { Text(stringResource(R.string.pref_app_icon_title)) },
+                       summary = {
+                         Text(
+                           stringResource(R.string.pref_app_icon_summary),
+                           color = MaterialTheme.colorScheme.outline,
+                         )
+                       },
+                       onClick = { backstack.navigateTo(AppIconPreferencesScreen) },
+                     )
+                     }
 
-                  PreferenceDivider()
+                    PreferenceDivider()
+                   }
 
                   ExpressivePreferenceItem {
                     Preference(
@@ -477,7 +487,7 @@ object AppearancePreferencesScreen : Screen {
           }
 
           item {
-            PreferenceSectionHeader(position = PreferenceSectionPosition.Middle, 
+            PreferenceSectionHeader(position = PreferenceSectionPosition.Middle,
               title = stringResource(id = R.string.pref_appearance_category_file_browser),
             )
           }
@@ -660,7 +670,7 @@ object AppearancePreferencesScreen : Screen {
           }
 
           item {
-            PreferenceSectionHeader(position = PreferenceSectionPosition.Middle, 
+            PreferenceSectionHeader(position = PreferenceSectionPosition.Middle,
               title = stringResource(id = R.string.pref_appearance_category_thumbnails),
             )
           }
@@ -936,10 +946,10 @@ object AppearancePreferencesScreen : Screen {
             val tabItems = ordered.map { id ->
               when (id) {
                 "HOME" -> ReorderableTabItem(id, stringResource(R.string.pref_nav_home_title), stringResource(R.string.pref_nav_home_summary), true, required = true)
-                "MUSIC" -> ReorderableTabItem(id, stringResource(R.string.pref_nav_music_title), stringResource(R.string.pref_nav_music_summary), showMusicTab)
-                "NETWORK" -> ReorderableTabItem(id, stringResource(R.string.pref_nav_network_title), stringResource(R.string.pref_nav_network_summary), showNetworkTab)
-                "JELLYFIN" -> ReorderableTabItem(id, stringResource(R.string.pref_nav_jellyfin_title), stringResource(R.string.pref_nav_jellyfin_summary), showJellyfinTab)
-                else -> ReorderableTabItem(id, stringResource(R.string.pref_nav_profile_title), stringResource(R.string.pref_nav_profile_summary), showProfileTab)
+                "MUSIC" -> ReorderableTabItem(id, stringResource(R.string.pref_nav_music_title), stringResource(R.string.pref_nav_music_summary), showMusicTab, titleRes = R.string.pref_nav_music_title)
+                "NETWORK" -> ReorderableTabItem(id, stringResource(R.string.pref_nav_network_title), stringResource(R.string.pref_nav_network_summary), showNetworkTab, titleRes = R.string.pref_nav_network_title)
+                "JELLYFIN" -> ReorderableTabItem(id, stringResource(R.string.pref_nav_jellyfin_title), stringResource(R.string.pref_nav_jellyfin_summary), showJellyfinTab, titleRes = R.string.pref_nav_jellyfin_title)
+                else -> ReorderableTabItem(id, stringResource(R.string.pref_nav_profile_title), stringResource(R.string.pref_nav_profile_summary), showProfileTab, titleRes = R.string.pref_nav_profile_title)
               }
             }
             ExpressivePreferenceGroup {
@@ -965,85 +975,87 @@ object AppearancePreferencesScreen : Screen {
             }
           }
 
-          item {
-            PreferenceSectionHeader(
-              position = PreferenceSectionPosition.Middle,
-              title = stringResource(R.string.pref_nav_actions_section),
-            )
-          }
+          if (!television) {
+            item {
+              PreferenceSectionHeader(
+                position = PreferenceSectionPosition.Middle,
+                title = stringResource(R.string.pref_nav_actions_section),
+              )
+            }
 
-          item {
-            ExpressivePreferenceGroup {
-              val showQuickPlayFab by preferences.showQuickPlayFab.collectAsState()
-              SwitchPreference(
-                modifier = Modifier.settingsSearchTarget(R.string.pref_quick_play_fab_title),
-                value = showQuickPlayFab,
-                onValueChange = preferences.showQuickPlayFab::set,
-                title = { Text(text = stringResource(R.string.pref_quick_play_fab_title)) },
-                summary = {
-                  Text(
-                    text = stringResource(R.string.pref_quick_play_fab_summary),
-                    color = MaterialTheme.colorScheme.outline,
-                  )
-                },
-                groupIndex = 0,
-                groupSize = 5,
-              )
-              val quickPlayFabDirect by preferences.quickPlayFabDirect.collectAsState()
-              SwitchPreference(
-                modifier = Modifier.settingsSearchTarget(R.string.pref_quick_play_fab_direct_title),
-                value = quickPlayFabDirect,
-                onValueChange = preferences.quickPlayFabDirect::set,
-                enabled = showQuickPlayFab,
-                title = { Text(text = stringResource(R.string.pref_quick_play_fab_direct_title)) },
-                summary = {
-                  Text(
-                    text = stringResource(R.string.pref_quick_play_fab_direct_summary),
-                    color = MaterialTheme.colorScheme.outline,
-                  )
-                },
-                groupIndex = 1,
-                groupSize = 5,
-              )
-              val navigationBarGlow by preferences.navigationBarGlow.collectAsState()
-              SwitchPreference(
-                modifier = Modifier.settingsSearchTarget(R.string.navbar_glow_title),
-                value = navigationBarGlow,
-                onValueChange = preferences.navigationBarGlow::set,
-                title = { Text(stringResource(R.string.navbar_glow_title)) },
-                summary = { Text(stringResource(R.string.navbar_glow_summary), color = MaterialTheme.colorScheme.outline) },
-                groupIndex = 2,
-                groupSize = 5,
-              )
-              val legacyNavigationBar by preferences.legacyNavigationBar.collectAsState()
-              val progressiveNavigationBlur by preferences.progressiveNavigationBlur.collectAsState()
-              LaunchedEffect(legacyNavigationBar, progressiveNavigationBlur) {
-                if (legacyNavigationBar && progressiveNavigationBlur) {
-                  preferences.progressiveNavigationBlur.set(false)
+            item {
+              ExpressivePreferenceGroup {
+                val showQuickPlayFab by preferences.showQuickPlayFab.collectAsState()
+                SwitchPreference(
+                  modifier = Modifier.settingsSearchTarget(R.string.pref_quick_play_fab_title),
+                  value = showQuickPlayFab,
+                  onValueChange = preferences.showQuickPlayFab::set,
+                  title = { Text(text = stringResource(R.string.pref_quick_play_fab_title)) },
+                  summary = {
+                    Text(
+                      text = stringResource(R.string.pref_quick_play_fab_summary),
+                      color = MaterialTheme.colorScheme.outline,
+                    )
+                  },
+                  groupIndex = 0,
+                  groupSize = 5,
+                )
+                val quickPlayFabDirect by preferences.quickPlayFabDirect.collectAsState()
+                SwitchPreference(
+                  modifier = Modifier.settingsSearchTarget(R.string.pref_quick_play_fab_direct_title),
+                  value = quickPlayFabDirect,
+                  onValueChange = preferences.quickPlayFabDirect::set,
+                  enabled = showQuickPlayFab,
+                  title = { Text(text = stringResource(R.string.pref_quick_play_fab_direct_title)) },
+                  summary = {
+                    Text(
+                      text = stringResource(R.string.pref_quick_play_fab_direct_summary),
+                      color = MaterialTheme.colorScheme.outline,
+                    )
+                  },
+                  groupIndex = 1,
+                  groupSize = 5,
+                )
+                val navigationBarGlow by preferences.navigationBarGlow.collectAsState()
+                SwitchPreference(
+                  modifier = Modifier.settingsSearchTarget(R.string.navbar_glow_title),
+                  value = navigationBarGlow,
+                  onValueChange = preferences.navigationBarGlow::set,
+                  title = { Text(stringResource(R.string.navbar_glow_title)) },
+                  summary = { Text(stringResource(R.string.navbar_glow_summary), color = MaterialTheme.colorScheme.outline) },
+                  groupIndex = 2,
+                  groupSize = 5,
+                )
+                val legacyNavigationBar by preferences.legacyNavigationBar.collectAsState()
+                val progressiveNavigationBlur by preferences.progressiveNavigationBlur.collectAsState()
+                LaunchedEffect(legacyNavigationBar, progressiveNavigationBlur) {
+                  if (legacyNavigationBar && progressiveNavigationBlur) {
+                    preferences.progressiveNavigationBlur.set(false)
+                  }
                 }
+                SwitchPreference(
+                  modifier = Modifier.settingsSearchTarget(R.string.legacy_navigation_bar_title),
+                  value = legacyNavigationBar,
+                  onValueChange = { enabled ->
+                    preferences.legacyNavigationBar.set(enabled)
+                    if (enabled) preferences.progressiveNavigationBlur.set(false)
+                  },
+                  title = { Text(stringResource(R.string.legacy_navigation_bar_title)) },
+                  summary = { Text(stringResource(R.string.legacy_navigation_bar_summary), color = MaterialTheme.colorScheme.outline) },
+                  groupIndex = 3,
+                  groupSize = 5,
+                )
+                SwitchPreference(
+                  modifier = Modifier.settingsSearchTarget(R.string.progressive_navigation_blur_title),
+                  value = progressiveNavigationBlur && !legacyNavigationBar,
+                  onValueChange = preferences.progressiveNavigationBlur::set,
+                  enabled = !legacyNavigationBar,
+                  title = { Text(stringResource(R.string.progressive_navigation_blur_title)) },
+                  summary = { Text(stringResource(R.string.progressive_navigation_blur_summary), color = MaterialTheme.colorScheme.outline) },
+                  groupIndex = 4,
+                  groupSize = 5,
+                )
               }
-              SwitchPreference(
-                modifier = Modifier.settingsSearchTarget(R.string.legacy_navigation_bar_title),
-                value = legacyNavigationBar,
-                onValueChange = { enabled ->
-                  preferences.legacyNavigationBar.set(enabled)
-                  if (enabled) preferences.progressiveNavigationBlur.set(false)
-                },
-                title = { Text(stringResource(R.string.legacy_navigation_bar_title)) },
-                summary = { Text(stringResource(R.string.legacy_navigation_bar_summary), color = MaterialTheme.colorScheme.outline) },
-                groupIndex = 3,
-                groupSize = 5,
-              )
-              SwitchPreference(
-                modifier = Modifier.settingsSearchTarget(R.string.progressive_navigation_blur_title),
-                value = progressiveNavigationBlur && !legacyNavigationBar,
-                onValueChange = preferences.progressiveNavigationBlur::set,
-                enabled = !legacyNavigationBar,
-                title = { Text(stringResource(R.string.progressive_navigation_blur_title)) },
-                summary = { Text(stringResource(R.string.progressive_navigation_blur_summary), color = MaterialTheme.colorScheme.outline) },
-                groupIndex = 4,
-                groupSize = 5,
-              )
             }
           }
 

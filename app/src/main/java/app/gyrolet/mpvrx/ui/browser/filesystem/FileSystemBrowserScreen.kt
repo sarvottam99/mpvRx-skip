@@ -82,6 +82,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.gyrolet.mpvrx.R
+import app.gyrolet.mpvrx.utils.storage.FileTypeUtils
 import app.gyrolet.mpvrx.ui.browser.components.rememberVideoSwipeActions
 import app.gyrolet.mpvrx.ui.browser.components.rememberSwipePlaybackInfo
 import app.gyrolet.mpvrx.domain.archive.ZipArchiveMedia
@@ -126,8 +127,11 @@ import app.gyrolet.mpvrx.ui.icons.Icons
 import app.gyrolet.mpvrx.ui.theme.AppMotion
 import app.gyrolet.mpvrx.ui.utils.LocalBackStack
 import app.gyrolet.mpvrx.ui.utils.navigateTo
+import app.gyrolet.mpvrx.ui.utils.popUpTo
 import app.gyrolet.mpvrx.ui.utils.calculateResponsiveGridSpans
 import app.gyrolet.mpvrx.ui.utils.popSafely
+import app.gyrolet.mpvrx.ui.tv.focusableWhen
+import app.gyrolet.mpvrx.ui.tv.isTelevision
 import app.gyrolet.mpvrx.utils.media.CopyPasteOps
 import app.gyrolet.mpvrx.utils.media.MediaUtils
 import app.gyrolet.mpvrx.utils.media.OpenDocumentTreeContract
@@ -135,11 +139,14 @@ import app.gyrolet.mpvrx.utils.permission.PermissionUtils
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.PermissionStatus
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import org.koin.compose.koinInject
 import java.io.File
@@ -267,6 +274,8 @@ fun FileSystemBrowserScreen(path: String? = null) {
   val operationType = remember { mutableStateOf<CopyPasteOps.OperationType?>(null) }
   val progressDialogOpen = rememberSaveable { mutableStateOf(false) }
   val operationProgress by CopyPasteOps.operationProgress.collectAsState()
+  var transferRunning by remember { mutableStateOf(false) }
+  var transferError by remember { mutableStateOf<String?>(null) }
 
   // Bottom bar visibility state
   var showFloatingBottomBar by remember { mutableStateOf(false) }
@@ -282,24 +291,7 @@ fun FileSystemBrowserScreen(path: String? = null) {
       items = items,
       getId = ::fileSystemSelectionId,
       onDeleteItems = { selectedItems, _ ->
-        val selectedFolders = selectedItems.filterIsInstance<FileSystemItem.Folder>()
-        val selectedVideos = selectedItems.filterIsInstance<FileSystemItem.VideoFile>().map { it.video }
-        var deleted = 0
-        var failed = 0
-
-        if (selectedFolders.isNotEmpty()) {
-          val (folderDeleted, folderFailed) = viewModel.deleteFolders(selectedFolders)
-          deleted += folderDeleted
-          failed += folderFailed
-        }
-
-        if (selectedVideos.isNotEmpty()) {
-          val (videoDeleted, videoFailed) = viewModel.deleteVideos(selectedVideos)
-          deleted += videoDeleted
-          failed += videoFailed
-        }
-
-        deleted to failed
+        viewModel.deleteItems(selectedItems)
       },
       onRenameItem = { selectedItem, newName ->
         when (selectedItem) {
@@ -313,7 +305,7 @@ fun FileSystemBrowserScreen(path: String? = null) {
           is FileSystemItem.VideoFile -> viewModel.renameVideo(selectedItem.video, newName)
         }
       },
-      onOperationComplete = { viewModel.refresh() },
+      onOperationComplete = { viewModel.refreshAfterOperation() },
     )
 
   val selectedItems = selectionManager.getSelectedItems()
@@ -426,15 +418,53 @@ fun FileSystemBrowserScreen(path: String? = null) {
         )
       }
 
-      progressDialogOpen.value = true
       coroutineScope.launch {
+        val op = operationType.value
+        val foldersToTransfer = selectedFolders.toList()
         val videosToTransfer = selectedPlayableVideos()
-        if (videosToTransfer.isNotEmpty()) {
-          when (operationType.value) {
-            is CopyPasteOps.OperationType.Copy -> CopyPasteOps.copyFilesToTreeUri(context, videosToTransfer, uri)
-            is CopyPasteOps.OperationType.Move -> CopyPasteOps.moveFilesToTreeUri(context, videosToTransfer, uri)
+        if (videosToTransfer.isEmpty()) return@launch
+        val request = if (op is CopyPasteOps.OperationType.Move) {
+          viewModel.beginItemRemoval(foldersToTransfer + videosToTransfer.filter { video ->
+            foldersToTransfer.none { video.path.startsWith(it.path.trimEnd('/') + "/") }
+          }.map {
+            FileSystemItem.VideoFile(it.displayName, it.path, it.dateModified, it)
+          })
+        } else emptyMap()
+        val targets = videosToTransfer.filter { video ->
+          op !is CopyPasteOps.OperationType.Move || video.path in request || foldersToTransfer.any {
+            it.path in request && video.path.startsWith(it.path.trimEnd('/') + "/")
+          }
+        }
+        if (targets.isEmpty()) {
+          viewModel.finishItemChanges(request)
+          return@launch
+        }
+        val movedPaths = mutableSetOf<String>()
+        CopyPasteOps.resetOperation()
+        transferError = null
+        transferRunning = true
+        progressDialogOpen.value = true
+        selectionManager.clear()
+        try {
+          when (op) {
+            is CopyPasteOps.OperationType.Copy -> CopyPasteOps.copyFilesToTreeUri(context, targets, uri)
+            is CopyPasteOps.OperationType.Move -> CopyPasteOps.moveFilesToTreeUri(context, targets, uri) {
+              movedPaths += it.path
+              viewModel.confirmItemChanges(request, listOf(it.path))
+            }
             else -> {}
           }
+        } finally {
+          transferRunning = false
+          foldersToTransfer.forEach { folder ->
+            val children = targets.filter { it.path.startsWith(folder.path.trimEnd('/') + "/") }
+            if (children.isNotEmpty() && children.all { it.path in movedPaths }) {
+              viewModel.confirmItemChanges(request, listOf(folder.path))
+            }
+          }
+          viewModel.finishItemChanges(request)
+          viewModel.refreshAfterOperation()
+          app.gyrolet.mpvrx.utils.media.MediaLibraryEvents.notifyChanged()
         }
       }
     }
@@ -674,7 +704,7 @@ fun FileSystemBrowserScreen(path: String? = null) {
                       .animateFloatingActionButton(
                         visible = isFabShouldBeVisible,
                         alignment = Alignment.BottomEnd,
-                      ),
+                      ).focusableWhen(isFabShouldBeVisible),
                   checked = isFabExpanded.value && !quickPlayFabDirect,
                   onCheckedChange = {
                     if (quickPlayFabDirect) {
@@ -716,7 +746,7 @@ fun FileSystemBrowserScreen(path: String? = null) {
               FloatingActionButtonMenuItem(
                 onClick = {
                   isFabExpanded.value = false
-                  filePicker.launch(arrayOf("video/*"))
+                  filePicker.launch(FileTypeUtils.videoPickerMimeTypes())
                 },
                 icon = { Icon(Icons.RoundedFilled.FileOpen, contentDescription = null) },
                 text = {
@@ -785,7 +815,8 @@ fun FileSystemBrowserScreen(path: String? = null) {
                 isLoading = isSearchLoading,
                 videoFilesWithPlayback = videoFilesWithPlayback,
                 newVideoIds = newVideoIds,
-                showSubtitleIndicator = showSubtitleIndicator,
+                showSubtitleIndicator = showSubtitleIndicator && !isArchiveBrowser,
+                archiveMode = isArchiveBrowser,
                 isAtRoot = isAppRoot,
                 navigationBarHeight = navigationBarHeight,
                 isFabVisible = isFabVisible, // Pass FAB visibility state
@@ -815,7 +846,8 @@ fun FileSystemBrowserScreen(path: String? = null) {
                 breadcrumbs = breadcrumbs,
                 playlistMode = playlistMode,
                 itemsWereDeletedOrMoved = itemsWereDeletedOrMoved,
-                showSubtitleIndicator = showSubtitleIndicator,
+                showSubtitleIndicator = showSubtitleIndicator && !isArchiveBrowser,
+                archiveMode = isArchiveBrowser,
                 navigationBarHeight = navigationBarHeight,
                 onRefresh = { viewModel.refresh() },
                 onFolderClick = { folder ->
@@ -857,9 +889,17 @@ fun FileSystemBrowserScreen(path: String? = null) {
                   }
                 },
                 onBreadcrumbClick = { component ->
-                  // Navigate to the breadcrumb by popping until we reach it
-                  // or pushing if it's a new path
-                  backstack.navigateTo(FileSystemDirectoryScreen(component.fullPath))
+                  val target = FileSystemDirectoryScreen(component.fullPath)
+                  when {
+                    !ZipArchiveMedia.isBrowserPath(component.fullPath) -> backstack.navigateTo(target)
+                    component.fullPath == path -> Unit
+                    // Unwind to an ancestor already on the stack instead of stacking duplicates.
+                    target in backstack -> backstack.popUpTo { it == target }
+                    // The archive root is hosted by its playlist page, not a directory screen.
+                    ZipArchiveMedia.isArchiveRoot(component.fullPath) ->
+                      backstack.popUpTo { !(it is FileSystemDirectoryScreen && ZipArchiveMedia.isBrowserPath(it.path)) }
+                    else -> backstack.navigateTo(target)
+                  }
                 },
                 selectionManager = selectionManager,
                 modifier = Modifier,
@@ -970,6 +1010,7 @@ fun FileSystemBrowserScreen(path: String? = null) {
       onDismiss = { sortDialogOpen.value = false },
       isAtRoot = isAppRoot,
       onMetadataFieldEnabled = viewModel::refresh,
+      isArchive = isArchiveBrowser,
     )
 
     if (deleteDialogOpen) {
@@ -1061,54 +1102,93 @@ fun FileSystemBrowserScreen(path: String? = null) {
         val op = operationType.value
         if (op != null) {
           coroutineScope.launch {
-            when (op) {
-              is CopyPasteOps.OperationType.Move -> {
-                val needFallback = mutableListOf<FileSystemItem.Folder>()
-                for (folder in selectedFolders) {
-                  val dst = File(destinationPath, folder.name)
-                  if (!File(folder.path).renameTo(dst)) needFallback.add(folder)
-                }
-
-                if (selectedVideos.isNotEmpty()) {
-                  progressDialogOpen.value = true
-                  CopyPasteOps.moveFiles(context, selectedVideos, destinationPath)
-                }
-
-                if (needFallback.isNotEmpty()) {
-                  progressDialogOpen.value = true
-                  for (folder in needFallback) {
-                    val videos = collectVideosRecursively(context, folder.path)
-                    if (videos.isNotEmpty()) {
-                      val subDest = File(destinationPath, folder.name).also { it.mkdirs() }.absolutePath
-                      CopyPasteOps.moveFiles(context, videos, subDest)
+            val request = if (op is CopyPasteOps.OperationType.Move) {
+              viewModel.beginItemRemoval(selectedFolders + selectedVideos.map {
+                FileSystemItem.VideoFile(it.displayName, it.path, it.dateModified, it)
+              })
+            } else emptyMap()
+            val foldersToTransfer = selectedFolders.filter { op !is CopyPasteOps.OperationType.Move || it.path in request }
+            val videosToTransfer = selectedVideos.filter { op !is CopyPasteOps.OperationType.Move || it.path in request }
+            if (foldersToTransfer.isEmpty() && videosToTransfer.isEmpty()) return@launch
+            CopyPasteOps.resetOperation()
+            transferError = null
+            transferRunning = true
+            selectionManager.clear()
+            try {
+              when (op) {
+                is CopyPasteOps.OperationType.Move -> {
+                  val needFallback = mutableListOf<FileSystemItem.Folder>()
+                  for (folder in foldersToTransfer) {
+                    val dst = File(destinationPath, folder.name)
+                    if (dst.absolutePath == folder.path ||
+                      destinationPath.startsWith(folder.path.trimEnd('/') + "/")) continue
+                    withContext(Dispatchers.IO) {
+                      if (File(folder.path).renameTo(dst)) {
+                        viewModel.confirmItemChanges(request, listOf(folder.path))
+                      } else needFallback.add(folder)
                     }
+                  }
+
+                  if (videosToTransfer.isNotEmpty()) {
+                    progressDialogOpen.value = true
+                    CopyPasteOps.moveFiles(context, videosToTransfer, destinationPath) {
+                      viewModel.confirmItemChanges(request, listOf(it.path))
+                    }.getOrThrow()
+                  }
+
+                  if (needFallback.isNotEmpty()) {
+                    progressDialogOpen.value = true
+                    for (folder in needFallback) {
+                      val videos = collectVideosRecursively(context, folder.path)
+                      if (videos.isNotEmpty()) {
+                        val subDest = withContext(Dispatchers.IO) {
+                          File(destinationPath, folder.name).also { it.mkdirs() }.absolutePath
+                        }
+                        CopyPasteOps.moveFiles(context, videos, subDest).getOrThrow()
+                        viewModel.confirmItemChanges(request, listOf(folder.path))
+                      }
+                    }
+                  }
+
+                  if (videosToTransfer.isEmpty() && needFallback.isEmpty()) {
+                    viewModel.setItemsWereDeletedOrMoved()
+                    selectionManager.clear()
+                    viewModel.refreshAfterOperation()
                   }
                 }
 
-                if (selectedVideos.isEmpty() && needFallback.isEmpty()) {
-                  viewModel.setItemsWereDeletedOrMoved()
-                  selectionManager.clear()
-                  viewModel.refresh()
-                }
-              }
+                is CopyPasteOps.OperationType.Copy -> {
+                  if (videosToTransfer.isNotEmpty()) {
+                    progressDialogOpen.value = true
+                    CopyPasteOps.copyFiles(context, videosToTransfer, destinationPath).getOrThrow()
+                  }
 
-              is CopyPasteOps.OperationType.Copy -> {
-                if (selectedVideos.isNotEmpty()) {
-                  progressDialogOpen.value = true
-                  CopyPasteOps.copyFiles(context, selectedVideos, destinationPath)
-                }
-
-                if (selectedFolders.isNotEmpty()) {
-                  progressDialogOpen.value = true
-                  for (folder in selectedFolders) {
-                    val videos = collectVideosRecursively(context, folder.path)
-                    if (videos.isNotEmpty()) {
-                      val subDest = File(destinationPath, folder.name).also { it.mkdirs() }.absolutePath
-                      CopyPasteOps.copyFiles(context, videos, subDest)
+                  if (foldersToTransfer.isNotEmpty()) {
+                    progressDialogOpen.value = true
+                    for (folder in foldersToTransfer) {
+                      if (destinationPath == folder.path ||
+                        destinationPath.startsWith(folder.path.trimEnd('/') + "/")) continue
+                      val videos = collectVideosRecursively(context, folder.path)
+                      if (videos.isNotEmpty()) {
+                        val subDest = withContext(Dispatchers.IO) {
+                          File(destinationPath, folder.name).also { it.mkdirs() }.absolutePath
+                        }
+                        CopyPasteOps.copyFiles(context, videos, subDest).getOrThrow()
+                      }
                     }
                   }
                 }
               }
+            } catch (cancelled: CancellationException) {
+              throw cancelled
+            } catch (error: Exception) {
+              transferError = error.message ?: context.getString(R.string.generic_unknown_error)
+              Log.w("FileSystemBrowser", "File transfer did not finish", error)
+            } finally {
+              transferRunning = false
+              viewModel.finishItemChanges(request)
+              viewModel.refreshAfterOperation()
+              app.gyrolet.mpvrx.utils.media.MediaLibraryEvents.notifyChanged()
             }
           }
         }
@@ -1120,7 +1200,11 @@ fun FileSystemBrowserScreen(path: String? = null) {
       FileOperationProgressDialog(
         isOpen = progressDialogOpen.value,
         operationType = operationType.value!!,
-        progress = operationProgress,
+        progress = operationProgress.copy(
+          isComplete = !transferRunning && !operationProgress.isCancelled &&
+            transferError == null && operationProgress.error == null,
+          error = transferError ?: operationProgress.error,
+        ),
         onCancel = {
           CopyPasteOps.cancelOperation()
         },
@@ -1135,7 +1219,7 @@ fun FileSystemBrowserScreen(path: String? = null) {
           }
           operationType.value = null
           selectionManager.clear()
-          viewModel.refresh()
+          viewModel.refreshAfterOperation()
         },
       )
     }
@@ -1166,6 +1250,13 @@ suspend fun searchRecursively(
 
   try {
     Log.d("FileSystemBrowserScreen", "Scanning directory: $directoryPath for query: $query")
+    if (ZipArchiveMedia.isBrowserPath(directoryPath)) {
+      // One central-directory read covers every nested ZIP folder.
+      return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        ZipArchiveMedia.allMedia(context, directoryPath, includeAudio = true).getOrDefault(emptyList())
+      }.filter { it.displayName.contains(query, ignoreCase = true) }
+        .map { video -> FileSystemItem.VideoFile(video.displayName, video.path, video.dateModified * 1000L, video) }
+    }
     // Scan the current directory
     val items =
       app.gyrolet.mpvrx.repository.MediaFileRepository
@@ -1225,7 +1316,7 @@ private suspend fun collectVideosForSelectionInfo(
     val path = pending.removeFirst()
     if (!visited.add(path)) continue
     val items = if (ZipArchiveMedia.isBrowserPath(path)) {
-      ZipArchiveMedia.scan(context, path, includeAudio = false)
+      ZipArchiveMedia.scan(context, path, includeAudio = true)
     } else {
       app.gyrolet.mpvrx.repository.MediaFileRepository.scanDirectory(context, path)
     }.getOrThrow()
@@ -1314,6 +1405,7 @@ private fun FileSystemBrowserContent(
   modifier: Modifier = Modifier,
   isInSelectionMode: Boolean = false,
   pinnedVideoPaths: Set<String> = emptySet(),
+  archiveMode: Boolean = false,
 ) {
   val swipeScope = rememberCoroutineScope()
   val swipeActions = rememberVideoSwipeActions { swipeScope.launch { onRefresh() } }
@@ -1361,20 +1453,21 @@ private fun FileSystemBrowserContent(
       thumbnailGenerator,
       swipeLeft,
       swipeRight,
+      archiveMode,
     ) {
       VideoCardUiConfig(
         unlimitedNameLines = unlimitedNameLines,
-        showThumbnails = showVideoThumbnails,
+        showThumbnails = showVideoThumbnails && !archiveMode,
         showSizeChip = showSizeChip,
-        showResolutionChip = showResolutionChip,
-        showFramerateInResolution = showFramerateInResolution,
-        showCodecSupportIndicator = showCodecSupportIndicator,
-        showProgressBar = showProgressBar,
+        showResolutionChip = showResolutionChip && !archiveMode,
+        showFramerateInResolution = showFramerateInResolution && !archiveMode,
+        showCodecSupportIndicator = showCodecSupportIndicator && !archiveMode,
+        showProgressBar = showProgressBar && !archiveMode,
         showDateChip = showDateChip,
         showUnplayedOldVideoLabel = showUnplayedOldVideoLabel,
         unplayedOldVideoDays = unplayedOldVideoDays,
         showExtensionField = showExtensionField,
-        showDurationField = showDurationField,
+        showDurationField = showDurationField && !archiveMode,
         centerGridTitles = centerGridTitles,
         thumbnailQuality = thumbnailQuality,
         thumbnailGenerator = thumbnailGenerator,
@@ -1383,7 +1476,16 @@ private fun FileSystemBrowserContent(
       )
     }
 
-  val folderCardUiConfig = rememberFolderCardUiConfig()
+  // ZIP entries carry no probed metadata or thumbnails; suppress fields that would stay empty.
+  val baseFolderCardUiConfig = rememberFolderCardUiConfig()
+  val folderCardUiConfig =
+    remember(baseFolderCardUiConfig, archiveMode) {
+      if (archiveMode) {
+        baseFolderCardUiConfig.copy(showTotalDurationChip = false, showFolderThumbnails = false)
+      } else {
+        baseFolderCardUiConfig
+      }
+    }
 
   // Calculate thumbnail dimensions for list mode
   val thumbWidthDp = 160.dp
@@ -1790,6 +1892,7 @@ private fun FileSystemSearchContent(
   onFolderClick: (FileSystemItem.Folder) -> Unit,
   onChanged: () -> Unit,
   modifier: Modifier = Modifier,
+  archiveMode: Boolean = false,
 ) {
   val swipeActions = rememberVideoSwipeActions(onChanged = onChanged)
   val swipePlaybackInfo = rememberSwipePlaybackInfo(
@@ -1837,20 +1940,21 @@ private fun FileSystemSearchContent(
       thumbnailGenerator,
       swipeLeft,
       swipeRight,
+      archiveMode,
     ) {
       VideoCardUiConfig(
         unlimitedNameLines = unlimitedNameLines,
-        showThumbnails = showVideoThumbnails,
+        showThumbnails = showVideoThumbnails && !archiveMode,
         showSizeChip = showSizeChip,
-        showResolutionChip = showResolutionChip,
-        showFramerateInResolution = showFramerateInResolution,
-        showCodecSupportIndicator = showCodecSupportIndicator,
-        showProgressBar = showProgressBar,
+        showResolutionChip = showResolutionChip && !archiveMode,
+        showFramerateInResolution = showFramerateInResolution && !archiveMode,
+        showCodecSupportIndicator = showCodecSupportIndicator && !archiveMode,
+        showProgressBar = showProgressBar && !archiveMode,
         showDateChip = showDateChip,
         showUnplayedOldVideoLabel = showUnplayedOldVideoLabel,
         unplayedOldVideoDays = unplayedOldVideoDays,
         showExtensionField = showExtensionField,
-        showDurationField = showDurationField,
+        showDurationField = showDurationField && !archiveMode,
         centerGridTitles = centerGridTitles,
         thumbnailQuality = thumbnailQuality,
         thumbnailGenerator = thumbnailGenerator,
@@ -1859,7 +1963,16 @@ private fun FileSystemSearchContent(
       )
     }
 
-  val folderCardUiConfig = rememberFolderCardUiConfig()
+  // ZIP entries carry no probed metadata or thumbnails; suppress fields that would stay empty.
+  val baseFolderCardUiConfig = rememberFolderCardUiConfig()
+  val folderCardUiConfig =
+    remember(baseFolderCardUiConfig, archiveMode) {
+      if (archiveMode) {
+        baseFolderCardUiConfig.copy(showTotalDurationChip = false, showFolderThumbnails = false)
+      } else {
+        baseFolderCardUiConfig
+      }
+    }
 
   val mediaLayoutMode by browserPreferences.mediaLayoutMode.collectAsState()
   val isGridMode = mediaLayoutMode == app.gyrolet.mpvrx.preferences.MediaLayoutMode.GRID
@@ -1880,7 +1993,13 @@ private fun FileSystemSearchContent(
     }
 
   // Keep high-frequency scroll reads out of composition in large search result sets.
-  LaunchedEffect(isGridMode, listState, gridState) {
+  // On TV the FAB stays put: every D-pad step scrolls the list, and a hidden FAB still takes focus.
+  val isTelevision = isTelevision()
+  LaunchedEffect(isGridMode, listState, gridState, isTelevision) {
+    if (isTelevision) {
+      isFabVisible.value = true
+      return@LaunchedEffect
+    }
     var previousIndex = if (isGridMode) gridState.firstVisibleItemIndex else listState.firstVisibleItemIndex
     var previousOffset =
       if (isGridMode) gridState.firstVisibleItemScrollOffset else listState.firstVisibleItemScrollOffset
@@ -2149,3 +2268,4 @@ private fun FileSystemSearchContent(
     }
   }
 }
+

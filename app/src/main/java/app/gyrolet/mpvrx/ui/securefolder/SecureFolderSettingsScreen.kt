@@ -9,6 +9,9 @@
 
 package app.gyrolet.mpvrx.ui.securefolder
 
+import app.gyrolet.mpvrx.ui.preferences.DevicePreference
+import app.gyrolet.mpvrx.ui.tv.tvContentFocus
+
 import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -41,6 +44,7 @@ import app.gyrolet.mpvrx.R
 import app.gyrolet.mpvrx.preferences.preference.collectAsState
 import app.gyrolet.mpvrx.presentation.Screen
 import app.gyrolet.mpvrx.presentation.components.ConfirmDialog
+import app.gyrolet.mpvrx.ui.preferences.settingsSearchTarget
 import app.gyrolet.mpvrx.ui.browser.components.BrowserTopBar
 import app.gyrolet.mpvrx.ui.icons.AppIcon
 import app.gyrolet.mpvrx.ui.icons.Icon
@@ -128,26 +132,32 @@ data object SecureFolderSettingsScreen : Screen {
         modifier =
           Modifier
             .fillMaxSize()
+            .tvContentFocus()
             .padding(padding)
             .verticalScroll(rememberScrollState()),
       ) {
         PreferenceSectionHeader(
+          modifier = Modifier.settingsSearchTarget(R.string.secure_folder_settings_title),
           title = stringResource(R.string.secure_folder_settings_security),
           topPadding = 8.dp,
         )
         PreferenceCard {
-          SwitchPreference(
-            value = isBiometricEnabled,
-            onValueChange = { enable ->
-              // Turning biometric unlock on needs the Secure Folder PIN; turning it off is instant.
-              if (enable) requirePin { biometricPinOpen = true } else viewModel.setBiometricEnabled(false)
-            },
-            title = { Text(stringResource(R.string.secure_folder_biometric_title)) },
-            summary = { Text(stringResource(R.string.secure_folder_biometric_summary)) },
-            icon = { SettingsIcon(Icons.RoundedFilled.Fingerprint) },
-          )
-          PreferenceDivider()
+          DevicePreference(R.string.secure_folder_biometric_title) {
+            SwitchPreference(
+              modifier = Modifier.settingsSearchTarget(R.string.secure_folder_biometric_title),
+              value = isBiometricEnabled,
+              onValueChange = { enable ->
+                // Turning biometric unlock on needs the Secure Folder PIN; turning it off is instant.
+                if (enable) requirePin { biometricPinOpen = true } else viewModel.setBiometricEnabled(false)
+              },
+              title = { Text(stringResource(R.string.secure_folder_biometric_title)) },
+              summary = { Text(stringResource(R.string.secure_folder_biometric_summary)) },
+              icon = { SettingsIcon(Icons.RoundedFilled.Fingerprint) },
+            )
+            PreferenceDivider()
+          }
           SecureSettingsRow(
+            modifier = Modifier.settingsSearchTarget(R.string.secure_folder_reset_pin),
             icon = Icons.RoundedFilled.Lock,
             title = stringResource(R.string.secure_folder_reset_pin),
             summary = stringResource(R.string.secure_folder_reset_pin_summary),
@@ -155,6 +165,7 @@ data object SecureFolderSettingsScreen : Screen {
           )
           PreferenceDivider()
           SecureSettingsRow(
+            modifier = Modifier.settingsSearchTarget(R.string.secure_folder_reset_security_question),
             icon = Icons.RoundedFilled.HelpOutline,
             title = stringResource(R.string.secure_folder_reset_security_question),
             summary = stringResource(R.string.secure_folder_reset_security_question_summary),
@@ -162,6 +173,7 @@ data object SecureFolderSettingsScreen : Screen {
           )
           PreferenceDivider()
           SecureSettingsRow(
+            modifier = Modifier.settingsSearchTarget(R.string.secure_folder_forgot_pin_title),
             icon = Icons.RoundedFilled.Lock,
             title = stringResource(R.string.secure_folder_forgot_pin_title),
             summary = stringResource(R.string.secure_folder_forgot_pin_summary),
@@ -169,6 +181,7 @@ data object SecureFolderSettingsScreen : Screen {
           )
           PreferenceDivider()
           SecureSettingsRow(
+            modifier = Modifier.settingsSearchTarget(R.string.secure_folder_hide_settings),
             icon = if (isEntryPointHidden) Icons.RoundedFilled.Visibility else Icons.RoundedFilled.VisibilityOff,
             title =
               stringResource(
@@ -192,6 +205,7 @@ data object SecureFolderSettingsScreen : Screen {
         PreferenceSectionHeader(title = stringResource(R.string.secure_folder_settings_danger_zone))
         PreferenceCard {
           SecureSettingsRow(
+            modifier = Modifier.settingsSearchTarget(R.string.secure_folder_destroy_title),
             icon = Icons.RoundedFilled.Delete,
             title = stringResource(R.string.secure_folder_destroy_title),
             summary = stringResource(R.string.secure_folder_destroy_summary),

@@ -34,8 +34,11 @@ import app.gyrolet.mpvrx.preferences.AdvancedPreferences
 import app.gyrolet.mpvrx.preferences.AppearancePreferences
 import app.gyrolet.mpvrx.preferences.DecoderPreferences
 import app.gyrolet.mpvrx.preferences.PlayerPreferences
-import app.gyrolet.mpvrx.presentation.crash.CrashActivity
-import app.gyrolet.mpvrx.presentation.crash.GlobalExceptionHandler
+import app.gyrolet.mpvrx.preferences.SettingsRestoreGuard
+import app.gyrolet.mpvrx.remote.TvInputDispatcher
+import app.gyrolet.mpvrx.remote.TvRemoteServer
+import android.widget.Toast
+import app.gyrolet.mpvrx.presentation.crash.CrashMonitor
 import app.gyrolet.mpvrx.domain.network.NetworkImageRepository
 import app.gyrolet.mpvrx.repository.NetworkRepository
 import app.gyrolet.mpvrx.ui.player.MediaPlayerWidget
@@ -67,7 +70,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 @OptIn(KoinExperimentalAPI::class)
 class App :
   Application(),
+  androidx.work.Configuration.Provider,
   Application.ActivityLifecycleCallbacks {
+  override val workManagerConfiguration: androidx.work.Configuration
+    get() = androidx.work.Configuration.Builder().setMinimumLoggingLevel(Log.WARN).build()
   private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
   private val networkAutoConnectStarted = AtomicBoolean(false)
   private val metadataMaintenanceStarted = AtomicBoolean(false)
@@ -95,6 +101,8 @@ class App :
   )
 
   companion object {
+    @Volatile var isInForeground: Boolean = false
+      private set
     private const val TAG = "App"
     private const val POST_START_MAINTENANCE_DELAY_MS = 10_000L
     private const val THUMBNAIL_WARMUP_DELAY_MS = 1_500L
@@ -102,6 +110,13 @@ class App :
     // paid a full core rebuild: initOptions() plus MPVLib.init() (mpv.conf + Lua scripts).
     private const val IDLE_MPV_CORE_GRACE_MS = 20L * 60L * 1000L
     private const val WATCH_STATS_INTERVAL_MS = 15_000L
+  }
+
+  override fun attachBaseContext(base: android.content.Context) {
+    super.attachBaseContext(base)
+    // Before content providers and onCreate run, so no startup crash escapes the handler. The
+    // crash screen's own process keeps the platform handler, so a failing recovery cannot loop.
+    if (CrashMonitor.currentProcessName() != "$packageName:crash") CrashMonitor.install(this)
   }
 
   @OptIn(ExperimentalComposeUiApi::class)
@@ -131,6 +146,10 @@ class App :
 
     configureDebugStrictMode()
 
+    // Before anything reads them: restored settings that kept the app from starting are reverted.
+    runCatching { SettingsRestoreGuard.onProcessStart(this) }
+      .onFailure { Log.w(TAG, "Could not check restored settings", it) }
+
     // Initialize Koin
     startKoin {
       androidContext(this@App)
@@ -146,9 +165,21 @@ class App :
       getKoin().get<DecoderPreferences>().useVulkan.set(false)
     }
     registerActivityLifecycleCallbacks(this)
+    if (BuildConfig.ENABLE_UPDATE_FEATURE) {
+      applicationScope.launch(Dispatchers.IO) {
+        delay(1_500L)
+        runCatching { app.gyrolet.mpvrx.domain.update.UpdateWork.monitor(this@App) }
+          .onFailure { Log.w(TAG, "Update work monitoring stopped", it) }
+      }
+    }
     PlaybackSession.addObserver(PlaybackPerformanceTrace)
     startPlaybackPerformanceTracing()
-    Thread.setDefaultUncaughtExceptionHandler(GlobalExceptionHandler(applicationContext, CrashActivity::class.java))
+    // A library initialized during startup may have replaced the handler; keep ours on top.
+    CrashMonitor.ensureInstalled(this)
+    CrashMonitor.recordPreviousExits(this)
+    SettingsRestoreGuard.consumeRevertedSource(this)?.let { source ->
+      Toast.makeText(this, getString(R.string.settings_restore_reverted, source), Toast.LENGTH_LONG).show()
+    }
     startIdleMpvCoreReaper()
     startWidgetUpdates()
     startWatchStatsTracking()
@@ -278,10 +309,12 @@ class App :
   }
 
   override fun onActivityStarted(activity: Activity) {
+    isInForeground = true
     if (activity is PlayerActivity) PlaybackPerformanceTrace.mark("PLAYER_ACTIVITY_STARTED")
     if (startedActivityCount++ == 0) {
       mediaStoreLiveMonitor.start()
       getKoin().get<app.gyrolet.mpvrx.domain.syncplay.SyncplayManager>().onAppForegrounded()
+      TvRemoteServer.onAppForeground(this)
       scheduleFastThumbnailWarmupOnce()
       scheduleMetadataMaintenanceOnce()
       scheduleImageCacheCleanupOnce()
@@ -292,7 +325,9 @@ class App :
     if (activity is PlayerActivity) PlaybackPerformanceTrace.mark("PLAYER_ACTIVITY_STOPPED")
     startedActivityCount = (startedActivityCount - 1).coerceAtLeast(0)
     if (startedActivityCount == 0 && !activity.isChangingConfigurations) {
+      isInForeground = false
       mediaStoreLiveMonitor.stop()
+      TvRemoteServer.onAppBackground(this)
       pauseVideoWhenBackgroundPlaybackDisabled(activity)
       getKoin().get<app.gyrolet.mpvrx.domain.syncplay.SyncplayManager>().onAppBackgrounded()
       scheduleSettingsAutoBackup()
@@ -364,6 +399,15 @@ class App :
   }
 
   override fun onActivityResumed(activity: Activity) {
+    TvInputDispatcher.onActivityResumed(activity)
+    // Restored settings count as working once a screen has stayed up with them for a while.
+    SettingsRestoreGuard.onScreenShown(activity)
+    if (BuildConfig.ENABLE_UPDATE_FEATURE) {
+      applicationScope.launch(Dispatchers.IO) {
+        runCatching { app.gyrolet.mpvrx.domain.update.UpdateInstaller.onForeground(this@App) }
+          .onFailure { Log.w(TAG, "Could not resume update installation", it) }
+      }
+    }
     when (activity) {
       is PlayerActivity -> {
         PlaybackPerformanceTrace.mark("PLAYER_ACTIVITY_RESUMED")
@@ -376,6 +420,8 @@ class App :
         activity.window.decorView.postOnAnimation {
           PlaybackPerformanceTrace.mark("BROWSER_FIRST_FRAME")
         }
+        // A crash the user never saw (background crash, native crash, ANR) is shown here once.
+        CrashMonitor.presentPendingReport(activity)
       }
     }
   }
@@ -384,7 +430,10 @@ class App :
     if (activity is PlayerActivity) PlaybackPerformanceTrace.begin("ON_PAUSE")
   }
 
-  override fun onActivityPaused(activity: Activity) = Unit
+  override fun onActivityPaused(activity: Activity) {
+    SettingsRestoreGuard.onScreenHidden()
+    TvInputDispatcher.onActivityPaused(activity)
+  }
 
   override fun onActivityPostPaused(activity: Activity) {
     if (activity is PlayerActivity) PlaybackPerformanceTrace.end("ON_PAUSE")

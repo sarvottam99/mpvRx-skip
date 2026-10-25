@@ -9,7 +9,9 @@
 
 package app.gyrolet.mpvrx.ui.player.controls
 
+import app.gyrolet.mpvrx.ui.player.InAppMusicSheetState
 import app.gyrolet.mpvrx.ui.player.PlayerSheetDestination
+import app.gyrolet.mpvrx.ui.player.inAppMusicSheetDrag
 import app.gyrolet.mpvrx.ui.player.playerSheetAnchor
 import app.gyrolet.mpvrx.ui.player.swipeDownToMiniPlayer
 import app.gyrolet.mpvrx.ui.player.PlaybackSession
@@ -112,6 +114,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
 import androidx.palette.graphics.Palette
+import app.gyrolet.mpvrx.data.artwork.MotionArtworkQuery
 import app.gyrolet.mpvrx.database.repository.PlaylistRepository
 import app.gyrolet.mpvrx.repository.JellyfinRepository
 import app.gyrolet.mpvrx.repository.NavidromeRepository
@@ -119,6 +122,7 @@ import app.gyrolet.mpvrx.domain.media.model.Video
 import app.gyrolet.mpvrx.ui.browser.dialogs.AddToPlaylistDialog
 import app.gyrolet.mpvrx.ui.browser.dialogs.toPlaylistCandidates
 import app.gyrolet.mpvrx.ui.liquidglass.LocalKyantPlayerBackdrop
+import app.gyrolet.mpvrx.ui.liquidglass.outsideShadow
 import com.kyant.backdrop.Backdrop
 import app.gyrolet.mpvrx.ui.player.resolveUri
 import app.gyrolet.mpvrx.ui.player.controls.components.MiniAudioVisualizer
@@ -204,7 +208,9 @@ import app.gyrolet.mpvrx.ui.player.RepeatMode
 import app.gyrolet.mpvrx.ui.player.Sheets
 import app.gyrolet.mpvrx.ui.player.controls.components.AbLoopIcon
 import app.gyrolet.mpvrx.ui.player.controls.components.SeekbarWithTimers
+import app.gyrolet.mpvrx.ui.player.controls.components.rememberTvInitialFocusRequester
 import app.gyrolet.mpvrx.ui.player.controls.components.tvFocusHighlight
+import app.gyrolet.mpvrx.ui.player.controls.components.tvInitialFocus
 import app.gyrolet.mpvrx.ui.player.visualizer.AudioFeatures
 import app.gyrolet.mpvrx.ui.player.visualizer.AudioSpectrumAnalyzer
 import app.gyrolet.mpvrx.ui.player.visualizer.BlobOverlay
@@ -602,6 +608,7 @@ private fun CoverArtCardImage(
   contentScale: ContentScale = ContentScale.Crop,
   motionArtwork: ByteArray? = null,
   isPlaying: Boolean = false,
+  remoteMotionQuery: MotionArtworkQuery? = null,
 ) {
   val context = LocalContext.current
   val client = org.koin.compose.koinInject<okhttp3.OkHttpClient>()
@@ -628,30 +635,39 @@ private fun CoverArtCardImage(
   val imageBitmap = remember(finalBitmap) { finalBitmap?.asImageBitmap() }
   val animatedDrawable = rememberMotionArtworkDrawable(motionArtwork)
 
-  if (animatedDrawable != null) {
-    MotionArtworkImage(
-      drawable = animatedDrawable,
-      isPlaying = isPlaying,
-      fit = contentScale == ContentScale.Fit,
-      modifier = Modifier.fillMaxSize(),
-    )
-  } else if (imageBitmap != null) {
-    Image(
-      bitmap = imageBitmap,
-      contentDescription = null,
-      contentScale = contentScale,
-      modifier = Modifier.fillMaxSize(),
-    )
-  } else {
-    Box(
-      modifier = Modifier.fillMaxSize(),
-      contentAlignment = Alignment.Center,
-    ) {
-      Icon(
-        imageVector = Icons.RoundedFilled.Audiotrack,
+  Box(Modifier.fillMaxSize()) {
+    if (animatedDrawable != null) {
+      MotionArtworkImage(
+        drawable = animatedDrawable,
+        isPlaying = isPlaying,
+        fit = contentScale == ContentScale.Fit,
+        modifier = Modifier.fillMaxSize(),
+      )
+    } else if (imageBitmap != null) {
+      Image(
+        bitmap = imageBitmap,
         contentDescription = null,
-        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.size(64.dp),
+        contentScale = contentScale,
+        modifier = Modifier.fillMaxSize(),
+      )
+    } else {
+      Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
+      ) {
+        Icon(
+          imageVector = Icons.RoundedFilled.Audiotrack,
+          contentDescription = null,
+          tint = MaterialTheme.colorScheme.onSurfaceVariant,
+          modifier = Modifier.size(64.dp),
+        )
+      }
+    }
+    if (remoteMotionQuery != null && animatedDrawable == null) {
+      RemoteMotionArtwork(
+        query = remoteMotionQuery,
+        isPlaying = isPlaying,
+        modifier = Modifier.fillMaxSize(),
       )
     }
   }
@@ -667,6 +683,7 @@ fun AudioPlayerControls(
   onOpenPanel: (Panels) -> Unit,
   modifier: Modifier = Modifier,
   sheetBackdrop: Backdrop? = null,
+  inAppSheet: InAppMusicSheetState? = null,
 ) {
   // The queue can move on while the app is in the background; catch the lyrics up on return.
   val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -827,6 +844,35 @@ fun AudioPlayerControls(
     }
 
   val audioPreferences = koinInject<AudioPreferences>()
+  val animatedAlbumArtwork by audioPreferences.animatedAlbumArtwork.collectAsState()
+  val motionQuery =
+    if (animatedAlbumArtwork && !isAudiobook &&
+      (playbackState.phase == PlaybackPhase.READY || playbackState.phase == PlaybackPhase.BACKGROUND)
+    ) {
+      // One metadata observer, only while opted in. Tag names vary in case across containers;
+      // metadata/album is not the by-key lookup, and queue titles may still be raw filenames.
+      val nativeMetadata by PlaybackSession.propNode["metadata"].collectAsState()
+      remember(nativeMetadata, playbackState.generation, currentItem?.title, mediaTitle, displayArtist) {
+        // Use the event as a trigger, then take one generation-checked native snapshot.
+        // A cached metadata event from the previous file must not identify the new song.
+        PlaybackSession.readLoadedMedia(playbackState.generation) { reader ->
+          fun known(value: String?): String? = value?.trim()?.takeUnless {
+            it.isBlank() || it.equals("<unknown>", ignoreCase = true) ||
+              it.equals("Unknown Artist", ignoreCase = true) || it.equals("Unknown Album", ignoreCase = true)
+          }
+          fun tag(vararg keys: String): String? = keys.asSequence()
+            .mapNotNull { known(reader.string("metadata/by-key/$it")) }.firstOrNull()
+          val artist = tag("artist", "Artist", "ARTIST", "album_artist", "ALBUMARTIST") ?: known(displayArtist)
+          val title = (tag("title", "Title", "TITLE") ?: known(currentItem?.title) ?: known(mediaTitle))
+            ?.let { cleanSongTitle(it, artist) }?.trim()
+          if (artist != null && !title.isNullOrBlank()) {
+            MotionArtworkQuery(title = title, artist = artist, album = tag("album", "Album", "ALBUM"))
+          } else null
+        }
+      }
+    } else {
+      null
+    }
   val appearancePreferences = koinInject<AppearancePreferences>()
   val audioVisualizerStyle by audioPreferences.audioVisualizerStyle.collectAsState()
   val audioWavySeekbar by audioPreferences.audioWavySeekbar.collectAsState()
@@ -888,6 +934,7 @@ fun AudioPlayerControls(
   var addToPlaylistDialogOpen by rememberSaveable { mutableStateOf(false) }
   val sheetShown by viewModel.sheetShown.collectAsState()
   val isSheetOpen = sheetShown != Sheets.None || (addToPlaylistDialogOpen && !mediaPath.isNullOrBlank())
+  val tvPlayFocusRequester = rememberTvInitialFocusRequester(enabled = !isSheetOpen, requestKey = isSheetOpen)
 
   AudioSpectrumCaptureEffect(
     enabled =
@@ -1152,15 +1199,27 @@ fun AudioPlayerControls(
   Box(
     modifier =
       modifier
-        .playerSheetAnchor(
-          destination = PlayerSheetDestination.FULL,
-          mediaId = currentItem?.stableId,
-          backgroundColor = MaterialTheme.colorScheme.surface,
-        )
-        .swipeDownToMiniPlayer(
-          mediaId = currentItem?.stableId,
-          enabled = !isSheetOpen && !showInPlaceLyrics && !isLyricsFullscreen,
-          onMinimize = viewModel::minimizeToMiniPlayer,
+        .then(
+          if (inAppSheet != null) {
+            // The live sheet moves with the finger, so it tracks the drag itself in window space.
+            Modifier.inAppMusicSheetDrag(
+              state = inAppSheet,
+              collapsing = true,
+              enabled = !isSheetOpen && !showInPlaceLyrics && !isLyricsFullscreen,
+            )
+          } else {
+            Modifier
+              .playerSheetAnchor(
+                destination = PlayerSheetDestination.FULL,
+                mediaId = currentItem?.stableId,
+                backgroundColor = MaterialTheme.colorScheme.surface,
+              )
+              .swipeDownToMiniPlayer(
+                mediaId = currentItem?.stableId,
+                enabled = !isSheetOpen && !showInPlaceLyrics && !isLyricsFullscreen,
+                onMinimize = viewModel::minimizeToMiniPlayer,
+              )
+          },
         )
         .fillMaxSize()
         .background(MaterialTheme.colorScheme.surface)
@@ -1296,7 +1355,7 @@ fun AudioPlayerControls(
               } else {
                 Modifier.audioPlaybackGestures(
                   viewModel,
-                  onTap = { viewModel.toggleAudioVisualizer() },
+                  onTap = resetInactivityTimer,
                   onHold = { onOpenSheet(Sheets.VisualizerStyle) },
                 )
               },
@@ -1472,6 +1531,9 @@ fun AudioPlayerControls(
                     contentScale = if (isAudiobook) ContentScale.Fit else ContentScale.Crop,
                     motionArtwork = currentAudioPresentation?.motionArtwork?.takeIf { activeCoverOverride == null },
                     isPlaying = isPlaying,
+                    remoteMotionQuery = motionQuery?.takeIf {
+                      activeCoverOverride == null && !showVisualizer && !showInPlaceLyrics
+                    },
                   )
 
                 }
@@ -2175,7 +2237,7 @@ fun AudioPlayerControls(
           onClick = { viewModel.pauseUnpause() },
           shape = CircleShape,
           color = MaterialTheme.colorScheme.primary,
-          modifier = Modifier.size(if (isPortrait) 76.dp else 64.dp),
+          modifier = Modifier.tvInitialFocus(tvPlayFocusRequester).size(if (isPortrait) 76.dp else 64.dp),
           shadowElevation = 8.dp,
         ) {
           Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
@@ -2972,10 +3034,15 @@ private fun UpNextPlaylistItemRow(
 
   Surface(
     onClick = onClick,
-    modifier = Modifier.fillMaxWidth(),
+    modifier =
+      Modifier
+        .fillMaxWidth()
+        .outsideShadow(
+          RoundedCornerShape(16.dp),
+          radius = dragElevation(isDragging, app.gyrolet.mpvrx.ui.theme.AppMotion.playerReducedMotion()),
+        ),
     shape = RoundedCornerShape(16.dp),
     color = bgColor,
-    shadowElevation = dragElevation(isDragging, app.gyrolet.mpvrx.ui.theme.AppMotion.playerReducedMotion()),
   ) {
     Row(
       modifier = Modifier

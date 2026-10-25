@@ -10,6 +10,7 @@
 package app.gyrolet.mpvrx.ui.player.controls
 
 import app.gyrolet.mpvrx.ui.player.PlaybackSession
+import app.gyrolet.mpvrx.ui.liquidglass.liquidGlassActive
 
 import android.content.Context
 import android.content.Intent
@@ -61,7 +62,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.gyrolet.mpvrx.R
 import app.gyrolet.mpvrx.preferences.AdvancedPreferences
-import app.gyrolet.mpvrx.preferences.AppearancePreferences
 import app.gyrolet.mpvrx.preferences.MpvConfigControlledFeatures
 import app.gyrolet.mpvrx.preferences.PlayerButton
 import app.gyrolet.mpvrx.preferences.PlayerClockFormat
@@ -82,6 +82,8 @@ import app.gyrolet.mpvrx.ui.player.controls.components.stableNumericWidth
 import app.gyrolet.mpvrx.ui.player.controls.components.withTabularDigits
 import app.gyrolet.mpvrx.ui.player.controls.components.ControlsButton
 import app.gyrolet.mpvrx.ui.player.controls.components.CurrentChapter
+import app.gyrolet.mpvrx.ui.player.controls.components.playerButtonBorderColor
+import app.gyrolet.mpvrx.ui.player.controls.components.playerButtonContainerColor
 import app.gyrolet.mpvrx.ui.theme.controlColor as defaultControlColor
 import app.gyrolet.mpvrx.ui.theme.spacing
 import app.gyrolet.mpvrx.ui.utils.isAnyMpvOptionOwnedByConfig
@@ -128,8 +130,7 @@ fun RenderPlayerButton(
     val advancedPreferences = koinInject<AdvancedPreferences>()
     val playerPreferences = koinInject<PlayerPreferences>()
     val statisticsPage by advancedPreferences.enabledStatisticsPage.collectAsState()
-    val appearancePreferences = org.koin.compose.koinInject<AppearancePreferences>()
-    val enableLiquidGlass by appearancePreferences.liquidGlassEnabled.collectAsState()
+    val enableLiquidGlass = liquidGlassActive()
     when (button) {
     PlayerButton.BACK_ARROW -> {
       ControlsButton(
@@ -180,9 +181,7 @@ fun RenderPlayerButton(
             if (hideBackground) {
               Color.Transparent
             } else {
-              MaterialTheme.colorScheme.surfaceContainer.copy(
-                alpha = 0.55f,
-              )
+              playerButtonContainerColor()
             },
           contentColor = if (hideBackground) controlColor else MaterialTheme.colorScheme.onSurface,
           tonalElevation = 0.dp,
@@ -193,7 +192,7 @@ fun RenderPlayerButton(
             } else {
               BorderStroke(
                 1.dp,
-                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                playerButtonBorderColor(),
               )
             },
           modifier =
@@ -293,9 +292,7 @@ fun RenderPlayerButton(
               if (hideBackground) {
                 Color.Transparent
               } else {
-                MaterialTheme.colorScheme.surfaceContainer.copy(
-                  alpha = 0.55f,
-                )
+                playerButtonContainerColor()
               },
             contentColor =
               if (configOwned) disabledColor else if (hideBackground) controlColor else MaterialTheme.colorScheme.onSurface,
@@ -307,7 +304,7 @@ fun RenderPlayerButton(
               } else {
                 BorderStroke(
                   1.dp,
-                  MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                  playerButtonBorderColor(),
                 )
               },
             modifier =
@@ -416,9 +413,7 @@ fun RenderPlayerButton(
               if (hideBackground) {
                 Color.Transparent
               } else {
-                MaterialTheme.colorScheme.surfaceContainer.copy(
-                  alpha = 0.55f,
-                )
+                playerButtonContainerColor()
               },
             contentColor =
               if (configOwned) {
@@ -436,7 +431,7 @@ fun RenderPlayerButton(
               } else {
                 BorderStroke(
                   1.dp,
-                  MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                  playerButtonBorderColor(),
                 )
               },
             modifier =
@@ -565,14 +560,14 @@ fun RenderPlayerButton(
           } else {
             Surface(
               shape = MaterialTheme.shapes.extraLarge,
-              color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.55f),
+              color = playerButtonContainerColor(),
               border =
                 if (hideBackground) {
                   null
                 } else {
                   BorderStroke(
                     1.dp,
-                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                    playerButtonBorderColor(),
                   )
                 },
               modifier = Modifier.height(buttonSize),
@@ -612,8 +607,8 @@ fun RenderPlayerButton(
                 if (isSnapshotLoading) {
                   Surface(
                     shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.55f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                    color = playerButtonContainerColor(),
+                    border = BorderStroke(1.dp, playerButtonBorderColor()),
                     modifier = Modifier.size(buttonSize - 4.dp),
                   ) {
                     Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
@@ -628,8 +623,8 @@ fun RenderPlayerButton(
                   @OptIn(ExperimentalFoundationApi::class)
                   Surface(
                     shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.55f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                    color = playerButtonContainerColor(),
+                    border = BorderStroke(1.dp, playerButtonBorderColor()),
                     modifier =
                       Modifier
                         .size(buttonSize - 4.dp)
@@ -773,9 +768,7 @@ fun RenderPlayerButton(
               if (hideBackground) {
                 Color.Transparent
               } else {
-                MaterialTheme.colorScheme.surfaceContainer.copy(
-                  alpha = 0.55f,
-                )
+                playerButtonContainerColor()
               },
             contentColor = if (hideBackground) controlColor else MaterialTheme.colorScheme.onSurface,
             tonalElevation = 0.dp,
@@ -786,7 +779,7 @@ fun RenderPlayerButton(
               } else {
                 BorderStroke(
                   1.dp,
-                  MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                  playerButtonBorderColor(),
                 )
               },
             modifier =
@@ -886,7 +879,6 @@ fun RenderPlayerButton(
         buttonSize = buttonSize,
         onInvoked = clickEvent,
         contentColor = if (hideBackground) controlColor else null,
-        useGlass = enableLiquidGlass,
       )
     }
 
@@ -1133,9 +1125,7 @@ fun RenderPlayerButton(
             if (hideBackground) {
               Color.Transparent
             } else {
-              MaterialTheme.colorScheme.surfaceContainer.copy(
-                alpha = 0.55f,
-              )
+              playerButtonContainerColor()
             },
           contentColor = vFlipColor,
           border =
@@ -1144,7 +1134,7 @@ fun RenderPlayerButton(
             } else {
               BorderStroke(
                 1.dp,
-                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                playerButtonBorderColor(),
               )
             },
           modifier =
@@ -1237,14 +1227,14 @@ fun RenderPlayerButton(
           } else {
             Surface(
               shape = MaterialTheme.shapes.extraLarge,
-              color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.55f),
+              color = playerButtonContainerColor(),
               border =
                 if (hideBackground) {
                   null
                 } else {
                   BorderStroke(
                     1.dp,
-                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                    playerButtonBorderColor(),
                   )
                 },
               modifier = Modifier.height(buttonSize),
@@ -1283,8 +1273,8 @@ fun RenderPlayerButton(
                 // Clear/Close Button - always has background
                 Surface(
                   shape = CircleShape,
-                  color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.55f),
-                  border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                  color = playerButtonContainerColor(),
+                  border = BorderStroke(1.dp, playerButtonBorderColor()),
                   modifier =
                     Modifier
                       .size(buttonSize - 4.dp)
@@ -1377,9 +1367,7 @@ fun RenderPlayerButton(
                 if (hideBackground) {
                   Color.Transparent
                 } else {
-                  MaterialTheme.colorScheme.surfaceContainer.copy(
-                    alpha = 0.55f,
-                  )
+                  playerButtonContainerColor()
                 },
               border =
                 if (hideBackground) {
@@ -1387,7 +1375,7 @@ fun RenderPlayerButton(
                 } else {
                   BorderStroke(
                     1.dp,
-                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                    playerButtonBorderColor(),
                   )
                 },
               modifier =
@@ -1476,9 +1464,7 @@ fun RenderPlayerButton(
             if (hideBackground) {
               Color.Transparent
             } else {
-              MaterialTheme.colorScheme.surfaceContainer.copy(
-                alpha = 0.55f,
-              )
+              playerButtonContainerColor()
             },
           contentColor =
             if (isAmbientEnabled) {
@@ -1492,7 +1478,7 @@ fun RenderPlayerButton(
             } else {
               BorderStroke(
                 1.dp,
-                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                playerButtonBorderColor(),
               )
             },
           modifier =
@@ -1569,9 +1555,7 @@ fun RenderPlayerButton(
             if (hideBackground) {
               Color.Transparent
             } else {
-              MaterialTheme.colorScheme.surfaceContainer.copy(
-                alpha = 0.55f,
-              )
+              playerButtonContainerColor()
             },
           contentColor =
             if (isPostProcessingEnabled) {
@@ -1585,7 +1569,7 @@ fun RenderPlayerButton(
             } else {
               BorderStroke(
                 1.dp,
-                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                playerButtonBorderColor(),
               )
             },
           modifier =
@@ -1690,9 +1674,7 @@ fun RenderPlayerButton(
               if (hideBackground) {
                 Color.Transparent
               } else {
-                MaterialTheme.colorScheme.surfaceContainer.copy(
-                  alpha = 0.55f,
-                )
+                playerButtonContainerColor()
               },
             contentColor = if (hideBackground) controlColor else MaterialTheme.colorScheme.onSurface,
             border =
@@ -1701,7 +1683,7 @@ fun RenderPlayerButton(
               } else {
                 BorderStroke(
                   1.dp,
-                  MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                  playerButtonBorderColor(),
                 )
               },
             modifier =
@@ -1866,9 +1848,10 @@ private fun rememberTimeAndNetworkStat(
   }
 }
 
-private fun formatClock(
+internal fun formatClock(
   context: Context,
   clockFormat: PlayerClockFormat,
+  millis: Long = System.currentTimeMillis(),
 ): String {
   val use24Hour =
     when (clockFormat) {
@@ -1876,7 +1859,7 @@ private fun formatClock(
       PlayerClockFormat.TWELVE_HOUR -> false
       PlayerClockFormat.TWENTY_FOUR_HOUR -> true
     }
-  return DateFormat.format(if (use24Hour) "HH:mm" else "h:mm a", System.currentTimeMillis()).toString()
+  return DateFormat.format(if (use24Hour) "HH:mm" else "h:mm a", millis).toString()
 }
 
 private fun readNetworkBytesPerSecond(): Double {

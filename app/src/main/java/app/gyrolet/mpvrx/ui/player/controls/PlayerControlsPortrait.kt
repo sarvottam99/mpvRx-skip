@@ -10,6 +10,7 @@
 package app.gyrolet.mpvrx.ui.player.controls
 
 import androidx.compose.foundation.BorderStroke
+import app.gyrolet.mpvrx.ui.liquidglass.liquidGlassActive
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -36,7 +37,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.gyrolet.mpvrx.R
-import app.gyrolet.mpvrx.preferences.AppearancePreferences
 import app.gyrolet.mpvrx.preferences.PlayerButton
 import app.gyrolet.mpvrx.preferences.preference.collectAsState
 import app.gyrolet.mpvrx.ui.icons.Icon
@@ -95,8 +95,7 @@ fun TopPlayerControlsPortrait(
           Column(
             modifier = Modifier.padding(start = 4.dp),
           ) {
-            val appearancePreferences = koinInject<AppearancePreferences>()
-            val enableLiquidGlass by appearancePreferences.liquidGlassEnabled.collectAsState()
+            val enableLiquidGlass = liquidGlassActive()
 
             if (enableLiquidGlass) {
               LiquidPillButton(
@@ -271,19 +270,17 @@ fun BottomPlayerControlsPortrait(
   activity: PlayerActivity,
 ) {
   PlayerButtonTheme(hideBackground) {
-    val appearancePreferences = koinInject<AppearancePreferences>()
-    val enableLiquidGlass by appearancePreferences.liquidGlassEnabled.collectAsState()
+    val enableLiquidGlass = liquidGlassActive()
     Row(
       modifier =
         Modifier
           .fillMaxWidth()
           .horizontalScroll(rememberScrollState())
           // Padding after horizontalScroll belongs to scroll content, not its clipping viewport.
+          // Vertical room is only for the liquid-glass shadow; the player places this row with its shared gaps.
           .padding(
-            start = if (enableLiquidGlass) 8.dp else 0.dp,
-            end = if (enableLiquidGlass) 8.dp else 0.dp,
-            top = if (enableLiquidGlass) 6.dp else 0.dp,
-            bottom = MaterialTheme.spacing.medium,
+            horizontal = if (enableLiquidGlass) 8.dp else 0.dp,
+            vertical = if (enableLiquidGlass) 6.dp else 0.dp,
           ),
       horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.medium, Alignment.CenterHorizontally),
       verticalAlignment = Alignment.CenterVertically,

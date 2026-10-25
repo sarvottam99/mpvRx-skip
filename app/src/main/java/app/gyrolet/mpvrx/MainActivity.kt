@@ -63,6 +63,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.tappableElement
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -76,6 +77,8 @@ import app.gyrolet.mpvrx.presentation.components.rememberLiquidGlassBackdrop
 import app.gyrolet.mpvrx.ui.browser.MainScreen
 import app.gyrolet.mpvrx.ui.browser.LocalNavigationBarHeight
 import app.gyrolet.mpvrx.ui.browser.NavigationBarState
+import app.gyrolet.mpvrx.ui.browser.TvSideNavigationDefaults
+import app.gyrolet.mpvrx.ui.tv.TvSafeArea
 import app.gyrolet.mpvrx.ui.browser.components.MiniPlayer
 import app.gyrolet.mpvrx.ui.theme.AppMotion
 import app.gyrolet.mpvrx.ui.theme.DarkMode
@@ -89,6 +92,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.viewinterop.AndroidView
 import app.gyrolet.mpvrx.ui.player.MPVPipHelper
+import app.gyrolet.mpvrx.ui.player.InAppMusicPlayerSheet
+import app.gyrolet.mpvrx.ui.remote.RemotePairingPrompt
+import app.gyrolet.mpvrx.ui.player.LocalInAppMusicSheet
+import app.gyrolet.mpvrx.ui.player.coveredByInAppMusicSheet
+import app.gyrolet.mpvrx.ui.player.inAppMusicSheetMiniSource
+import app.gyrolet.mpvrx.ui.player.rememberInAppMusicSheetState
 import app.gyrolet.mpvrx.ui.player.PlaybackPhase
 import app.gyrolet.mpvrx.ui.player.PlaybackSession
 import app.gyrolet.mpvrx.ui.player.PlayerActivity
@@ -118,6 +127,9 @@ import app.gyrolet.mpvrx.ui.update.UpdateViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import androidx.lifecycle.lifecycleScope
 import kotlinx.serialization.json.Json
 import org.koin.android.ext.android.getKoin
@@ -138,6 +150,8 @@ open class MainActivity : AppCompatActivity() {
   private var wasInPipMode = false
   private var pendingPipExitResolution = false
   private var isExpandingFromPip by mutableStateOf(false)
+  private var openUpdateSheet by mutableStateOf(false)
+  private var mediaDiscoveryJob: Job? = null
 
   // Register the ActivityResultLauncher at class level
   private val mediaAccessLauncher =
@@ -156,6 +170,8 @@ open class MainActivity : AppCompatActivity() {
     // directly into the real UI. Do not draw a second Compose logo/title layer afterwards.
     installSplashScreen()
     super.onCreate(savedInstanceState)
+    openUpdateSheet = intent.getBooleanExtra("open_update_sheet", false)
+    intent.removeExtra("open_update_sheet")
 
     if (DeviceFormFactor.isTelevision(this)) {
       requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
@@ -282,16 +298,22 @@ open class MainActivity : AppCompatActivity() {
       } else {
         MpvrxTheme(transitionState = themeTransitionState) {
           AppWallpaperHost {
+            val musicSheet = rememberInAppMusicSheetState()
             // Reserve the system button area once for every destination and overlay.
             // Consuming it here lets nested Scaffolds/sheets avoid adding it twice.
-            Surface(
-              modifier = Modifier.fillMaxSize().windowInsetsPadding(
-                WindowInsets.tappableElement.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom),
-              ),
-              color = Color.Transparent,
-            ) {
-              Navigator()
+            CompositionLocalProvider(LocalInAppMusicSheet provides musicSheet) {
+              Surface(
+                modifier = Modifier.fillMaxSize().windowInsetsPadding(
+                  WindowInsets.tappableElement.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom),
+                ),
+                color = Color.Transparent,
+              ) {
+                Navigator()
+              }
             }
+            // Above the browser and outside its inset padding: the music player fills the window.
+            InAppMusicPlayerSheet(musicSheet)
+            RemotePairingPrompt()
             if (showRendererBuildNotice) {
               val acknowledgeNotice = {
                 rendererNoticePreferences.edit().putBoolean(NON_VULKAN_NOTICE_SHOWN, true).apply()
@@ -359,9 +381,20 @@ open class MainActivity : AppCompatActivity() {
     PlayerSheetTransitions.clearBrowserCache()
     // Interactive again without the player having taken over, so its expansion is void.
     PlayerSheetTransitions.abandonExpansion()
+    mediaDiscoveryJob?.cancel()
+    mediaDiscoveryJob = lifecycleScope.launch(Dispatchers.IO) {
+      // Let the cached browser draw first. A second bounded pass catches extraction that was
+      // still finishing when the user switched back; there is no continuous storage polling.
+      delay(350L)
+      app.gyrolet.mpvrx.utils.storage.UnindexedVideoDiscovery.refresh(applicationContext)
+      delay(2_000L)
+      app.gyrolet.mpvrx.utils.storage.UnindexedVideoDiscovery.refresh(applicationContext)
+    }
   }
 
   override fun onPause() {
+    mediaDiscoveryJob?.cancel()
+    mediaDiscoveryJob = null
     // Still on screen here, so this is the last point where the browser layer can be frozen
     // for the player's swipe-down and predictive-back previews.
     PlayerSheetTransitions.captureBrowser()
@@ -603,9 +636,15 @@ open class MainActivity : AppCompatActivity() {
     }
   }
 
-  /**
-   * Navigator that handles screen transitions and provides shared states
-   */
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    if (intent.getBooleanExtra("open_update_sheet", false)) {
+      openUpdateSheet = true
+      intent.removeExtra("open_update_sheet")
+    }
+  }
+
+  /** Navigator that handles screen transitions and provides shared states. */
   @Composable
   fun Navigator() {
     val backstack = rememberNavBackStack(MainScreen)
@@ -631,8 +670,15 @@ open class MainActivity : AppCompatActivity() {
 
     val fallbackUpdateState = remember { MutableStateFlow(UpdateUiState()) }
     val updateState by (updateViewModel?.uiState ?: fallbackUpdateState).collectAsState()
+    LaunchedEffect(openUpdateSheet, updateViewModel) {
+      if (openUpdateSheet && updateViewModel != null) {
+        updateViewModel.showPendingUpdate()
+        openUpdateSheet = false
+      }
+    }
     val liquidGlassEnabled by appearancePreferences.liquidGlassEnabled.collectAsState()
     val legacyNavigationBar by appearancePreferences.legacyNavigationBar.collectAsState()
+    val musicSheet = LocalInAppMusicSheet.current
 
     // Provide both LocalBackStack and the LazyList/Grid states to all screens
     CompositionLocalProvider(
@@ -679,10 +725,12 @@ open class MainActivity : AppCompatActivity() {
               modifier =
                 Modifier
                   .fillMaxSize()
+                  .coveredByInAppMusicSheet(musicSheet)
                   .playerSheetBackdrop()
                   .captureLiquidGlassBackdrop(miniPlayerBackdrop, liquidGlassEnabled),
               backStack = typedBackstack,
               opaqueFrom = app.gyrolet.mpvrx.ui.preferences.PreferencesScreen,
+              tvSafeArea = true,
               onBack = {
                 if (typedBackstack.size <= 1 || !typedBackstack.popSafely()) {
                   this@MainActivity.finish()
@@ -723,14 +771,28 @@ open class MainActivity : AppCompatActivity() {
             }
 
           val miniPlayerModifier =
-            Modifier
-              .align(if (isDualPane) Alignment.BottomEnd else Alignment.BottomStart)
-              .fillMaxWidth(if (isDualPane) 0.6f else 1f)
-              .windowInsetsPadding(
-                if (isDualPane) safeInsets.only(WindowInsetsSides.End + WindowInsetsSides.Bottom) else safeInsets,
-              )
-              .padding(start = startSpacing, end = spacing, bottom = spacing)
-              .offset(y = -miniPlayerLift)
+            if (DeviceFormFactor.isTelevision(context)) {
+              // TV: a compact card in the bottom-end corner, inside the overscan-safe area and clear
+              // of the side rail, instead of a full-width bar covering the rail's Settings item.
+              Modifier
+                .align(Alignment.BottomEnd)
+                .padding(
+                  start = TvSideNavigationDefaults.CollapsedWidth + spacing,
+                  end = TvSafeArea.Horizontal,
+                  bottom = TvSafeArea.Vertical,
+                ).widthIn(max = 480.dp)
+                .fillMaxWidth()
+                .offset(y = -miniPlayerLift)
+            } else {
+              Modifier
+                .align(if (isDualPane) Alignment.BottomEnd else Alignment.BottomStart)
+                .fillMaxWidth(if (isDualPane) 0.6f else 1f)
+                .windowInsetsPadding(
+                  if (isDualPane) safeInsets.only(WindowInsetsSides.End + WindowInsetsSides.Bottom) else safeInsets,
+                )
+                .padding(start = startSpacing, end = spacing, bottom = spacing)
+                .offset(y = -miniPlayerLift)
+            }
 
           Box(
             modifier = miniPlayerModifier
@@ -744,7 +806,9 @@ open class MainActivity : AppCompatActivity() {
             backdrop = miniPlayerBackdrop,
             enabled = liquidGlassEnabled,
           ) {
-            MiniPlayer(modifier = miniPlayerModifier)
+            MiniPlayer(
+              modifier = miniPlayerModifier.inAppMusicSheetMiniSource(musicSheet, AppShapeScale.largeIncreased),
+            )
           }
           PlayerSheetTransitionOverlay(PlayerSheetDestination.MINI, Modifier.matchParentSize())
         }
@@ -757,6 +821,7 @@ open class MainActivity : AppCompatActivity() {
           currentVersion = currentVersion,
           onDismiss = updateViewModel::dismiss,
           onDownload = updateViewModel::downloadUpdate,
+          onCancelDownload = updateViewModel::cancelDownload,
           onInstall = updateViewModel::installUpdate,
           onIgnore = updateViewModel::ignoreVersion,
           onRetryCheck = updateViewModel::retryCheck,
@@ -765,3 +830,4 @@ open class MainActivity : AppCompatActivity() {
     }
   }
 }
+

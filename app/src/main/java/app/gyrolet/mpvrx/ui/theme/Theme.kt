@@ -20,6 +20,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,6 +28,7 @@ import androidx.compose.material.ripple.RippleAlpha
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MotionScheme
@@ -275,6 +277,9 @@ private fun ThemeTransitionContent(content: @Composable () -> Unit) {
 @Composable
 fun MpvrxTheme(
   transitionState: ThemeTransitionState = rememberThemeTransitionState(),
+  // The isolated :crash process registers only PreferencesModule, not domainModule.
+  // It must not try to resolve GoogleFontsRepository while drawing the recovery UI.
+  loadDownloadedFonts: Boolean = true,
   content: @Composable () -> Unit,
 ) {
   val preferences = koinInject<AppearancePreferences>()
@@ -286,7 +291,8 @@ fun MpvrxTheme(
   val useSystemFont by preferences.useSystemFont.collectAsState()
   val googleFontFamily by preferences.googleFontFamily.collectAsState()
   val googleFontRevision by preferences.googleFontRevision.collectAsState()
-  val googleFontsRepository = koinInject<GoogleFontsRepository>()
+  val googleFontsRepository =
+    if (loadDownloadedFonts) koinInject<GoogleFontsRepository>() else null
   val darkTheme = isSystemInDarkTheme()
   val configuration = LocalConfiguration.current
   val context = LocalContext.current
@@ -300,7 +306,7 @@ fun MpvrxTheme(
         .takeIf { it.isNotBlank() }
         ?.let {
           googleFontsRepository
-            .fontFile(it)
+            ?.fontFile(it)
             ?.let { file ->
               runCatching { FontFamily(Typeface.createFromFile(file)) }
                 .onFailure { Log.w("MpvrxTheme", "Could not load downloaded app font", it) }
@@ -380,7 +386,11 @@ fun MpvrxTheme(
         typography = typography,
         shapes = AppShapes,
         motionScheme = MotionScheme.expressive(),
-        content = { app.gyrolet.mpvrx.ui.utils.ProvideAppHaptics(content) },
+        content = {
+          ProvideTvFocusRipple {
+            app.gyrolet.mpvrx.ui.utils.ProvideAppHaptics(content)
+          }
+        },
       )
     }
   }
@@ -456,6 +466,36 @@ private const val RIPPLE_DRAGGED_ALPHA = .5f
 private const val RIPPLE_FOCUSED_ALPHA = .6f
 private const val RIPPLE_HOVERED_ALPHA = .4f
 private const val RIPPLE_PRESSED_ALPHA = .6f
+
+// The default ~10% focus tint is invisible from couch distance; rows from libraries rely on it.
+// D-pad scrolling also keeps the focused item away from the screen edges on every TV.
+@OptIn(ExperimentalMaterial3Api::class)
+@Suppress("DEPRECATION")
+@Composable
+private fun ProvideTvFocusRipple(content: @Composable () -> Unit) {
+  val isTelevision = app.gyrolet.mpvrx.utils.device.DeviceFormFactor.isTelevision(LocalContext.current)
+  if (!isTelevision) {
+    content()
+    return
+  }
+  CompositionLocalProvider(
+    LocalBringIntoViewSpec provides app.gyrolet.mpvrx.ui.tv.TvBringIntoViewSpec,
+    LocalRippleConfiguration provides
+      RippleConfiguration(
+        color = MaterialTheme.colorScheme.primary,
+        rippleAlpha =
+          RippleAlpha(
+            draggedAlpha = RIPPLE_DRAGGED_ALPHA,
+            focusedAlpha = TV_RIPPLE_FOCUSED_ALPHA,
+            hoveredAlpha = RIPPLE_HOVERED_ALPHA,
+            pressedAlpha = RIPPLE_PRESSED_ALPHA,
+          ),
+      ),
+    content = content,
+  )
+}
+
+private const val TV_RIPPLE_FOCUSED_ALPHA = .32f
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Suppress("DEPRECATION")

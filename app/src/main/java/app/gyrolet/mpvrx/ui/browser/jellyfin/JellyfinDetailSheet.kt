@@ -9,31 +9,34 @@
 
 package app.gyrolet.mpvrx.ui.browser.jellyfin
 
+import app.gyrolet.mpvrx.ui.player.controls.components.rememberTvInitialFocusRequester
+import app.gyrolet.mpvrx.ui.player.controls.components.tvInitialFocus
+import app.gyrolet.mpvrx.ui.player.controls.components.tvFocusGroup
+import app.gyrolet.mpvrx.ui.tv.tvScrollWhenFocusCannotMove
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -46,6 +49,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import app.gyrolet.mpvrx.presentation.components.AppComboBoxChip
 import app.gyrolet.mpvrx.presentation.components.AppDropdownMenu as DropdownMenu
 import app.gyrolet.mpvrx.presentation.components.AppDialogTextButton as TextButton
 import androidx.compose.material3.DropdownMenuItem
@@ -69,7 +73,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -85,6 +88,7 @@ import android.content.Intent
 import android.net.Uri
 import android.text.format.DateUtils
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import app.gyrolet.mpvrx.R
 import app.gyrolet.mpvrx.data.jellyfin.JellyfinClient
@@ -101,8 +105,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.gyrolet.mpvrx.ui.browser.music.SharedMusicDetailHeader
 import app.gyrolet.mpvrx.ui.browser.music.SharedMusicTrackListItem
 import app.gyrolet.mpvrx.ui.player.PlaybackSession
+import app.gyrolet.mpvrx.ui.player.controls.components.tvFocusHighlight
+import android.content.ActivityNotFoundException
+import android.widget.Toast
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun JellyfinDetailSheet(
   item: JellyfinItem?,
@@ -137,6 +144,8 @@ fun JellyfinDetailSheet(
     ),
 ) {
   if (item == null) return
+  val scrollState = rememberScrollState()
+  val initialFocus = rememberTvInitialFocusRequester(enabled = !isLoading, requestKey = item.id)
 
   if (item.type == "MusicArtist" || item.type == "MusicAlbum" || item.type == "Album" || item.type == "Playlist" || item.type == "Artist" || item.type == "AlbumArtist") {
     val queueState by PlaybackSession.queue.collectAsStateWithLifecycle()
@@ -145,13 +154,16 @@ fun JellyfinDetailSheet(
     ModalBottomSheet(
       onDismissRequest = onDismiss,
       sheetState = sheetState,
-      containerColor = MaterialTheme.colorScheme.surface,
+      containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
       contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
       Column(
         modifier = Modifier
           .fillMaxWidth()
-          .verticalScroll(rememberScrollState())
+          .tvInitialFocus(initialFocus)
+          .tvFocusGroup()
+          .tvScrollWhenFocusCannotMove(scrollState)
+          .verticalScroll(scrollState)
           .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
       ) {
@@ -195,14 +207,16 @@ fun JellyfinDetailSheet(
           if ((item.type == "MusicArtist" || item.type == "Artist" || item.type == "AlbumArtist") && seasons.isNotEmpty()) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
               Text(
-                text = "Albums",
+                text = stringResource(R.string.ui_albums),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
               )
+              // Scrolls to the sheet edges while the first album stays aligned with the title.
               LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(horizontal = 0.dp),
+                modifier = Modifier.bleedHorizontally(16.dp).tvFocusGroup(),
+                horizontalArrangement = Arrangement.spacedBy(JellyfinSpacing.RowItemGap),
+                contentPadding = PaddingValues(horizontal = 16.dp),
               ) {
                 items(seasons, key = { it.id }) { album ->
                   JellyfinMusicCard(
@@ -270,23 +284,26 @@ fun JellyfinDetailSheet(
   ModalBottomSheet(
     onDismissRequest = onDismiss,
     sheetState = sheetState,
-    containerColor = MaterialTheme.colorScheme.surface,
+    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
     contentColor = MaterialTheme.colorScheme.onSurface,
     dragHandle = null,
-    shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+    shape = RoundedCornerShape(topStart = 36.dp, topEnd = 36.dp),
   ) {
     Column(
       modifier =
         Modifier
           .fillMaxWidth()
-          .verticalScroll(rememberScrollState()),
+          .tvInitialFocus(initialFocus)
+          .tvFocusGroup()
+          .tvScrollWhenFocusCannotMove(scrollState)
+          .verticalScroll(scrollState),
     ) {
       // Backdrop Header with Poster
       Box(
         modifier =
           Modifier
             .fillMaxWidth()
-            .height(240.dp),
+            .height(if (LocalConfiguration.current.screenWidthDp >= 600) 360.dp else 300.dp),
       ) {
         val backdropUrl =
           remember(server.serverUrl, item.id, item.backdropImageTag, item.primaryImageTag, server.accessToken) {
@@ -325,8 +342,8 @@ fun JellyfinDetailSheet(
                 Brush.verticalGradient(
                   0.0f to Color.Black.copy(alpha = 0.4f),
                   0.4f to Color.Transparent,
-                  0.8f to MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
-                  1.0f to MaterialTheme.colorScheme.surface,
+                  0.8f to MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.85f),
+                  1.0f to MaterialTheme.colorScheme.surfaceContainerLow,
                 ),
               ),
         )
@@ -342,7 +359,8 @@ fun JellyfinDetailSheet(
           modifier =
             Modifier
               .align(Alignment.TopEnd)
-              .padding(16.dp),
+              .padding(16.dp)
+              .tvFocusHighlight(CircleShape),
         ) {
           Icon(
             imageVector = Icons.RoundedFilled.Close,
@@ -372,12 +390,12 @@ fun JellyfinDetailSheet(
           horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
           Card(
-            shape = RoundedCornerShape(8.dp),
+            shape = MaterialTheme.shapes.large,
             elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
             modifier =
               Modifier
-                .size(width = 86.dp, height = 126.dp)
-                .clip(RoundedCornerShape(8.dp)),
+                .size(width = 108.dp, height = 162.dp)
+                .clip(MaterialTheme.shapes.large),
           ) {
             RemoteImage(
               url = posterUrl,
@@ -388,30 +406,30 @@ fun JellyfinDetailSheet(
           }
 
           Column(
-            modifier = Modifier.padding(bottom = 4.dp),
+            modifier = Modifier.weight(1f).padding(bottom = 8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
           ) {
             // Type Pill
             Surface(
-              shape = RoundedCornerShape(6.dp),
+              shape = CircleShape,
               color = MaterialTheme.colorScheme.primaryContainer,
             ) {
               Text(
                 text =
                   when {
-                    item.isSeries -> "TV SERIES"
-                    item.type == "Movie" -> "MOVIE"
+                    item.isSeries -> stringResource(R.string.jellyfin_series)
+                    item.type == "Movie" -> stringResource(R.string.jellyfin_movie)
                     else -> item.type.uppercase()
                   },
                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp),
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
               )
             }
 
             Text(
               text = item.name,
-              style = MaterialTheme.typography.titleLarge,
+              style = MaterialTheme.typography.headlineSmall,
               fontWeight = FontWeight.ExtraBold,
               maxLines = 2,
               overflow = TextOverflow.Ellipsis,
@@ -424,8 +442,8 @@ fun JellyfinDetailSheet(
         modifier =
           Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+            .padding(horizontal = 20.dp, vertical = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
       ) {
         // Tagline
         if (item.taglines.isNotEmpty()) {
@@ -437,10 +455,10 @@ fun JellyfinDetailSheet(
         }
 
         // Metadata Badges Row
-        Row(
+        FlowRow(
           modifier = Modifier.fillMaxWidth(),
-          verticalAlignment = Alignment.CenterVertically,
           horizontalArrangement = Arrangement.spacedBy(8.dp),
+          verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
           // Community Rating
           item.communityRating?.let { rating ->
@@ -668,9 +686,9 @@ fun JellyfinDetailSheet(
           ) {
             Button(
               onClick = { onPlay(targetItem, isRestartSeriesMode) },
-              shape = RoundedCornerShape(14.dp),
+              shape = CircleShape,
               colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-              modifier = Modifier.weight(1f),
+              modifier = Modifier.weight(1f).heightIn(min = 56.dp).tvFocusHighlight(CircleShape),
               contentPadding = PaddingValues(vertical = 12.dp),
             ) {
               Icon(
@@ -690,8 +708,8 @@ fun JellyfinDetailSheet(
             if (isResumeMode) {
               FilledTonalIconButton(
                 onClick = { onPlay(targetItem, true) },
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.size(48.dp),
+                shape = CircleShape,
+                modifier = Modifier.size(52.dp).tvFocusHighlight(CircleShape),
               ) {
                 Icon(
                   imageVector = Icons.RoundedFilled.Refresh,
@@ -703,10 +721,10 @@ fun JellyfinDetailSheet(
             }
           }
 
-          Row(
+          FlowRow(
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
           ) {
           // Trailer Button for Movies & Series
           if (item.type == "Movie" || item.isSeries || item.type == "Series") {
@@ -722,14 +740,18 @@ fun JellyfinDetailSheet(
                 val intent = Intent(Intent.ACTION_VIEW, Uri.parse(trailerUrl)).apply {
                   addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
-                runCatching { context.startActivity(intent) }
+                try {
+                  context.startActivity(intent)
+                } catch (_: ActivityNotFoundException) {
+                  Toast.makeText(context, R.string.jellyfin_open_trailer_error, Toast.LENGTH_LONG).show()
+                }
               },
-              shape = RoundedCornerShape(14.dp),
-              modifier = Modifier.size(48.dp),
+              shape = CircleShape,
+              modifier = Modifier.size(52.dp).tvFocusHighlight(CircleShape),
             ) {
               Icon(
                 imageVector = Icons.RoundedFilled.Movie,
-                contentDescription = "Trailer",
+                contentDescription = stringResource(R.string.jellyfin_trailer),
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(22.dp),
               )
@@ -752,8 +774,8 @@ fun JellyfinDetailSheet(
                     else -> onDownload(item)
                   }
                 },
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.size(48.dp),
+                shape = CircleShape,
+                modifier = Modifier.size(52.dp).tvFocusHighlight(CircleShape),
               ) {
                 when {
                   isItemDownloading ->
@@ -784,6 +806,7 @@ fun JellyfinDetailSheet(
                 onDismissRequest = { isDownloadMenuOpen = false },
               ) {
                 DropdownMenuItem(
+                  modifier = Modifier.tvFocusHighlight(MaterialTheme.shapes.medium, clipToShape = false),
                   text = { Text(stringResource(R.string.downloads_download_season)) },
                   onClick = {
                     isDownloadMenuOpen = false
@@ -791,6 +814,7 @@ fun JellyfinDetailSheet(
                   },
                 )
                 DropdownMenuItem(
+                  modifier = Modifier.tvFocusHighlight(MaterialTheme.shapes.medium, clipToShape = false),
                   text = { Text(stringResource(R.string.downloads_download_series)) },
                   onClick = {
                     isDownloadMenuOpen = false
@@ -804,8 +828,8 @@ fun JellyfinDetailSheet(
           // Favorite Toggle Button
           FilledTonalIconButton(
             onClick = { onToggleFavorite(item) },
-            shape = RoundedCornerShape(14.dp),
-            modifier = Modifier.size(48.dp),
+            shape = CircleShape,
+            modifier = Modifier.size(52.dp).tvFocusHighlight(CircleShape),
           ) {
             Icon(
               imageVector = if (item.isFavorite) Icons.RoundedFilled.Favorite else Icons.RoundedFilled.FavoriteBorder,
@@ -818,8 +842,8 @@ fun JellyfinDetailSheet(
           // Mark Watched Toggle Button
           FilledTonalIconButton(
             onClick = { onTogglePlayed(item) },
-            shape = RoundedCornerShape(14.dp),
-            modifier = Modifier.size(48.dp),
+            shape = CircleShape,
+            modifier = Modifier.size(52.dp).tvFocusHighlight(CircleShape),
           ) {
             Icon(
               imageVector = if (item.isPlayed) Icons.RoundedFilled.Check else Icons.RoundedFilled.Visibility,
@@ -834,12 +858,12 @@ fun JellyfinDetailSheet(
             var showDeleteDialog by remember { mutableStateOf(false) }
             FilledTonalIconButton(
               onClick = { showDeleteDialog = true },
-              shape = RoundedCornerShape(14.dp),
+              shape = CircleShape,
               colors = IconButtonDefaults.filledTonalIconButtonColors(
                 containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
                 contentColor = MaterialTheme.colorScheme.error,
               ),
-              modifier = Modifier.size(48.dp),
+              modifier = Modifier.size(52.dp).tvFocusHighlight(CircleShape),
             ) {
               Icon(
                 imageVector = Icons.RoundedFilled.Delete,
@@ -856,6 +880,7 @@ fun JellyfinDetailSheet(
                 text = { Text("Are you sure you want to delete \"${item.name}\" from your Jellyfin server? This will permanently delete the media files.") },
                 confirmButton = {
                   Button(
+                    modifier = Modifier.tvFocusHighlight(CircleShape, clipToShape = false),
                     onClick = {
                       showDeleteDialog = false
                       onDeleteItem(item)
@@ -869,7 +894,7 @@ fun JellyfinDetailSheet(
                   }
                 },
                 dismissButton = {
-                  TextButton(onClick = { showDeleteDialog = false }) {
+                  TextButton(modifier = Modifier.tvFocusHighlight(CircleShape, clipToShape = false), onClick = { showDeleteDialog = false }) {
                     Text("Cancel")
                   }
                 },
@@ -887,6 +912,7 @@ fun JellyfinDetailSheet(
               Modifier
                 .fillMaxWidth()
                 .animateContentSize()
+                .tvFocusHighlight(MaterialTheme.shapes.medium, clipToShape = false)
                 .clickable(enabled = canExpandOverview) { isOverviewExpanded = !isOverviewExpanded },
             verticalArrangement = Arrangement.spacedBy(4.dp),
           ) {
@@ -945,7 +971,7 @@ fun JellyfinDetailSheet(
                     text = person.name + if (index < directors.lastIndex) ", " else "",
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (onPersonClick != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.clickable(enabled = onPersonClick != null) {
+                    modifier = Modifier.tvFocusHighlight(MaterialTheme.shapes.small, clipToShape = false).clickable(enabled = onPersonClick != null) {
                       onPersonClick?.invoke(person)
                     },
                   )
@@ -969,7 +995,7 @@ fun JellyfinDetailSheet(
                     text = person.name + if (index < writers.lastIndex) ", " else "",
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (onPersonClick != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.clickable(enabled = onPersonClick != null) {
+                    modifier = Modifier.tvFocusHighlight(MaterialTheme.shapes.small, clipToShape = false).clickable(enabled = onPersonClick != null) {
                       onPersonClick?.invoke(person)
                     },
                   )
@@ -993,7 +1019,7 @@ fun JellyfinDetailSheet(
                     text = person.name + if (index < producers.lastIndex) ", " else "",
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (onPersonClick != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.clickable(enabled = onPersonClick != null) {
+                    modifier = Modifier.tvFocusHighlight(MaterialTheme.shapes.small, clipToShape = false).clickable(enabled = onPersonClick != null) {
                       onPersonClick?.invoke(person)
                     },
                   )
@@ -1011,7 +1037,7 @@ fun JellyfinDetailSheet(
             verticalArrangement = Arrangement.spacedBy(8.dp),
           ) {
             Text(
-              text = "Cast",
+              text = stringResource(R.string.jellyfin_cast),
               style = MaterialTheme.typography.titleMedium,
               fontWeight = FontWeight.Bold,
               color = MaterialTheme.colorScheme.onSurface,
@@ -1019,8 +1045,8 @@ fun JellyfinDetailSheet(
 
             LazyRow(
               horizontalArrangement = Arrangement.spacedBy(14.dp),
-              contentPadding = PaddingValues(vertical = 4.dp),
-              modifier = Modifier.fillMaxWidth(),
+              contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
+              modifier = Modifier.bleedHorizontally(20.dp).tvFocusGroup().fillMaxWidth(),
             ) {
               items(cast, key = { "${it.id}|${it.role ?: ""}" }) { person ->
                 Column(
@@ -1028,6 +1054,7 @@ fun JellyfinDetailSheet(
                   modifier = Modifier
                     .width(72.dp)
                     .clip(RoundedCornerShape(12.dp))
+                    .tvFocusHighlight(RoundedCornerShape(12.dp), clipToShape = false)
                     .clickable(enabled = onPersonClick != null) { onPersonClick?.invoke(person) }
                     .padding(vertical = 4.dp),
                   verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -1117,88 +1144,18 @@ fun JellyfinDetailSheet(
             val selectedSeason = remember(sortedSeasons, selectedSeasonId) {
               sortedSeasons.find { it.id == selectedSeasonId } ?: sortedSeasons.firstOrNull()
             }
-            var isSeasonDropdownExpanded by remember { mutableStateOf(false) }
-            val arrowRotation by animateFloatAsState(
-              targetValue = if (isSeasonDropdownExpanded) 180f else 0f,
-              label = "season_arrow_rotation",
+
+            AppComboBoxChip(
+              options = sortedSeasons,
+              selected = selectedSeason,
+              onSelect = { season -> onSelectSeason(season.id) },
+              optionLabel = { it.name },
+              valueText = selectedSeason?.name ?: "Select Season",
+              contentDescription = "Select Season",
+              optionSupportingText = { season ->
+                season.childCount?.takeIf { it > 0 }?.let { "$it ep" }
+              },
             )
-
-            Box(modifier = Modifier.wrapContentSize()) {
-              Surface(
-                onClick = { isSeasonDropdownExpanded = !isSeasonDropdownExpanded },
-                shape = RoundedCornerShape(10.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                border = BorderStroke(
-                  width = 1.dp,
-                  color = if (isSeasonDropdownExpanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                ),
-              ) {
-                Row(
-                  modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                  verticalAlignment = Alignment.CenterVertically,
-                  horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                  Text(
-                    text = selectedSeason?.name ?: "Select Season",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                  )
-                  Icon(
-                    imageVector = Icons.RoundedFilled.ArrowDropDown,
-                    contentDescription = "Select Season",
-                    tint = if (isSeasonDropdownExpanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp).rotate(arrowRotation),
-                  )
-                }
-              }
-
-              DropdownMenu(
-                expanded = isSeasonDropdownExpanded,
-                onDismissRequest = { isSeasonDropdownExpanded = false },
-                shape = RoundedCornerShape(14.dp),
-                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                modifier = Modifier.widthIn(min = 180.dp),
-              ) {
-                sortedSeasons.forEach { season ->
-                  val isSelected = season.id == selectedSeasonId
-                  Surface(
-                    onClick = {
-                      isSeasonDropdownExpanded = false
-                      onSelectSeason(season.id)
-                    },
-                    shape = RoundedCornerShape(8.dp),
-                    color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.Transparent,
-                    modifier = Modifier
-                      .fillMaxWidth()
-                      .padding(horizontal = 6.dp, vertical = 2.dp),
-                  ) {
-                    Row(
-                      modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                      verticalAlignment = Alignment.CenterVertically,
-                      horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                      Text(
-                        text = season.name,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                      )
-                      if (season.childCount != null && season.childCount > 0) {
-                        Text(
-                          text = "${season.childCount} ep",
-                          style = MaterialTheme.typography.labelSmall,
-                          color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                      }
-                    }
-                  }
-                }
-              }
-            }
 
             // Episode List
             if (isEpisodesLoading) {
@@ -1288,15 +1245,16 @@ fun JellyfinDetailSheet(
             verticalArrangement = Arrangement.spacedBy(8.dp),
           ) {
             Text(
-              text = "More Like This",
+              text = stringResource(R.string.jellyfin_more_like_this),
               style = MaterialTheme.typography.titleMedium,
               fontWeight = FontWeight.Bold,
               color = MaterialTheme.colorScheme.onSurface,
             )
 
             LazyRow(
-              horizontalArrangement = Arrangement.spacedBy(12.dp),
-              contentPadding = PaddingValues(bottom = 8.dp),
+              modifier = Modifier.bleedHorizontally(20.dp).tvFocusGroup(),
+              horizontalArrangement = Arrangement.spacedBy(JellyfinSpacing.RowItemGap),
+              contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 8.dp),
             ) {
               items(similarItems, key = { it.id }) { similarItem ->
                 JellyfinPosterCard(

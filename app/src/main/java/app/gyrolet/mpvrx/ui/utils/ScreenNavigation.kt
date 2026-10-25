@@ -24,9 +24,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -38,14 +40,18 @@ import app.gyrolet.mpvrx.preferences.PlayerPreferences
 import app.gyrolet.mpvrx.preferences.preference.collectAsState
 import app.gyrolet.mpvrx.presentation.Screen
 import app.gyrolet.mpvrx.ui.player.NavigationAnimStyle
+import app.gyrolet.mpvrx.ui.player.LocalInAppMusicSheet
 import app.gyrolet.mpvrx.ui.theme.AppMotion
 import app.gyrolet.mpvrx.ui.theme.LocalAppWallpaperActive
 import app.gyrolet.mpvrx.ui.theme.wallpaperAwareBackgroundColor
+import app.gyrolet.mpvrx.ui.tv.TvEdgeToEdgeScreen
+import app.gyrolet.mpvrx.ui.tv.TvScreenFocusHost
 import kotlin.math.roundToInt
 import org.koin.compose.koinInject
 
 private val NavigationEnterEasing = CubicBezierEasing(0.05f, 0.70f, 0.10f, 1.00f)
 private val NavigationExitEasing = CubicBezierEasing(0.30f, 0.00f, 0.80f, 0.15f)
+internal val LocalCurrentScreen = staticCompositionLocalOf<Screen?> { null }
 
 /** The Appearance slider is a duration multiplier: smaller values finish sooner. */
 internal fun navigationDurationMillis(speed: Float, baseMillis: Int = 260): Int =
@@ -98,6 +104,13 @@ internal fun ScreenNavDisplay(
    * colour for one frame before the slide started).
    */
   opaqueFrom: Screen? = null,
+  /**
+   * TV: inset every entry by the overscan-safe margins, except screens that are full-bleed media
+   * or lay out their own safe area ([TvEdgeToEdgeScreen]). Set only by the top-level host.
+   */
+  tvSafeArea: Boolean = false,
+  tvAutoFocus: Boolean = true,
+  tvFocusRequestKey: Any? = Unit,
   onBack: () -> Unit = { backStack.popSafely() },
   content: @Composable (Screen) -> Unit = { it.Content() },
 ) {
@@ -106,6 +119,7 @@ internal fun ScreenNavDisplay(
   val speed by preferences.animationSpeed.collectAsState()
   val reduceMotion = AppMotion.shouldReduceMotion()
   val layoutDirection = LocalLayoutDirection.current
+  val musicSheet = LocalInAppMusicSheet.current
   val direction = if (layoutDirection == LayoutDirection.Ltr) 1 else -1
   // With a wallpaper / animated background the entries are transparent, so a normal slide or
   // cross-fade shows the outgoing and incoming screens on top of each other (ghosted titles,
@@ -118,7 +132,11 @@ internal fun ScreenNavDisplay(
   NavDisplay(
     backStack = backStack,
     modifier = modifier.clipToBounds().background(backgroundColor),
-    onBack = onBack,
+    onBack = {
+      // Navigation entries remain composed behind the music sheet. If their dispatcher wins,
+      // collapse the overlay without popping a folder or leaving the selected music tab.
+      if (musicSheet?.isVisible == true) musicSheet.collapse() else onBack()
+    },
     sizeTransform = null,
     transitionSpec = { screenNavTransition(true, style, speed, direction, reduceMotion, seeThrough) },
     popTransitionSpec = { screenNavTransition(false, style, speed, direction, reduceMotion, seeThrough) },
@@ -141,8 +159,19 @@ internal fun ScreenNavDisplay(
           }
         val entryColor =
           if (entryOpaque) MaterialTheme.colorScheme.background else wallpaperAwareBackgroundColor()
-        Surface(Modifier.fillMaxSize(), color = entryColor) {
-          content(route)
+        CompositionLocalProvider(LocalCurrentScreen provides route) {
+          Surface(Modifier.fillMaxSize(), color = entryColor) {
+            // TV: predictable initial focus, focus restored on Back, and overscan-safe content.
+            TvScreenFocusHost(
+              scope = route,
+              safeArea = tvSafeArea && route !is TvEdgeToEdgeScreen,
+              active = route == backStack.lastOrNull(),
+              autoFocus = tvAutoFocus,
+              focusRequestKey = tvFocusRequestKey,
+            ) {
+              content(route)
+            }
+          }
         }
       }
     },

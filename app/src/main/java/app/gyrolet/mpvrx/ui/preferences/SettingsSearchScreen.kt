@@ -58,6 +58,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.gyrolet.mpvrx.R
+import app.gyrolet.mpvrx.preferences.SecureFolderPreferences
 import app.gyrolet.mpvrx.preferences.preference.collectAsState
 import app.gyrolet.mpvrx.presentation.Screen
 import app.gyrolet.mpvrx.ui.components.InlineSearchBar
@@ -67,6 +68,10 @@ import app.gyrolet.mpvrx.ui.theme.LocalEmphasizedTypography
 import app.gyrolet.mpvrx.ui.utils.LocalBackStack
 import app.gyrolet.mpvrx.ui.utils.navigateTo
 import app.gyrolet.mpvrx.ui.utils.popSafely
+import app.gyrolet.mpvrx.ui.tv.isTelevision
+import app.gyrolet.mpvrx.ui.tv.tvContentFocus
+import app.gyrolet.mpvrx.ui.tv.tvFocusMemory
+import app.gyrolet.mpvrx.ui.player.controls.components.tvFocusHighlight
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -75,16 +80,23 @@ object SettingsSearchScreen : Screen {
   @Composable
   override fun Content() {
     val resources = LocalResources.current
+    val television = isTelevision()
     val backstack = LocalBackStack.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusRequester = remember { FocusRequester() }
     val emphasizedTypography = LocalEmphasizedTypography.current
 
     var searchQuery by rememberSaveable { mutableStateOf("") }
+    val secureFolderPreferences = org.koin.compose.koinInject<SecureFolderPreferences>()
+    val secureFolderHidden by secureFolderPreferences.isEntryPointHidden.collectAsState()
 
-    val searchResults by remember(searchQuery, resources) {
+    val searchResults by remember(searchQuery, resources, secureFolderHidden, television) {
       derivedStateOf {
-        SearchablePreferences.search(searchQuery) { resId ->
+        SearchablePreferences.search(
+          searchQuery,
+          includeSecureFolder = !secureFolderHidden,
+          television = television,
+        ) { resId ->
           resources.getString(resId)
         }
       }
@@ -92,7 +104,7 @@ object SettingsSearchScreen : Screen {
 
     // Auto-focus the search field
     LaunchedEffect(Unit) {
-      focusRequester.requestFocus()
+      if (!television) focusRequester.requestFocus()
     }
 
     val preferenceStore = org.koin.compose.koinInject<app.gyrolet.mpvrx.preferences.preference.PreferenceStore>()
@@ -133,6 +145,7 @@ object SettingsSearchScreen : Screen {
         modifier =
           Modifier
             .fillMaxSize()
+            .tvContentFocus()
             .padding(padding),
       ) {
         InlineSearchBar(
@@ -140,7 +153,7 @@ object SettingsSearchScreen : Screen {
           onQueryChange = { searchQuery = it },
           onSearch = { keyboardController?.hide() },
           modifier = Modifier.padding(horizontal = 16.dp),
-          inputFieldModifier = Modifier.focusRequester(focusRequester),
+          inputFieldModifier = Modifier.tvFocusMemory("settings-query").focusRequester(focusRequester),
           windowInsets = WindowInsets(0.dp),
           placeholder = {
             Text(
@@ -417,6 +430,8 @@ private fun SearchResultItem(
     modifier =
       modifier
         .fillMaxWidth()
+        .tvFocusMemory(preference.screen to preference.searchTargetKey)
+        .tvFocusHighlight(MaterialTheme.shapes.largeIncreased)
         .clip(MaterialTheme.shapes.largeIncreased)
         .clickable(onClick = onClick),
     shape = MaterialTheme.shapes.largeIncreased,
@@ -489,7 +504,10 @@ private fun SearchResultItem(
 
 @Composable
 private fun localizedSearchCategory(category: String): String =
-  stringResource(
+  stringResource(searchCategoryTitleRes(category))
+
+@androidx.annotation.StringRes
+internal fun searchCategoryTitleRes(category: String): Int =
     when (category) {
       "About" -> R.string.pref_section_about
       "Advanced" -> R.string.search_category_advanced
@@ -497,11 +515,12 @@ private fun localizedSearchCategory(category: String): String =
       "Appearance" -> R.string.search_category_appearance
       "Audio" -> R.string.search_category_audio
       "Decoder" -> R.string.search_category_decoder
+      "Codecs" -> R.string.pref_codecs_title
       "Folders" -> R.string.search_category_folders
+      "Media Servers" -> R.string.pref_media_servers_title
       "Gestures" -> R.string.search_category_gestures
       "Network" -> R.string.ui_network
       "Player" -> R.string.search_category_player
       "Subtitles" -> R.string.search_category_subtitles
       else -> R.string.search_category_advanced
-    },
-  )
+    }

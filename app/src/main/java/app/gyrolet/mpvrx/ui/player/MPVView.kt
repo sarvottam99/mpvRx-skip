@@ -366,8 +366,54 @@ class MPVView(
     )
   }
 
-  fun getVideoOutAspect(expectedGeneration: Long = PlaybackSession.state.value.generation): Double? =
-    PlaybackSession.videoDisplayAspect(expectedGeneration)
+  fun getVideoOutAspect(): Double? {
+    // Try to get aspect from video-params/aspect first
+    val rawAspect = PlaybackSession.getPropertyDouble("video-params/aspect")
+    // Before the first decoded frame video-params is absent and width/height below are the
+    // container's unrotated size, so use the container's rotation instead of assuming 0.
+    val rotate = PlaybackSession.getPropertyInt("video-params/rotate") ?: rotationBeforeDecode()
+
+    // If aspect is not available or 0, calculate from width and height
+    val finalAspect =
+      if (rawAspect == null || rawAspect < 0.001) {
+        val width =
+          runCatching {
+            PlaybackSession.getPropertyInt("width") ?: PlaybackSession.getPropertyInt("video-params/w") ?: 0
+          }.getOrDefault(0)
+
+        val height =
+          runCatching {
+            PlaybackSession.getPropertyInt("height") ?: PlaybackSession.getPropertyInt("video-params/h") ?: 0
+          }.getOrDefault(0)
+
+        if (width > 0 && height > 0) {
+          width.toDouble() / height.toDouble()
+        } else {
+          null
+        }
+      } else {
+        rawAspect
+      }
+
+    return finalAspect?.let { aspect ->
+      if (aspect <= 0.001) {
+        return null
+      }
+      val normalizedRotate = ((rotate % 360) + 360) % 360
+      val isRotated = normalizedRotate == 90 || normalizedRotate == 270
+      val correctedAspect = if (isRotated) 1.0 / aspect else aspect
+      correctedAspect
+    }
+  }
+
+  /** Mirrors mpv's decoder: `video-rotate=no` drops container rotation, otherwise it is added. */
+  private fun rotationBeforeDecode(): Int {
+    val option = runCatching { PlaybackSession.getPropertyString("video-rotate") }.getOrNull()?.trim()
+    if (option.equals("no", ignoreCase = true)) return 0
+    val container =
+      runCatching { PlaybackSession.getPropertyInt("current-tracks/video/demux-rotation") }.getOrNull() ?: 0
+    return container + (option?.toIntOrNull() ?: 0)
+  }
 
   class TrackDelegate(
     private val name: String,
@@ -706,6 +752,8 @@ class MPVView(
     mapOf(
       "pause" to MPVLib.MpvFormat.MPV_FORMAT_FLAG,
       "paused-for-cache" to MPVLib.MpvFormat.MPV_FORMAT_FLAG,
+      // Network seeks wait for data too; the buffering indicator reacts to both.
+      "seeking" to MPVLib.MpvFormat.MPV_FORMAT_FLAG,
       "cache-buffering-state" to MPVLib.MpvFormat.MPV_FORMAT_INT64,
       "demuxer-cache-duration" to MPVLib.MpvFormat.MPV_FORMAT_DOUBLE,
       "demuxer-cache-time" to MPVLib.MpvFormat.MPV_FORMAT_DOUBLE,

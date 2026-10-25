@@ -12,6 +12,7 @@
 package app.gyrolet.mpvrx.presentation.components
 
 import android.annotation.SuppressLint
+import app.gyrolet.mpvrx.ui.liquidglass.liquidGlassActive
 import android.content.res.Configuration.ORIENTATION_PORTRAIT
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateFloatAsState
@@ -95,15 +96,14 @@ import app.gyrolet.mpvrx.ui.player.controls.components.rememberTvInitialFocusReq
 import app.gyrolet.mpvrx.ui.player.controls.components.tvFocusGroup
 import app.gyrolet.mpvrx.ui.player.controls.components.tvInitialFocus
 import androidx.compose.ui.focus.focusProperties
-import app.gyrolet.mpvrx.preferences.AppearancePreferences
-import app.gyrolet.mpvrx.preferences.preference.collectAsState
 import app.gyrolet.mpvrx.ui.liquidglass.LocalKyantPlayerBackdrop
 import app.gyrolet.mpvrx.ui.liquidglass.playerGlassSurface
 import app.gyrolet.mpvrx.ui.liquidglass.LocalPlayerGlassSurfaceActive
-import org.koin.compose.koinInject
 import app.gyrolet.mpvrx.ui.theme.AppMotion
 import app.gyrolet.mpvrx.ui.theme.LocalMotionPolicy
 import app.gyrolet.mpvrx.ui.theme.MotionPolicy
+import app.gyrolet.mpvrx.ui.tv.isTelevision
+import app.gyrolet.mpvrx.ui.tv.TvSafeArea
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
@@ -126,8 +126,8 @@ fun PlayerSheet(
   content: @Composable () -> Unit,
 ) {
   val scope = rememberCoroutineScope()
-  val preferences = koinInject<AppearancePreferences>()
-  val liquidGlassEnabled by preferences.liquidGlassEnabled.collectAsState()
+  val television = isTelevision()
+  val liquidGlassEnabled = liquidGlassActive()
   val playerBackdrop = LocalKyantPlayerBackdrop.current
   val isFrosted = useFrostedGlass && liquidGlassEnabled
   // TV/remote: request focus INTO the sheet content when it opens, so the D-pad can navigate/select
@@ -226,6 +226,7 @@ fun PlayerSheet(
         )
         // Lifts the whole sheet above the keyboard instead of padding inside a height-capped surface.
         .imePadding()
+        .then(if (television) Modifier.padding(TvSafeArea.Padding) else Modifier)
         .onSizeChanged {
           val anchors =
             DraggableAnchors {
@@ -236,7 +237,9 @@ fun PlayerSheet(
         },
     contentAlignment = Alignment.BottomCenter,
   ) {
-    val sheetShape = MaterialTheme.shapes.extraLargeIncreased.copy(bottomEnd = ZeroCornerSize, bottomStart = ZeroCornerSize)
+    val sheetShape =
+      if (television) MaterialTheme.shapes.extraLargeIncreased
+      else MaterialTheme.shapes.extraLargeIncreased.copy(bottomEnd = ZeroCornerSize, bottomStart = ZeroCornerSize)
     val baseContainerColor = surfaceColor ?: MaterialTheme.colorScheme.surfaceContainerHigh
     val expressiveContainerColor =
       baseContainerColor.copy(alpha = 1f)
@@ -277,6 +280,7 @@ fun PlayerSheet(
           }.anchoredDraggable(
             state = anchoredDraggableState,
             orientation = Orientation.Vertical,
+            enabled = !television,
           ).windowInsetsPadding(
             WindowInsets.systemBars
               .only(WindowInsetsSides.Horizontal),
