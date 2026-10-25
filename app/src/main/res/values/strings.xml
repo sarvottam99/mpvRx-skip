@@ -2988,4 +2988,68 @@
   <string name="clip_quick_length">Quick length</string>
   <string name="clip_length_seconds">%1$ds</string>
   <string name="clip_crop_reset">Use full frame</string>
+
+  <!-- Restored strings referenced by current source code -->
+<string name="batch_folder_not_selected">No folder selected</string>
+<string name="chapter_maker_apply">Apply</string>
+<string name="chapter_maker_change_file">Change File</string>
+<string name="chapter_maker_change_folder">Change Folder</string>
+<string name="chapter_maker_chapter_name">Chapter name</string>
+<string name="chapter_maker_end">To</string>
+<string name="chapter_maker_end_of_file">End of file</string>
+<string name="chapter_maker_first">For the first</string>
+<string name="chapter_maker_last">For the last</string>
+<string name="chapter_maker_no_videos">No MKV/WebM videos found in this folder or its subfolders.</string>
+<string name="chapter_maker_processing">Processing…</string>
+<string name="chapter_maker_progress">%1$d / %2$d: %3$s</string>
+<string name="chapter_maker_result">Completed: %1$d succeeded, %2$d failed</string>
+<string name="chapter_maker_select_file">Select a File</string>
+<string name="chapter_maker_select_folder">Select Folder</string>
+<string name="chapter_maker_specific_range">Specific timestamp</string>
+<string name="chapter_maker_start">Start</string>
+<string name="chapter_maker_timing">Chapter timing</string>
+<string name="chapter_maker_wipe_chapters">Wipe Chapters</string>
+<string name="chapter_maker_wipe_confirm">Wipe chapters</string>
+<string name="chapter_maker_wipe_message">This permanently removes all chapter markers from the selected folder and its subfolders, or the selected file. Video, audio, subtitles, and other tracks are preserved. Continue?</string>
+<string name="chapter_maker_wipe_title">Wipe all chapters?</string>
+<string name="pref_rar_extractor_summary">Automatically find and extract RAR archives inside subfolders, including multi-part archives — for example, typical scene releases.</string>
+<string name="pref_rar_extractor_title">Recursive RAR Extractor</string>
+<string name="pref_section_utilities">Utilities</string>
+<string name="rar_extractor_complete">Finished</string>
+<string name="rar_extractor_errors_title">Errors</string>
+<string name="rar_extractor_extract">Extract</string>
+<string name="rar_extractor_folder_access_failed">Could not keep access to the selected folder: %1$s</string>
+<string name="rar_extractor_folder_label">Selected folder</string>
+<string name="rar_extractor_folder_not_selected">No folder selected</string>
+<string name="rar_extractor_no_archives">No RAR archives were found in this folder or its subfolders.</string>
+<string name="rar_extractor_results">Archives found: %1$d
+Successful: %2$d
+Failed: %3$d
+Files extracted: %4$d</string>
+<string name="rar_extractor_results_title">Results</string>
+<string name="rar_extractor_run_failed">Extraction could not be completed: %1$s</string>
+<string name="rar_extractor_searching">Searching for RAR archives…</string>
+<string name="rar_extractor_select_folder">Select Folder</string>
+<string name="rar_extractor_warnings_title">Warnings</string>
+<string name="subtitle_editor_apply">Apply</string>
+<string name="subtitle_editor_change_file">Change File</string>
+<string name="subtitle_editor_change_folder">Change Folder</string>
+<string name="subtitle_editor_default">Default flag</string>
+<string name="subtitle_editor_default_label">Default</string>
+<string name="subtitle_editor_forced_label">Forced</string>
+<string name="subtitle_editor_keep_default">Keep current default flag</string>
+<string name="subtitle_editor_make_default">Make this subtitle default</string>
+<string name="subtitle_editor_name">Subtitle name</string>
+<string name="subtitle_editor_no_videos">No MKV/WebM videos found.</string>
+<string name="subtitle_editor_position">New position</string>
+<string name="subtitle_editor_processing">Processing…</string>
+<string name="subtitle_editor_progress">%1$d / %2$d: %3$s</string>
+<string name="subtitle_editor_remove_default">Make this subtitle non-default</string>
+<string name="subtitle_editor_result">Completed: %1$d succeeded, %2$d failed</string>
+<string name="subtitle_editor_scanned">Showing subtitle tracks from %1$s (%2$d videos found)</string>
+<string name="subtitle_editor_scanning">Scanning subtitle tracks…</string>
+<string name="subtitle_editor_select_file">Select a File</string>
+<string name="subtitle_editor_select_folder">Select Folder</string>
+<string name="subtitle_editor_track_number">Track %1$d — %2$s</string>
+<string name="subtitle_editor_tracks">Subtitle tracks</string>
 </resources>
