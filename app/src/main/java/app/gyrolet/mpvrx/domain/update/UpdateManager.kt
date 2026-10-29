@@ -80,7 +80,7 @@ class UpdateManager(
     val isNewer =
       when (channel) {
         AppUpdateChannel.STABLE, AppUpdateChannel.MPVRX_SKIP -> {
-          val currentVersion = BuildConfig.VERSION_NAME.substringBefore('-')
+          val currentVersion = if (channel == AppUpdateChannel.MPVRX_SKIP) "3.0.2.1" else BuildConfig.VERSION_NAME.substringBefore('-')
           isNewerVersion(release.tagName.removePrefix("v"), currentVersion)
         }
         AppUpdateChannel.PREVIEW, AppUpdateChannel.EXPERIMENTAL -> isNewerCiBuild(release, channel)
