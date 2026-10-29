@@ -9,7 +9,7 @@ on:
       - CHANGELOG.md
       - .github/workflows/release.yml
     tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v*'
   workflow_dispatch:
     inputs:
       tag_name:
@@ -54,8 +54,8 @@ jobs:
             version_tag="${GITHUB_REF#refs/tags/}"
           elif [[ "$GITHUB_EVENT_NAME" == push ]]; then
             subject="${PUSH_MESSAGE%%$'\n'*}"
-            if [[ ! "$subject" =~ ^chore\(release\):\ (v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
-              echo "Release pushes must use the subject: chore(release): vX.Y.Z"
+            if [[ ! "$subject" =~ ^chore\(release\):\ (v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?)$ ]]; then
+              echo "Release pushes must use the subject: chore(release): vX.Y.Z or vX.Y.Z.N"
               exit 1
             fi
             version_tag="${BASH_REMATCH[1]}"
@@ -63,7 +63,7 @@ jobs:
             version_tag="$INPUT_TAG"
           fi
 
-          if [[ ! "$version_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          if [[ ! "$version_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
             echo "Invalid stable release tag: $version_tag"
             exit 1
           fi
@@ -85,13 +85,19 @@ jobs:
           from pathlib import Path
 
           version = os.environ['VERSION_TAG'].removeprefix('v')
+          base_version = '.'.join(version.split('.')[:3])
+
           build = Path('release-build.gradle.kts').read_text(encoding='utf-8')
           actual = re.search(r'\bversionName\s*=\s*"([^"]+)"', build)
-          if actual is None or actual.group(1) != version:
-              raise SystemExit('Release tag does not match the app version')
+          if actual is None or actual.group(1) != base_version:
+              raise SystemExit(
+                  f'Release tag base version {base_version} does not match app version '
+                  f'{actual.group(1) if actual else "missing"}'
+              )
+
           changelog = Path('release-changelog.md').read_text(encoding='utf-8')
-          if not re.search(rf'^##\s+{re.escape(version)}(?:\s|$)', changelog, re.MULTILINE):
-              raise SystemExit('Release version is missing from CHANGELOG.md')
+          if not re.search(rf'^##\s+{re.escape(base_version)}(?:\s|$)', changelog, re.MULTILINE):
+              raise SystemExit('Base app version is missing from CHANGELOG.md')
           PY
           echo "version_tag=$version_tag" >> "$GITHUB_OUTPUT"
           echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
@@ -169,14 +175,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./gradlew "assemble${GRADLE_FLAVOR}Release" --stacktrace --no-daemon --max-workers=2
+          ./gradlew "assemble${GRADLE_FLAVOR}Release" \
+            -PmpvRxSkipVersion="${VERSION_TAG#v}" \
+            --stacktrace --no-daemon --max-workers=2
 
       - name: Build release bundle
         if: ${{ matrix.distribution.package == 'aab' }}
         shell: bash
         run: |
           set -euo pipefail
-          ./gradlew "bundle${GRADLE_FLAVOR}Release" --stacktrace --no-daemon --max-workers=2
+          ./gradlew "bundle${GRADLE_FLAVOR}Release" \
+            -PmpvRxSkipVersion="${VERSION_TAG#v}" \
+            --stacktrace --no-daemon --max-workers=2
 
       - name: Sign and stage release bundle
         if: ${{ matrix.distribution.package == 'aab' }}
