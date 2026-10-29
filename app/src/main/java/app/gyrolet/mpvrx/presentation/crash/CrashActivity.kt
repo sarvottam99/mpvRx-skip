@@ -77,6 +77,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
 import androidx.lifecycle.coroutineScope
 import app.gyrolet.mpvrx.BuildConfig
+import app.gyrolet.mpvrx.domain.update.MPVRX_SKIP_VERSION
 import app.gyrolet.mpvrx.MainActivity
 import app.gyrolet.mpvrx.R
 import app.gyrolet.mpvrx.ui.icons.Icon
@@ -247,6 +248,7 @@ class CrashActivity : AppCompatActivity() {
     fun collectDeviceInfo(): String =
       """
       App version: ${BuildConfig.VERSION_NAME} (${BuildConfig.GIT_SHA})
+      mpvRx-skip version: $MPVRX_SKIP_VERSION
       Android version: ${Build.VERSION.RELEASE} (${Build.VERSION.SDK_INT})
       Device brand: ${Build.BRAND}
       Device manufacturer: ${Build.MANUFACTURER}

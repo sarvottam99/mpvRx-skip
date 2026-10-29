@@ -4,6 +4,11 @@ These notes are written in plain English and focus on what changed for real use.
 
 ## Unreleased
 
+## 3.0.2.2 — mpvRx-skip version display and update check
+
+- Display the mpvRx-skip release version in Device Info.
+- Compare mpvRx-skip updates against the fork version independently of the APK version.
+
 ## 3.0.2 — Android TV, Music and Playback Improvements
 
 **Release date:** October 25, 2026

@@ -33,6 +33,8 @@ import okhttp3.Request
 /** Signals that the resuming attempt must be abandoned and retried without a Range header. */
 private object RetryWithoutRangeSignal : IOException("Stored partial is not resumable")
 
+const val MPVRX_SKIP_VERSION = "3.0.2.2"
+
 class UpdateManager(
   private val context: Context,
 ) {
@@ -80,7 +82,7 @@ class UpdateManager(
     val isNewer =
       when (channel) {
         AppUpdateChannel.STABLE, AppUpdateChannel.MPVRX_SKIP -> {
-          val currentVersion = if (channel == AppUpdateChannel.MPVRX_SKIP) "3.0.2.1" else BuildConfig.VERSION_NAME.substringBefore('-')
+          val currentVersion = if (channel == AppUpdateChannel.MPVRX_SKIP) MPVRX_SKIP_VERSION else BuildConfig.VERSION_NAME.substringBefore('-')
           isNewerVersion(release.tagName.removePrefix("v"), currentVersion)
         }
         AppUpdateChannel.PREVIEW, AppUpdateChannel.EXPERIMENTAL -> isNewerCiBuild(release, channel)
