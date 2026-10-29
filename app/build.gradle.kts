@@ -53,7 +53,6 @@ val sideloadDistributions = setOf("standard", "noVulkan", "fongmi")
 val isBundleBuild =
   gradle.startParameter.taskNames.any { it.substringAfterLast(':').startsWith("bundle") }
 val releaseVersionCode = 302
-val mpvRxSkipVersion = project.findProperty("mpvRxSkipVersion")?.toString() ?: "3.0.2"
 val versionCodeBandSize = 10_000
 val stableVersionCode = releaseVersionCode * versionCodeBandSize + (versionCodeBandSize - 1)
 val previewVersionCode =
@@ -98,7 +97,6 @@ android {
 
     buildConfigField("String", "GIT_SHA", "\"${getCommitSha()}\"")
     buildConfigField("int", "GIT_COUNT", getCommitCount())
-    buildConfigField("String", "MPVRX_SKIP_VERSION", "\"$mpvRxSkipVersion\"")
 
     externalNativeBuild {
       cmake {

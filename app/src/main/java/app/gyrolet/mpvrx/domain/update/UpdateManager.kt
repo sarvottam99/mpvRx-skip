@@ -79,12 +79,10 @@ class UpdateManager(
 
     val isNewer =
       when (channel) {
-        AppUpdateChannel.STABLE -> {
+        AppUpdateChannel.STABLE, AppUpdateChannel.MPVRX_SKIP -> {
           val currentVersion = BuildConfig.VERSION_NAME.substringBefore('-')
           isNewerVersion(release.tagName.removePrefix("v"), currentVersion)
         }
-        AppUpdateChannel.MPVRX_SKIP ->
-          isNewerVersion(release.tagName.removePrefix("v"), BuildConfig.MPVRX_SKIP_VERSION)
         AppUpdateChannel.PREVIEW, AppUpdateChannel.EXPERIMENTAL -> isNewerCiBuild(release, channel)
       }
 
@@ -119,24 +117,15 @@ class UpdateManager(
     return !remote.startsWith(local, ignoreCase = true) && !local.startsWith(remote, ignoreCase = true)
   }
 
-  internal fun isInstalledRelease(release: Release): Boolean {
-    val selectedChannel = AppUpdateChannel.fromStoredValue(
-      context.getSharedPreferences("mpvrx_prefs", Context.MODE_PRIVATE)
-        .getString("app_update_channel", null)
-    )
-
-    return when {
+  internal fun isInstalledRelease(release: Release): Boolean =
+    when {
       release.isExperimental -> BuildConfig.IS_EXPERIMENTAL_BUILD &&
         release.experimentalBuildNumber == BuildConfig.GIT_COUNT && !isDifferentCommit(release.commitSha)
       release.isPreview -> BuildConfig.IS_PREVIEW_BUILD &&
         release.previewBuildNumber == BuildConfig.GIT_COUNT && !isDifferentCommit(release.commitSha)
-      selectedChannel == AppUpdateChannel.MPVRX_SKIP -> !BuildConfig.IS_EXPERIMENTAL_BUILD &&
-        !BuildConfig.IS_PREVIEW_BUILD &&
-        release.tagName.removePrefix("v") == BuildConfig.MPVRX_SKIP_VERSION
       else -> !BuildConfig.IS_EXPERIMENTAL_BUILD && !BuildConfig.IS_PREVIEW_BUILD &&
         release.tagName.removePrefix("v") == BuildConfig.VERSION_NAME.substringBefore('-')
     }
-  }
 
   fun ignoreVersion(
     version: String,
