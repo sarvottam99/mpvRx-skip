@@ -11,10 +11,9 @@
 
 package app.gyrolet.mpvrx.ui.player.controls.components.panels
 
-import android.content.res.Configuration
-import app.gyrolet.mpvrx.ui.liquidglass.liquidGlassActive
+import app.gyrolet.mpvrx.ui.liquidglass.playerGlassSurfaceEnabled
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -25,13 +24,15 @@ import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -42,6 +43,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,9 +51,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -63,7 +67,9 @@ import app.gyrolet.mpvrx.ui.icons.Icons
 import app.gyrolet.mpvrx.ui.liquidglass.LocalKyantPlayerBackdrop
 import app.gyrolet.mpvrx.ui.liquidglass.playerGlassSurface
 import app.gyrolet.mpvrx.ui.liquidglass.LocalPlayerGlassSurfaceActive
+import app.gyrolet.mpvrx.ui.player.controls.components.tvFocusHighlight
 import app.gyrolet.mpvrx.ui.player.controls.panelCardsColors
+import app.gyrolet.mpvrx.ui.tv.isTelevision
 import kotlin.math.roundToInt
 
 /**
@@ -82,21 +88,25 @@ fun DraggablePanel(
   tonalElevation: Dp = 0.dp,
   shadowElevation: Dp = 0.dp,
   border: BorderStroke? = null,
+  alignment: Alignment = AbsoluteAlignment.CenterRight,
+  scrollContent: Boolean = true,
+  portraitHeightFraction: Float = 0.62f,
+  maxPanelWidth: Dp = 420.dp,
   content: @Composable () -> Unit,
 ) {
-  var offsetX by remember { mutableFloatStateOf(0f) }
+  var offsetX by rememberSaveable { mutableFloatStateOf(0f) }
   var panelWidth by remember { mutableIntStateOf(0) }
-  val liquidGlassEnabled = liquidGlassActive()
+  val liquidGlassEnabled = playerGlassSurfaceEnabled()
+  val television = isTelevision()
 
-  val configuration = LocalConfiguration.current
-  val isPortrait = configuration.orientation == Configuration.ORIENTATION_PORTRAIT
-  val panelAlignment = AbsoluteAlignment.CenterRight
+  val panelAlignment = alignment
   val layoutDirection = LocalLayoutDirection.current
 
   BoxWithConstraints(
     modifier = modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(12.dp),
     contentAlignment = panelAlignment,
   ) {
+    val isPortrait = constraints.maxHeight > constraints.maxWidth
     val freeSpace = (constraints.maxWidth - panelWidth).coerceAtLeast(0)
     val initialLeft =
       panelAlignment.align(
@@ -106,8 +116,16 @@ fun DraggablePanel(
       ).x
     val minOffset = -initialLeft.toFloat()
     val maxOffset = (freeSpace - initialLeft).toFloat()
-
-    val panelHeight = if (isPortrait) maxHeight * 0.62f else maxHeight
+    val canDrag = !television && freeSpace > 0
+    val panelHeight = if (isPortrait) maxHeight * portraitHeightFraction.coerceIn(0.4f, 1f) else maxHeight
+    val dragModifier = if (canDrag) {
+      Modifier.pointerInput(minOffset, maxOffset) {
+        detectHorizontalDragGestures { change, delta ->
+          change.consume()
+          offsetX = (offsetX.coerceIn(minOffset, maxOffset) + delta).coerceIn(minOffset, maxOffset)
+        }
+      }
+    } else Modifier
 
     val colors = panelCardsColors()
     val backdrop = LocalKyantPlayerBackdrop.current
@@ -118,10 +136,19 @@ fun DraggablePanel(
     Surface(
       modifier =
         Modifier
-          .absoluteOffset { IntOffset(offsetX.coerceIn(minOffset, maxOffset).roundToInt(), 0) }
-          .onSizeChanged { panelWidth = it.width }
-          .widthIn(max = 420.dp)
+          .absoluteOffset {
+            IntOffset(
+              offsetX.coerceIn(minOffset, maxOffset).roundToInt(),
+              0,
+            )
+          }
+          .onSizeChanged {
+            panelWidth = it.width
+          }
+          .widthIn(max = maxPanelWidth)
           .height(panelHeight)
+          // A hit-test boundary, not a gesture consumer: child lists and sliders own their events.
+          .pointerInput(Unit) {}
           .playerGlassSurface(backdrop, panelShape, panelColor, enabled = liquidGlassEnabled),
       shape = panelShape,
       color = if (liquidGlassEnabled) Color.Transparent else expressivePanelColor,
@@ -139,36 +166,36 @@ fun DraggablePanel(
         },
     ) {
       Column(Modifier.fillMaxWidth()) {
-        // Drag Handle & Indicator
-        Box(
-          modifier =
-            Modifier
-              .fillMaxWidth()
-              .pointerInput(maxOffset, minOffset) {
-                detectDragGestures { change, dragAmount ->
-                  change.consume()
-                  val newOffset = offsetX.coerceIn(minOffset, maxOffset) + dragAmount.x
-                  offsetX = newOffset.coerceIn(minOffset, maxOffset)
-                }
-              },
-          contentAlignment = Alignment.Center,
-        ) {
-          PlayerSheetDragHandle()
+        if (canDrag) {
+          Box(Modifier.fillMaxWidth().then(dragModifier)) {
+            PlayerSheetDragHandle()
+          }
         }
-
-        // Fixed header (if provided) - stays constant
         if (header != null) {
-          Box(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
-            header()
+          Row(
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).then(dragModifier),
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            Box(Modifier.weight(1f)) { header() }
           }
         }
 
         // Scrollable content
-        Column(
-          modifier = Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState()),
-        ) {
-          CompositionLocalProvider(LocalPlayerGlassSurfaceActive provides liquidGlassEnabled) {
-            content()
+        if (scrollContent) {
+          Column(
+            modifier = Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState()),
+          ) {
+            CompositionLocalProvider(LocalPlayerGlassSurfaceActive provides liquidGlassEnabled) {
+              content()
+            }
+          }
+        } else {
+          // Embedded settings own their LazyColumn. Giving it a finite viewport avoids nested
+          // vertical scrolling and keeps search, sliders and remembered list positions reliable.
+          Box(Modifier.fillMaxWidth().weight(1f)) {
+            CompositionLocalProvider(LocalPlayerGlassSurfaceActive provides liquidGlassEnabled) {
+              content()
+            }
           }
         }
       }
@@ -184,19 +211,23 @@ fun DraggablePanelHeader(
   leadingContent: (@Composable () -> Unit)? = null,
 ) {
   Row(
-    modifier = modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
-    horizontalArrangement = Arrangement.spacedBy(12.dp),
+    modifier = modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp),
+    horizontalArrangement = Arrangement.spacedBy(8.dp),
     verticalAlignment = Alignment.CenterVertically,
   ) {
     leadingContent?.invoke()
     Text(
       text = title,
-      style = MaterialTheme.typography.titleLargeEmphasized,
-      modifier = Modifier.weight(1f),
+      style = MaterialTheme.typography.titleMediumEmphasized,
+      modifier = Modifier.weight(1f).semantics { heading() },
       maxLines = 2,
+      overflow = TextOverflow.Ellipsis,
     )
-    FilledTonalIconButton(onClick = onDismissRequest) {
-      Icon(Icons.RoundedFilled.Close, contentDescription = stringResource(R.string.generic_cancel))
+    IconButton(
+      onClick = onDismissRequest,
+      modifier = Modifier.size(48.dp).tvFocusHighlight(MaterialTheme.shapes.medium),
+    ) {
+      Icon(Icons.RoundedFilled.Close, contentDescription = stringResource(R.string.ui_close), modifier = Modifier.size(22.dp))
     }
   }
 }

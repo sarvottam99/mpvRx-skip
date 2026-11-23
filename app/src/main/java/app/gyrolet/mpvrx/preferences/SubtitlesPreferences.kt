@@ -30,6 +30,9 @@ class SubtitlesPreferences(
   val autoEnableSubtitles = preferenceStore.getBoolean("sub_auto_enable", true)
 
   val fontsFolder = preferenceStore.getString("sub_fonts_folder")
+
+  /** Download a Google font when subtitles use a script or emoji the device cannot draw. */
+  val autoDownloadFonts = preferenceStore.getBoolean("sub_auto_download_fonts", true)
   val font = preferenceStore.getString("sub_font", "")
   val fontSize = preferenceStore.getInt("sub_font_size", 55)
   val subScale = preferenceStore.getFloat("sub_scale", 1f)
@@ -43,12 +46,23 @@ class SubtitlesPreferences(
   val borderColor = preferenceStore.getInt("sub_color_border", Color.Black.toArgb())
   val borderStyle = preferenceStore.getEnum("sub_border_style", SubtitlesBorderStyle.OutlineAndShadow)
   val shadowOffset = preferenceStore.getInt("sub_shadow_offset", 0)
+  /** Corner radius of the background box, in the scaled pixels of [shadowOffset] (its padding). */
+  val backgroundRadius = preferenceStore.getInt("sub_back_radius", 0)
   val backgroundColor = preferenceStore.getInt("sub_color_bg", Color.Transparent.toArgb())
   val shadowColor = preferenceStore.getInt("sub_color_shadow", Color.Black.toArgb())
 
   val justification = preferenceStore.getEnum("sub_justify", SubtitleJustification.Auto)
   val subPos = preferenceStore.getInt("sub_pos", 100)
   val secondarySubPos = preferenceStore.getInt("secondary_sub_pos", 10)
+
+  /** FongMi build: moves whole rendered tracks, image subtitles included, by % of the frame height. */
+  val subOffsetY = preferenceStore.getInt("sub_offset_y", 0)
+  val secondarySubOffsetY = preferenceStore.getInt("secondary_sub_offset_y", 0)
+
+  /** FongMi build: brightness and optional recolouring of image (PGS, VobSub, DVB) subtitles. */
+  val imageSubsBrightness = preferenceStore.getFloat("image_subs_brightness", 1f)
+  val imageSubsOverride = preferenceStore.getBoolean("image_subs_override", false)
+  val imageSubsColor = preferenceStore.getInt("image_subs_color", Color.White.toArgb())
   val secondarySubPinchZoom = preferenceStore.getBoolean("secondary_sub_pinch_zoom", false)
 
   val overrideAssSubs = preferenceStore.getBoolean("sub_override_ass")

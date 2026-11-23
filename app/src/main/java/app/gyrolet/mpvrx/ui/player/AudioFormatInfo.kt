@@ -3,7 +3,7 @@ package app.gyrolet.mpvrx.ui.player
 
 import java.util.Locale
 
-internal enum class AudioQuality {
+enum class AudioQuality {
   HiRes,
   Lossless,
   Lossy,
@@ -11,13 +11,43 @@ internal enum class AudioQuality {
   Unknown,
 }
 
-internal data class AudioFormatInfo(
+internal enum class AudioFormatLogo(
+  val asset: String,
+  val isMonochrome: Boolean = false,
+) {
+  HiRes("HiResAudiologo.svg"),
+  Lossless("AppleLosslesslogo.svg", isMonochrome = true),
+  Lossy("LossyAudiologo.svg"),
+  Cd("CdAudiologo.svg"),
+  Dsd("DSDlogo.svg", isMonochrome = true),
+  DolbyAtmos("DolbyAtmoslogo.svg", isMonochrome = true),
+  DolbyDigital("DolbyDigitallogo.svg", isMonochrome = true),
+  Dts("DtsLogo.svg", isMonochrome = true),
+  Mpegh("MpeghLogo.svg"),
+  Mqa("MqaLogo.svg"),
+}
+
+data class AudioFormatInfo(
   val codecLabel: String,
   val quality: AudioQuality,
   val sampleRate: Int?,
   val sourceBitDepth: Int?,
   val bitrate: Long?,
 ) {
+  internal val artworkLogo: AudioFormatLogo?
+    get() = when {
+      codecLabel == "DOLBY ATMOS" -> AudioFormatLogo.DolbyAtmos
+      codecLabel == "DOLBY DIGITAL" -> AudioFormatLogo.DolbyDigital
+      codecLabel.startsWith("DTS") -> AudioFormatLogo.Dts
+      codecLabel == "MPEG-H" -> AudioFormatLogo.Mpegh
+      quality == AudioQuality.Dsd -> AudioFormatLogo.Dsd
+      quality == AudioQuality.HiRes -> AudioFormatLogo.HiRes
+      quality == AudioQuality.Lossless && sampleRate == 44100 && sourceBitDepth == 16 -> AudioFormatLogo.Cd
+      quality == AudioQuality.Lossless -> AudioFormatLogo.Lossless
+      quality == AudioQuality.Lossy -> AudioFormatLogo.Lossy
+      else -> null
+    }
+
   fun details(qualityLabel: String): String =
     buildList {
       add(codecLabel)
@@ -81,6 +111,7 @@ internal fun resolveAudioFormatInfo(
     name == "eac3" || name == "e-ac-3" -> "DOLBY DIGITAL PLUS"
     name == "truehd" -> "DOLBY TRUEHD"
     name == "ac4" -> "DOLBY AC-4"
+    name == "mpegh_3d_audio" || name == "mpegh" -> "MPEG-H"
     dtsMasterAudio -> "DTS-HD MA"
     name == "dts" && profileName.contains("dts-hd hra") -> "DTS-HD HRA"
     name == "dts" -> "DTS"

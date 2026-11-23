@@ -9,8 +9,11 @@
 
 package app.gyrolet.mpvrx.ui.player.controls.components.panels
 
+import app.gyrolet.mpvrx.ui.player.FongMiMpv
 import app.gyrolet.mpvrx.ui.player.PlaybackSession
 import app.gyrolet.mpvrx.ui.player.applySubtitleScales
+import app.gyrolet.mpvrx.ui.player.applySubtitleWindowing
+import android.content.res.Configuration
 import app.gyrolet.mpvrx.ui.player.subtitleBlendMode
 
 import androidx.compose.foundation.layout.Arrangement
@@ -31,6 +34,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.res.stringResource
 import app.gyrolet.mpvrx.preferences.preference.collectAsState
@@ -59,6 +63,7 @@ fun SubtitlesMiscellaneousCard(
   shape: Shape = MaterialTheme.shapes.large,
 ) {
   val preferences = koinInject<SubtitlesPreferences>()
+  val isPortrait = LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
   val playerPreferences = koinInject<PlayerPreferences>()
   val configOwnedOptions = currentMpvConfigOverrideOptions()
   val layoutOptions = setOf("sub-ass-override", "secondary-sub-ass-override", "sub-pos", "secondary-sub-pos")
@@ -66,10 +71,13 @@ fun SubtitlesMiscellaneousCard(
   // mpv has no secondary-sub-scale-by-window / secondary-sub-use-margins — secondary
   // inherits the primary windowing behavior.
   val scaleByWindowOptions =
-    setOf("sub-scale-by-window", "sub-use-margins")
+    setOf("sub-scale-by-window", "sub-scale-with-window", "sub-use-margins")
   val blendOptions = setOf("blend-subtitles")
   val bidiOptions = setOf("sub-vsfilter-bidi-compat")
-  val miscellaneousOptions = layoutOptions + scaleOptions + scaleByWindowOptions + blendOptions + bidiOptions
+  val showShift = FongMiMpv.isBuildSupported
+  val shiftOptions = if (showShift) setOf("sub-offset-y", "secondary-sub-offset-y") else emptySet()
+  val miscellaneousOptions =
+    layoutOptions + scaleOptions + scaleByWindowOptions + blendOptions + bidiOptions + shiftOptions
   var isExpanded by remember { mutableStateOf(true) }
   ExpandableCard(
     isExpanded,
@@ -94,7 +102,10 @@ fun SubtitlesMiscellaneousCard(
         }
         val secondarySid by PlaybackSession.propInt["secondary-sid"].collectAsState()
         val isSecondaryActive = (secondarySid ?: PlaybackSession.getPropertyString("secondary-sid")?.toIntOrNull() ?: 0) > 0
-        val connectedItemCount = if (isSecondaryActive) 10 else 8
+        // Scale, position and (FongMi) vertical shift per track, after five switches and before reset.
+        val tilesPerTrack = if (showShift) 3 else 2
+        val secondaryFirstIndex = 5 + tilesPerTrack
+        val connectedItemCount = secondaryFirstIndex + (if (isSecondaryActive) tilesPerTrack else 0) + 1
         SwitchPreference(
           overrideAssSubs,
           groupIndex = 0,
@@ -118,9 +129,7 @@ fun SubtitlesMiscellaneousCard(
           onValueChange = {
             scaleByWindow = it
             preferences.scaleByWindow.set(it)
-            val value = if (it) "yes" else "no"
-            PlaybackSession.setPropertyString("sub-scale-by-window", value)
-            PlaybackSession.setPropertyString("sub-use-margins", value)
+            applySubtitleWindowing(isPortrait, scaleByWindow = it)
           },
           title = { Text(stringResource(R.string.player_sheets_sub_scale_by_window)) },
           summary = { Text(stringResource(R.string.player_sheets_sub_scale_by_window_summary)) },
@@ -181,6 +190,8 @@ fun SubtitlesMiscellaneousCard(
         val subPos by PlaybackSession.propInt["sub-pos"].collectAsState()
         val secondarySubScale by preferences.secondarySubScale.collectAsState()
         val secondarySubPos by PlaybackSession.propInt["secondary-sub-pos"].collectAsState()
+        val subShift by preferences.subOffsetY.collectAsState()
+        val secondarySubShift by preferences.secondarySubOffsetY.collectAsState()
         PanelConnectedTile(index = 5, itemCount = connectedItemCount) {
           SliderItem(
             label = stringResource(
@@ -223,8 +234,23 @@ fun SubtitlesMiscellaneousCard(
             },
           )
         }
-        if (isSecondaryActive) {
+        if (showShift) {
           PanelConnectedTile(index = 7, itemCount = connectedItemCount) {
+            SubtitleShiftSlider(
+              label = stringResource(
+                if (isSecondaryActive) R.string.player_sheets_sub_primary_shift else R.string.player_sheets_sub_shift,
+              ),
+              value = subShift,
+              enabled = "sub-offset-y" !in configOwnedOptions,
+              onChange = {
+                preferences.subOffsetY.set(it)
+                PlaybackSession.setPropertyInt("sub-offset-y", it)
+              },
+            )
+          }
+        }
+        if (isSecondaryActive) {
+          PanelConnectedTile(index = secondaryFirstIndex, itemCount = connectedItemCount) {
             SliderItem(
               label = stringResource(R.string.player_sheets_secondary_sub_scale),
               value = secondarySubScale,
@@ -240,7 +266,7 @@ fun SubtitlesMiscellaneousCard(
               },
             )
           }
-          PanelConnectedTile(index = 8, itemCount = connectedItemCount) {
+          PanelConnectedTile(index = secondaryFirstIndex + 1, itemCount = connectedItemCount) {
             SliderItem(
               label = stringResource(R.string.player_sheets_secondary_sub_position),
               value = secondarySubPos ?: preferences.secondarySubPos.get(),
@@ -255,6 +281,19 @@ fun SubtitlesMiscellaneousCard(
                 Icon(Icons.RoundedFilled.AlignVerticalCenter, null)
               },
             )
+          }
+          if (showShift) {
+            PanelConnectedTile(index = secondaryFirstIndex + 2, itemCount = connectedItemCount) {
+              SubtitleShiftSlider(
+                label = stringResource(R.string.player_sheets_secondary_sub_shift),
+                value = secondarySubShift,
+                enabled = "secondary-sub-offset-y" !in configOwnedOptions,
+                onChange = {
+                  preferences.secondarySubOffsetY.set(it)
+                  PlaybackSession.setPropertyInt("secondary-sub-offset-y", it)
+                },
+              )
+            }
           }
         }
         PanelConnectedTile(index = connectedItemCount - 1, itemCount = connectedItemCount) {
@@ -278,9 +317,7 @@ fun SubtitlesMiscellaneousCard(
               applySubtitleLayout(defaultSubPos, defaultOverride)
               val defaultScaleByWindow = preferences.scaleByWindow.deleteAndGet()
               scaleByWindow = defaultScaleByWindow
-              val scaleValue = if (defaultScaleByWindow) "yes" else "no"
-              PlaybackSession.setPropertyString("sub-scale-by-window", scaleValue)
-              PlaybackSession.setPropertyString("sub-use-margins", scaleValue)
+              applySubtitleWindowing(isPortrait, scaleByWindow = defaultScaleByWindow)
               val defaultBlendSubtitles = preferences.blendSubtitlesWithVideo.deleteAndGet()
               blendSubtitlesWithVideo = defaultBlendSubtitles
               val blendMode = if (defaultBlendSubtitles && playerPreferences.isAmbientEnabled.get()) "video" else "no"
@@ -289,6 +326,10 @@ fun SubtitlesMiscellaneousCard(
               forceRtlSubtitles = defaultForceRtl
               PlaybackSession.setPropertyString("sub-vsfilter-bidi-compat", if (defaultForceRtl) "yes" else "no")
               PlaybackSession.command("sub-reload")
+              if (showShift) {
+                PlaybackSession.setPropertyInt("sub-offset-y", preferences.subOffsetY.deleteAndGet())
+                PlaybackSession.setPropertyInt("secondary-sub-offset-y", preferences.secondarySubOffsetY.deleteAndGet())
+              }
             },
           ) {
             Row {
@@ -302,3 +343,26 @@ fun SubtitlesMiscellaneousCard(
     }
   }
 }
+
+/** FongMi's whole-track shift, in percent of the frame height; positive moves up. */
+@Composable
+private fun SubtitleShiftSlider(
+  label: String,
+  value: Int,
+  enabled: Boolean,
+  onChange: (Int) -> Unit,
+) {
+  SliderItem(
+    label = label,
+    value = value,
+    valueText = if (value > 0) "+$value%" else "$value%",
+    onChange = onChange,
+    max = SUBTITLE_SHIFT_LIMIT,
+    min = -SUBTITLE_SHIFT_LIMIT,
+    enabled = enabled,
+    hapticLandmarks = listOf(0),
+    icon = { Icon(Icons.RoundedFilled.SwapVert, null) },
+  )
+}
+
+private const val SUBTITLE_SHIFT_LIMIT = 50

@@ -30,7 +30,7 @@ import app.gyrolet.mpvrx.ui.player.PlaybackSession
 import app.gyrolet.mpvrx.ui.player.PlayerActivity
 import app.gyrolet.mpvrx.ui.player.PlayerLookupHints
 import app.gyrolet.mpvrx.ui.player.PreparedPlaybackLaunchStore
-import app.gyrolet.mpvrx.ui.torrent.TorrentSelectionActivity
+import app.gyrolet.mpvrx.ui.torrent.torrentSelectionActivityClass
 import app.gyrolet.mpvrx.utils.storage.FileTypeUtils
 import `is`.xyz.mpv.Utils
 import java.io.File
@@ -67,18 +67,14 @@ data class PlaybackSubtitleTrack(
  */
 object MediaUtils {
   fun shouldPlayInMiniPlayerOnly(isAudio: Boolean): Boolean {
-    if (!isAudio) return false
+    if (!isAudio || !NavigationBarState.isMiniPlayerVisible) return false
     if (userScriptRuntimeNeedsReload()) return false
-    val audioPreferences =
-      runCatching { org.koin.core.context.GlobalContext.get().get<app.gyrolet.mpvrx.preferences.AudioPreferences>() }.getOrNull()
-    if (audioPreferences?.miniPlayerTrackSwitching?.get() != true) return false
     val sessionState = PlaybackSession.state.value
     val isServiceActive = MediaPlaybackService.isForegroundActive()
-    val isMiniPlayerVisible = NavigationBarState.isMiniPlayerVisible
     val isSessionActive =
       sessionState.phase == PlaybackPhase.READY ||
         sessionState.phase == PlaybackPhase.BACKGROUND
-    return isServiceActive || isMiniPlayerVisible || isSessionActive
+    return isServiceActive || isSessionActive
   }
 
   fun playInMiniPlayer(
@@ -316,7 +312,7 @@ object MediaUtils {
     intent.setClass(
       context,
       if (torrentSource != null && torrentFileIndex == null && torrentPreparationId == null) {
-        TorrentSelectionActivity::class.java
+        torrentSelectionActivityClass() ?: return
       } else {
         PlayerActivity::class.java
       },
@@ -383,7 +379,7 @@ object MediaUtils {
     context.startActivity(intent)
   }
 
-  private fun playbackIdentity(video: Video): String =
+  internal fun playbackIdentity(video: Video): String =
     if (app.gyrolet.mpvrx.BuildConfig.SCOPED_STORAGE_ONLY && video.uri.scheme == "content") {
       app.gyrolet.mpvrx.ui.browser.videolist.videoPlaybackIdentifiers(video).first()
     } else if (video.uri.scheme.equals("archive", ignoreCase = true)) {

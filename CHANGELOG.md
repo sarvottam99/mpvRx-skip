@@ -2,7 +2,263 @@
 
 These notes are written in plain English and focus on what changed for real use.
 
-## Unreleased
+## 3.1.1 — Motion
+
+**Release date:** November 23, 2026 · [Compare every change since 3.0.2 →](https://github.com/Riteshp2001/mpvRx/compare/v3.0.2...v3.1.1)
+
+<p align="center"><strong>Smoother motion. Richer detail. More ways to play.</strong><br />Motion interpolation · Dolby Vision passthrough · Media format badges · Torrent downloads · Floating lyrics · TV file picker</p>
+
+This is the biggest mpvRx update since 3.0.0. The **FongMi** build adds **GPU motion interpolation** and **Dolby Vision passthrough**. All builds get **media format badges** and a rebuilt **Media Info** screen. You can also **download torrents** to watch offline, let **Ambient trim baked-in black bars**, browse files with the **Android TV remote**, keep **floating lyrics** visible over other apps, and sync lyrics yourself in the new **lyrics editor**. Hundreds of smaller improvements and fixes are listed below.
+
+> **ℹ️ Build tags used below:** `FongMi` = FongMi APK only · `Sideload` = every build except Google Play · no tag = every build.
+
+---
+
+### 🧭 At a glance
+
+| | Feature | Where to find it | Build |
+| :-: | --- | --- | :-: |
+| 🎞️ | **Motion interpolation** up to your display's refresh rate | Settings → Decoder, or the **Motion Interpolation** player button | `FongMi` |
+| 🌈 | **Dolby Vision passthrough** and **MediaCodec embed** | Settings → Decoder | `FongMi` |
+| 🏷️ | **Media format badges** and a rebuilt **Media Info** | Settings → Player Layout → Media format badges | All |
+| 📥 | **Torrent downloads** for offline viewing | Torrent file picker → Download | `Sideload` |
+| 💡 | **Ambient black-bar trimming** | Aspect → Fit Screen, then turn on Ambient | All |
+| 📺 | **Remote-friendly file picker** | Open File on Android TV | All |
+| 🎵 | **Floating lyrics** over other apps | Settings → Audio → Floating lyrics | All |
+| ✍️ | **Lyrics editor** with tap-to-sync timing | Music player → Lyrics → Edit lyrics | All |
+| 🎛️ | **Live player settings** with search and favorites | Player → More → Player settings | All |
+| 🔈 | **Audio output** choice and **surround passthrough** | Settings → Audio | All |
+| 🌐 | **DLNA / UPnP** server browsing | Network | All |
+| 🎨 | **Light, dark, and AMOLED palettes** | Settings → Appearance → Custom theme | All |
+
+---
+
+### ✨ Release highlights
+
+#### 🎞️ Smoother motion with GPU frame interpolation · `FongMi`
+
+Watch 24 and 30 fps video with fluid motion. **Motion interpolation** generates in-between frames on the GPU, up to your display's refresh rate or a fixed target you choose.
+
+- **Turn it on** in **Settings → Decoder → Motion interpolation**, or add the **Motion Interpolation** button to your player layout. Tap the button to toggle it, or long-press it for **Motion settings**. The button lights up while interpolation is running and uses a softer accent while it waits for a requirement.
+- **Pick a target FPS.** **Auto** goes up to the display's maximum refresh rate. A fixed rate caps it where you want it. Picking a rate also turns interpolation on.
+- **See what it's doing.** A live status line shows the current state (*Interpolating*, *Passthrough*, *Waiting*, *Paused*, *Unsupported*, …) along with source fps → output fps · display Hz.
+- **Clear requirements.** It needs **GPU Next with Vulkan** and a device with **Vulkan 1.2 (Android 10+)**. If your renderer isn't set up, **Use GPU Next + Vulkan** switches it for you; reopen the video to apply. It does not run with MediaCodec embed. If `mpv.conf` sets `video-sync`, it must use a `display-*` mode.
+
+#### 🌈 Dolby Vision passthrough and direct video output · `FongMi`
+
+- **Dolby Vision passthrough** lets a compatible Android decoder handle Dolby Vision itself. Devices without a Dolby Vision decoder use the HDR10 base layer when the file has one, instead of playing sound with no picture.
+- **MediaCodec embed** sends decoded video straight to the screen. Subtitles and the OSD stay on a separate layer, and the picture still follows aspect, crop, zoom, and pan.
+- **Dolby Vision Profile 7:** choose Automatic, keep the enhancement layer, use the HDR10 base layer only, or convert to Profile 8.1.
+- **Vulkan frame import:** Automatic, direct sampling, compute shader, or fragment shader.
+- **Hold last frame between videos** removes the black flash when the next file starts.
+- **Video Quality** shows Dolby Vision details, and tracks derived from Dolby Vision are labeled with their DV profile.
+
+#### 🏷️ Media format badges and a rebuilt Media Info
+
+See what you're playing at a glance. Badges below the video title show resolution, video codec, bit depth, and HDR format (**HDR10**, **HDR10+**, **Dolby Vision**). They also cover **IMAX** and **3D**, audio formats such as **Dolby Atmos**, **TrueHD**, **Dolby Digital Plus**, **DTS:X**, and **DTS-HD MA**, the channel layout, and the release source (Remux, WEB-DL, Blu-ray, …). Badges appear on phones, tablets, and Android TV.
+
+- Toggle them in **Settings → Player Layout → Media format badges**. **Colorize media format badges** switches between brand colors and theme-colored symbols with grayscale logos.
+- **Media Info** opens from the new ⓘ button beside the player title. It is now a structured overview that uses the same badges, plus subtitle format badges for SRT, ASS/SSA, WebVTT, TTML, PGS, VobSub, SBV, and STL. For network streams, it shows everything the player can read from the stream. The Thumbnail tab was removed.
+
+#### 📥 Download torrents to watch offline · `Sideload`
+
+Open a magnet link or `.torrent` file and choose **Download** instead of Play. For a torrent with several media files, use the download button next to the file you want. The picker shows whether each file is queued, downloading, ready to retry, or downloaded.
+
+Track or cancel the transfer in **Downloads**. Finished files are verified before they appear in the `Torrents` subfolder of your download location. Closing the picker or starting playback does not stop a queued download.
+
+#### 💡 Let Ambient trim baked-in black bars
+
+Choose **Fit Screen** and turn on **Ambient**. mpvRx checks several frames for black bars baked into any of the four edges, trims the bars it can confirm, and lights the space around the picture. If it cannot confirm a bar, it leaves the frame alone. Turning Ambient off restores the original framing.
+
+The regular aspect modes remain **Fit Screen → Stretch → Crop**. Stretch, Crop, and custom ratios do not auto-trim. The scan does not run continuously. For a film that changes aspect ratio during playback, use Fit Screen with Ambient off to keep every frame intact.
+
+#### 📺 Browse files with the Android TV remote
+
+**Open File** now uses mpvRx's full-screen picker for internal storage and readable USB drives. Larger rows and a clear focus outline make it easier to see what the remote will select. **Back** returns focus to the folder you just left, even when that folder has scrolled off-screen.
+
+Choose **Search** to filter the current folder. If a location is inaccessible, use **Grant access**, or switch to the system picker if the TV has one.
+
+#### 🎵 Floating lyrics and a built-in lyrics editor
+
+- **Floating lyrics:** enable it with audio background playback and grant Android's **Display over other apps** permission. The lyrics pill docks on either side of the screen, reopens the player, and can be hidden until you reopen mpvRx.
+- **Edit and sync lyrics yourself:** select a line and tap **Set time** as the song plays; the editor advances to the next line. You can nudge timing by ±0.1 s, insert or delete lines, paste plain text or LRC, or clear all timestamps to keep plain lyrics. Edits are stored only in mpvRx and never change your audio file. **Restore original lyrics** reloads the embedded, local, or online version.
+- The lyrics source list now labels timing quality: **Word-synced**, **Partly word-synced**, **Line-synced**, or **Plain text**.
+
+#### 🎛️ Player settings without leaving playback
+
+Open **Player settings** from **More** while the video keeps playing. You can search every player setting, pin favorites with the heart, and open nested pages. Most changes apply to the running video right away. Settings that only take effect after a restart, or that `mpv.conf` controls, are clearly marked.
+
+---
+
+### 🆕 What's new
+
+#### 🎬 Video and picture
+
+- **HW+ explains what it can't run.** Mirror, vertical flip, CPU debanding, and Anime4K ArtCNN need CPU frames. Instead of skipping them silently, mpvRx shows a warning with a **Use HW** action that switches the decoder and then applies the feature.
+- **Online video quality picker:** HLS master playlists start at the highest-quality rendition, and you can switch renditions from **Video Quality**, including on live streams. An `hls-bitrate` setting in `mpv.conf` still takes precedence.
+- **Live streams** show a **LIVE** badge in the seekbar, and audio files can show mpv-decoded album art. Compatible renderer changes apply without reopening the file. · `FongMi`
+- **Linear HDR** keeps inverse tone mapping on and tone mapping set to Clip. Each of these options explains how to hand control to `mpv.conf`.
+
+#### 🔊 Audio
+
+- **Audio output:** choose **Auto**, **AudioTrack**, **AAudio (low latency)**, or **OpenSL ES**.
+- **Surround passthrough** sends audio over HDMI or optical to a receiver: Dolby Digital; Dolby Digital and DTS; or everything, including TrueHD and DTS-HD. If the output can't take a format, mpvRx decodes it instead.
+- **Ignore audio focus** keeps playback going alongside other apps without pausing or lowering the volume.
+- **Spatial audio** widens stereo tracks for a more immersive sound.
+- **AutoEq headphone correction:** search for your headphones and apply a measured preset. The equalizer now has separate **Tone**, **Bands**, and **AutoEq** tabs, with Harman reference curves (In-ear 2019, Over-ear 2018).
+- **External audio discovery:** mpvRx finds matching audio files next to the video and restores your pick on the next open.
+- **Audio Properties** shows title, artist, album, album artist, genre, composer, date, track and disc numbers, ISRC, label, copyright, codec, and channels.
+
+#### 🎵 Music player
+
+- **Animated album covers** can also come from **TIDAL** (with your developer credentials) when Apple Music has none. Apple Music matching needs no account, and a still cover remains the fallback.
+- **Immersive artwork:** edge-to-edge album art in portrait and landscape.
+- The **mini player** has previous, play/pause, and next buttons, and choosing another song can keep it minimized.
+- **Format badges** on now-playing artwork get a gold finish and a soft glow that respects reduced motion.
+- New footer toggles show or hide **album artwork** and the **visualizer**. A new **Free** audio orientation is available for full-screen and in-app playback.
+
+#### 💬 Subtitles
+
+- **Download missing fonts:** when subtitles use a script, emoji, math, music, or symbol characters that no system font covers, mpvRx downloads a matching Noto font and redraws the current line. Find it under Subtitles → Fonts (on by default).
+- **Pinch to resize** a held subtitle with a second finger. When you lift that finger, the remaining finger keeps dragging without a jump.
+- **Nested discovery** finds matching subtitles up to two subfolders below the video, including on saved network sources.
+- **Box corner radius** rounds the subtitle background box.
+- Image subtitles get **recolor** and **brightness** settings, and primary and secondary subtitles get a **vertical shift**. · `FongMi`
+
+#### 🌐 Network and streaming
+
+- **DLNA / UPnP:** browse nearby media servers, including their folders, albums, and playlists, or add a server by its device description URL. Saved items keep their server reference even when the playable URL changes, and playlists keep their order (#936).
+- **YouTube cookies:** if YouTube asks for sign-in or verification, import a Netscape `cookies.txt` and retry the video once. Manage the file under **Network → YouTube cookies**. Only unexpired YouTube cookies are kept, in private storage excluded from backups. `Sideload`
+- **Jellyfin discovery:** new **Critics' Choice** and **Popular Studios** shelves, plus a redesigned series page with a clearer episode list and actions.
+- **Jellyfin offline sync:** watched status and resume positions of downloaded Jellyfin movies and episodes sync back to the server when you're online again. Offline progress shows in the app right away.
+- **Custom AI provider:** use any **OpenAI-compatible Chat Completions** endpoint with an optional key and a model ID, or fetch the model list and check access. Error messages never show your key.
+
+#### 📚 Library, Profile, and files
+
+- **Continue Watching** is an optional, collapsible shelf above the folder list. It shows playback progress, time remaining, and a **See all** action.
+- **Profile layout:** reorder or hide Profile cards, sections, and individual statistics. Resetting the layout keeps your history. Profile adds a **Recently added** shelf, and mixed audio and video rankings now use **Most played** (#993).
+- **Space check before copying or moving:** the folder picker shows how much space is needed and how much is free, and blocks destinations without room. Moves within the same storage are renames and need no extra space (#980).
+- Folder deletion can remove nested media. **Grayscale watched thumbnails** is now a toggle in Sort & View.
+
+#### 🎨 Look and feel
+
+- **Custom palettes:** edit separate **light**, **dark**, and **AMOLED** palettes. Start from any theme, then adjust contrast, surfaces, and filled-button colors, with a preview and a reset for each color (#952).
+- **Material 3 Expressive fields:** text fields, dropdowns, and number inputs share one connected style, with animated focus corners and validation messages.
+- **Connected dock:** the mini player and navigation bar join into a single stacked dock. A switch under **Appearance → Navigation actions** restores the classic separate panels.
+- **New toasts:** in-app messages come in normal, success, info, warning, error, and loading styles. They stack, can be swiped away, and can be turned off with **App toasts** under **Gesture and Action Overlays**.
+- **Festival icons:** a date-based seasonal icon appears beside the title, and tapping it shows a greeting.
+- New installs start with the **Lavender** theme and centered landscape playback controls. Existing choices are kept.
+
+#### 📺 Android TV
+
+- The TV control bar shows the active decoder (**HW+**, **HW**, **SW**, or **Auto**) and opens the decoder chooser.
+- **Press Back twice to exit** asks again before leaving the player or closing the app.
+- Subtitle, audio, and folder pickers open the system picker when the TV has one, and fall back to mpvRx's own lists when it doesn't.
+
+#### 📊 Statistics and developer tools
+
+- Choose a default **Statistics** page, **Console**, or **Off** from **More**. Swipe to scroll long pages or Console output without changing volume or brightness.
+- **Page 7** brings time, network, battery, thermal, CPU, memory, cache, and torrent details into the native overlay. Android-only readings are only sampled while the page is visible.
+- **Page 4** starts with a searchable gesture guide that uses native mpv symbols, and Console text is easier to read in portrait.
+- Playback statistics are translated into every supported language.
+- The full-screen **Lua editor** has an edge-to-edge code canvas, an immersive mode, and a discard prompt. **Save As** keeps the original filename and extension instead of adding `.txt`.
+
+---
+
+### 🔧 Improvements
+
+#### 🎮 Player controls and seeking
+
+- **Choose where playback controls go:** **Center of screen**, **With button row**, **Above seekbar**, or **Below seekbar**, set separately for portrait and landscape. The layout preview follows your choice, and side groups fade at the edge when they overflow.
+- **Faster seeking:** seeks snap to keyframes by default. Exact seeks stay on with **Use precise seeking**, for videos under 2 minutes, and for A–B loops. Scrubbing shows frames while you drag, network streams avoid unnecessary precise seeks, and releasing the seekbar no longer causes a second seek that froze the picture.
+- **Taps that feel like YouTube:** the seek animation matches YouTube on the web, and repeated taps on the same side add to one running total. **Require double tap for every seek** makes every jump need a fresh double tap. **Single tap on left** and **Single tap on right** run the side action with one tap.
+- **Zoom snaps** near Fit, screen fill, and the detected black-bar edge. Keep pinching to pass a stop. Picking Fit, Stretch, Crop, or a ratio resets manual zoom and pan.
+- **Bottom sheets adapt to the screen:** long content can expand in portrait, landscape sheets use up to 85% of the screen height, and settings pages get compact draggable headers.
+- **More** uses larger, fully tappable Statistics and Anime4K chips with a prominent selected state. Both rows still scroll horizontally and show TV focus.
+- Buttons and player titles are slightly larger. Zoom and speed values are shown large and centered, and compact controls show the current speed next to its icon.
+- The thin playback-progress line is back in the persistent status display. Long titles scroll when they don't fit.
+- **Skip chips** now name what they skip (intro, recap, outro, credits, or preview), and skip markers are recognized in more languages.
+- A **manual rotation** lasts until the next media launch, across next and previous videos, PiP, and the mini player (#949). Tablets and foldables follow the system orientation.
+- Queue reordering is steadier and no longer jumps rows on release (#717). Speed presets fill the sheet width, and the Playlist and Lyrics Translate sheets match the other frosted player sheets.
+
+#### 🎵 Music, audio tracks, and subtitles
+
+- **Audio track choice you can trust:** a track you picked yourself, including **Audio Off**, is restored before any automatic choice, even when loading in the background. Otherwise, preferred languages are tried in order, with regular tracks favored over commentary or description tracks. If `mpv.conf` sets the audio language, mpv stays in charge.
+- **Subtitle preferences** are checked in order, support regional tags and two- or three-letter language codes, and respect a saved **Subtitles Off**. Picking a matching sidecar file no longer overrides your preferred language.
+- Embedded covers are kept at full resolution, with better folder-artwork fallbacks (#717).
+- The tablet landscape music player always uses two panes. Album transitions, lyric edges, and lyric spacing are smoother.
+- The **particles** visualizer has denser, sharper particles with beat-driven highlights. Particles and the blob respond to touch and to mouse or stylus hover.
+- Online caption language matching is improved, and web streams reload when caption settings need to take effect.
+
+#### 📚 Library and appearance
+
+- Tree, list, grid, and search highlight the title you played most recently. New thumbnails fade in from a soft blur.
+- ZIP archives show thumbnails for stored entries, and ZIP playback progress appears in playlists and ZIP folders. Added playlists appear before the built-in favorites.
+- Jellyfin featured cards adapt to tablet widths, and titles, ratings, and artwork fit their cards without clipping or double outlines.
+- **Liquid Glass** uses a lighter overlay and vignette so subtitles are easier to read. Labels stay readable even without button backgrounds, and slider and switch handles blend in your dynamic colors.
+- Your app wallpaper stays in place while the music player expands or collapses.
+
+#### ⚡ Performance
+
+- Faster player startup: the video surface is created while the core prepares, and unchanged scripts are reused instead of copied again.
+- Artwork work and memory are capped. Remote originals are saved straight to disk, and image caches are released under memory pressure.
+- Playlist discovery stops when its screen is paused, which prevents background CPU use that could get the app killed.
+
+---
+
+### 🐛 Fixes
+
+#### Playback and overlays
+
+- **YouTube Ambient:** toggling the effect fades the lighting instead of resizing the video. The effect follows aspect and zoom changes, keeps the last good sample through brief capture failures, steps aside for Statistics and Console, and keeps app-drawn subtitles inside the picture.
+- Audio-only playback covers the video layer first, so a previous frame or an embedded cover-art video no longer flashes behind the music player.
+- Tapping the seekbar no longer pauses playback. Hold-to-speed gestures no longer block the UI while waiting for mpv, and tapping dismisses volume or brightness feedback without triggering a playback action.
+- Returning from Picture-in-Picture opens straight into the video's orientation. The music player respects Android's rotation lock, and the mini player keeps showing A–B loops.
+- Fixed a renderer wait that could stall reopening a video for several seconds. Audio continues smoothly when the video surface changes or the playback service starts.
+- Fixed a saved audio track sometimes being ignored, which could leave a video silent.
+- Fixed videos with `#` in the filename playing without a picture (#943).
+- Fixed duplicate lyric translations and duplicate subtitle picker rows (#931). Clip exports include embedded subtitles again, including ASS (#940).
+- Statistics and Console no longer get out of sync with their buttons, and choosing **Off** also cancels a temporary Statistics display.
+- Double-tap seeking is reliable again for repeated taps (#905).
+
+#### Network, storage, and interface
+
+- HLS streams no longer start at the lowest quality.
+- ISO playback over WebDAV uses better range reads and no longer freezes the interface (#926, #928, #929). The IPTV browser accepts larger playlists.
+- Fixed casting local media when the TV is reachable through a network other than the device's default connection (#944).
+- Screenshots of network streams are named after the title instead of the URL.
+- Storage pickers return Home to the storage list when you have more than one volume and stop Back at volume boundaries. Playback gestures beside subtitle tuning panels follow the panel's settings (#995, #996).
+- Network address fields keep keyboard focus while suggestions are shown (#913). Copy confirmations no longer appear twice, and player titles are larger (#947, #948).
+- Fixed an AAC metadata crash and stopped incomplete probes from getting stuck in the video cache. Fixed wallpaper preview flashes.
+- **Settings import** keeps valid entries and reports how many were skipped. An unrelated crash or early exit no longer undoes a valid import (#951).
+- Tree view markers and Liquid Glass controls display correctly again (#953, #965).
+- Secure Folder biometric unlock is more reliable. On Google Play, canceling Android's move approval removes the temporary copy. Restore checks that each write succeeded and never overwrites existing files.
+
+---
+
+### 📦 Compatibility and removals
+
+- **Google Play is now a separate package.** It uses `com.gyrolet.mpvrx`, while sideload builds keep `app.gyrolet.mpvrx`. Direct media links work on Play, but yt-dlp, torrents, and the sideload updater are not included. Microphone and Wi-Fi hardware are now optional, so more devices can install it. Play builds show a **Tester** badge.
+- **FongMi direct output has trade-offs.** GPU effects are limited with MediaCodec embed, and Dolby Vision passthrough is unavailable while Liquid Glass draws the video.
+- **Android 8 is still supported.** Android 8–11 can use the system installer fallback again. Stable and Preview update channels remain; the separate Experimental channel was removed.
+- **Replaced:** the standalone **Auto crop black bars** toggle is replaced by Ambient's automatic trimming. The **Switch songs in mini player** setting was removed because the mini player now always has previous and next buttons.
+- **Removed:** the two-finger playback-speed swipe, the PaxSenix lyrics provider, the player button background-hiding option, and the Media Info Thumbnail tab. Spotify Canvas covers and KU100/SOFA headphone processing, briefly available in preview builds, were also removed. Apple Music and TIDAL motion covers, other lyrics providers, and stereo widening remain.
+
+---
+
+### 🧰 Under the hood
+
+- **mpvlib 1.1.8.8** across the Standard, Non-Vulkan, FongMi, and Play Store builds.
+- Built against Android SDK 37.2, with Gradle 9.8.2 and refreshed dependencies. The minimum and target SDK levels are unchanged.
+- Google Play builds now use full R8 optimization, with mapping files archived for crash reports.
+- Manual audio choices are stored separately from automatic ones. Existing libraries are migrated automatically.
+
+---
+
+### 🙏 Thanks
+
+- Everyone who reported issues and tested preview builds, including the reports behind #717, #905, #913, #926, #928, #929, #931, #936, #940, #943, #944, #947, #948, #949, #951, #952, #953, #965, #980, #993, #995, and #996.
+- [Resonada](https://gitlab.com/resonada/resonada) for the audio-format artwork and AutoEq data, and the [AutoEq](https://github.com/jaakkopasanen/AutoEq) project for its headphone measurements.
 
 ## 3.0.2.2 — mpvRx-skip version display and update check
 
@@ -47,8 +303,6 @@ This release brings dedicated Android TV navigation and playback controls, a pho
 - **mpvlib 1.1.4:** Updated native libraries, including HarfBuzz 15, FreeType 2.15, LittleCMS 2.19 and curl 8.23. The FongMi build also picks up FongMi's latest playback changes.
 
 - **Android TV style volume and brightness:** The volume and brightness levels now show as a single sleek capsule that fills from the bottom with the same gradient as before, with the value inside at the top and the icon inside at the bottom. Both stay readable as the level rises under them. While one is showing, the seekbar, every button row, custom Lua buttons, the skip chip and the dimmed background all step aside, so only the level sits over the video.
-
-- **Two-finger swipe for speed:** Drag two fingers up to raise the playback speed or down to lower it, as in MX Player. The speed changes in 0.25x steps as you drag, from 0.5x up to 4x, and follows your fingers back if you reverse. The speed pill shows the current speed while you drag and for a moment after, including quarter steps such as 1.25x. Pinch to zoom still works, and a zoomed-in video can still be moved with two fingers. Turn it off under Settings > Gestures.
 
 - **Persistent status bar:** An optional line over the video shows the time, the battery level and the playback progress or estimated finish time, set up under Settings > Player controls. It stays in exactly the same place whether the player controls are showing or not, and does not move when the system bars appear. Its clock follows the player clock format and turns over on the minute.
 
@@ -1606,7 +1860,7 @@ Thanks to [@ThisisWyatt](https://github.com/ThisisWyatt), [@Arnab11](https://git
 ## 1.5.0-preview.1 — Preview Release
 
 ### 📦 MpvLib Update
-- Updated mpv library and its dependencies 
+- Updated mpv library and its dependencies
 
 ### ⚡ Performance & Stability
 - **Startup optimization**: Deferred cold-start DB initialization, grammar pre-load, and auto-update check to cut first-frame time significantly
@@ -1684,7 +1938,7 @@ Thanks to [@ThisisWyatt](https://github.com/ThisisWyatt), [@Arnab11](https://git
 ### Network & Connections
 - Added support for sending your playback progress to Jellyfin when playing videos externally.
 
-- Many More Small QOL Fixes and Optimizations 
+- Many More Small QOL Fixes and Optimizations
 
 ## 1.4.0
 
@@ -1720,11 +1974,11 @@ Thanks to [@ThisisWyatt](https://github.com/ThisisWyatt), [@Arnab11](https://git
 - Removed Avif / Jpeg-Xl type images from the settings selection
 - Added Font selection in the Subtitle Settings section.
 - Fixed issue of Lua script when copying specific part Copied whole Lua script.
-- added Expressive Scrollbar like in Pixel player 
+- added Expressive Scrollbar like in Pixel player
 
 ## 1.3.9
 
-> # 🚀 **CURL IS NOW SUPPORTED!** 
+> # 🚀 **CURL IS NOW SUPPORTED!**
 > ### ⚠️ **EXPERIMENTAL** — This is brand new and may or may not work properly on your device. ⚠️
 > Lua and JavaScript scripts can now make HTTP requests through the new native libcurl bridge via JNI.
 > Use it, break it, and report issues so we can make it stable!, see `MPVRX_CUSTOM_COMMANDS.d` for tutorial on how to use in Lua and JS.
@@ -1753,14 +2007,14 @@ Thanks to [@ThisisWyatt](https://github.com/ThisisWyatt), [@Arnab11](https://git
 - **Updated Wyzie subtitle API integration** — Synced with latest Wyzie API changes: added `ai` field for AI-translated subtitle detection, updated provider sources list (removed `subdl`, `podnapisi`, `ajatttools`; added `tvsubtitles`), and fixed TMDB endpoints to include API key authentication.
 - **Material 3 Expressive Design** — Complete visual overhaul using Material 3 Expressive design system for a more modern, fluid, and engaging experience
 - **Smoother Animations** — Replaced rigid linear transitions with spring-based physics animations throughout the app (navigation, controls, browser, dialogs)
-- Added Voltage Battery Temperature And improved the style of Page 6 
+- Added Voltage Battery Temperature And improved the style of Page 6
 - Added Optimized Ambient Mode with Eco Battery Saver Mode who want to take feel of Ambient without much Battery Impact
 - Removed Dead Code and also Optimized some File Handling / Ui Rendering Operations
 - **Settings export now stores app version**  exported XML files include the app version, so import dialogs show the correct version instead of "unknown".
 - **HEVC 10bit thumbnails**  added a software-decoder fallback using Android's MediaCodec API. When the system can't decode a video frame (e.g. HEVC 10bit on devices without hardware support), the app now tries Google's software decoder before giving up. This means more thumbnails will show up on devices with limited codec support ( To be tested Propelry on unsupported device).
 - **Fixed app icon on Android 16**  changed the adaptive icon background from transparent to opaque black so the icon doesn't disappear on launchers that don't handle transparency well.
 - **User mpv.conf now has highest priority**  during player startup, your mpv.conf settings are re-applied after all app defaults so they always take precedence. but some of the Hardcoded things doesnt change like for example `sid, aid`.
-- 
+-
 
 ## 1.3.6
 
@@ -1801,7 +2055,7 @@ Thanks to [@ThisisWyatt](https://github.com/ThisisWyatt), [@Arnab11](https://git
 
 ## 1.3.3
 
-- Fixed Background Playback and Pip issues 
+- Fixed Background Playback and Pip issues
 - Anime4K should feel much smoother now. The player now uses the clean six-preset Anime4K flow from the reference app and avoids piling old shader work on top of the new preset when you switch modes.
 - Anime4K is still off by default, but when you turn it on the picker is simpler: Off, A, B, C, A+, B+, and C+.
 - Moved the Fast / Balanced / High Anime4K choice into Decoder settings, with Balanced as the default.

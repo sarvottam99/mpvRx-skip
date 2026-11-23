@@ -26,17 +26,23 @@ class AudioPreferences(
   val audioPitchCorrection = preferenceStore.getBoolean("audio_pitch_correction", true)
   val audioChannels = preferenceStore.getEnum("audio_channels", AudioChannels.AutoSafe)
   val volumeBoostCap = preferenceStore.getInt("audio_volume_boost_cap", 30)
+  val ignoreAudioFocus = preferenceStore.getBoolean("ignore_audio_focus", false)
   val backgroundPlayback = preferenceStore.getBoolean("automatic_background_playback", false)
   val backgroundPlaybackBehavior = preferenceStore.getEnum("background_playback_behavior", BackgroundPlaybackBehavior.Remember)
   private val videoBackgroundPlaybackIds = preferenceStore.getStringSet("background_playback_video_ids", emptySet())
   private val videoBackgroundPlaybackLock = Any()
   /** Audio-player-only background playback; video retains [backgroundPlayback]. */
-  val audioBackgroundPlayback = preferenceStore.getBoolean("audio_player_background_playback", false)
-  val miniPlayerTrackSwitching = preferenceStore.getBoolean("audio_mini_player_track_switching", false)
+  val audioBackgroundPlayback = preferenceStore.getBoolean("audio_player_background_playback", true)
   val volumeNormalization = preferenceStore.getBoolean("audio_volume_normalization", false)
+  val spatialAudio = preferenceStore.getBoolean("audio_spatial_audio", false)
   val drcEnabled = preferenceStore.getBoolean("audio_drc_enabled", false)
+  val audioOutput = preferenceStore.getEnum("audio_output", AudioOutput.Auto)
+  val audioPassthrough = preferenceStore.getEnum("audio_passthrough", AudioPassthrough.Off)
   val equalizerEnabled = preferenceStore.getBoolean("audio_equalizer_enabled", false)
   val equalizerMode = preferenceStore.getString("audio_equalizer_mode", "DYNAMIC")
+  val autoEqProfile = preferenceStore.getString("audio_autoeq_profile", "")
+  val autoEqEnabled = preferenceStore.getBoolean("audio_autoeq_enabled", true)
+  val eqTargetInEar = preferenceStore.getBoolean("audio_eq_target_in_ear", false)
   val equalizerBands =
     preferenceStore.getObject(
       key = "audio_equalizer_bands",
@@ -55,7 +61,12 @@ class AudioPreferences(
   val audioVisualizerStyle = preferenceStore.getEnum("audio_visualizer_style", AudioVisualizerStyle.Blob)
   val audioOrientation = preferenceStore.getEnum("audio_player_orientation", AudioPlayerOrientation.Auto)
   val audioAmbientMode = preferenceStore.getBoolean("audio_ambient_mode", true)
+  val immersiveArtwork = preferenceStore.getBoolean("audio_immersive_artwork", false)
   val animatedAlbumArtwork = preferenceStore.getBoolean("audio_animated_album_artwork", false)
+  val animatedArtworkAppleMusic = preferenceStore.getBoolean("audio_animated_artwork_apple_music", true)
+  val animatedArtworkTidal = preferenceStore.getBoolean("audio_animated_artwork_tidal", true)
+  val tidalClientId = preferenceStore.getString("tidal_client_id", "")
+  val tidalClientSecret = preferenceStore.getString("tidal_client_secret", "")
   val audioWavySeekbar = preferenceStore.getBoolean("audio_wavy_seekbar", true)
   val enabledMusicTabs = preferenceStore.getStringSet(
     "enabled_music_tabs",
@@ -77,7 +88,9 @@ class AudioPreferences(
   val lyricsAutoTranslate = preferenceStore.getBoolean("lyrics_auto_translate", false)
   val lyricsTargetLanguage = preferenceStore.getString("lyrics_target_language", "en")
   val lyricsTranslationDisplayMode = preferenceStore.getEnum("lyrics_translation_display_mode", LyricsTranslationDisplayMode.DualLine)
-  val paxsenixApiKey = preferenceStore.getString("paxsenix_api_key", "")
+  val floatingLyricsEnabled = preferenceStore.getBoolean("floating_lyrics_enabled", false)
+  val floatingLyricsDockEnd = preferenceStore.getBoolean("floating_lyrics_dock_end", true)
+  val floatingLyricsY = preferenceStore.getInt("floating_lyrics_y", 350)
 
   fun getVideoBackgroundPlayback(mediaId: String?): Boolean =
     resolveVideoBackgroundPlayback(backgroundPlaybackBehavior.get(), backgroundPlayback.get(), videoBackgroundPlaybackIds.get(), mediaId)
@@ -112,6 +125,13 @@ class AudioPreferences(
   ): Boolean =
     if (behavior == BackgroundPlaybackBehavior.Remember) globalChoice else mediaId != null && mediaId in enabledVideos
 
+  /** mpv's ao list: AudioTrack while this app's passthrough setting is in effect. */
+  fun mpvAudioOutput(): String {
+    val passthrough =
+      if (MpvConfigOverridePolicy.isOwnedByMpvConf("audio-spdif")) AudioPassthrough.Off else audioPassthrough.get()
+    return passthrough.audioOutput(audioOutput.get())
+  }
+
   init {
     if (preferenceStore.getString("background_playback_behavior").get() == "ResetAfterVideo") {
       backgroundPlaybackBehavior.set(BackgroundPlaybackBehavior.PerVideo)
@@ -144,6 +164,7 @@ enum class AudioPlayerOrientation(
   Auto(R.string.pref_audio_channels_auto),
   Portrait(R.string.pref_player_orientation_portrait),
   Landscape(R.string.pref_player_orientation_landscape),
+  Free(R.string.pref_player_orientation_free),
 }
 
 enum class AudioVisualizerStyle(
@@ -155,6 +176,40 @@ enum class AudioVisualizerStyle(
   Particle(R.string.pref_audio_visualizer_style_particle),
 }
 
+
+enum class AudioOutput(
+  @StringRes val titleRes: Int,
+  private val driver: String?,
+) {
+  Auto(R.string.pref_audio_output_auto, null),
+  AudioTrack(R.string.pref_audio_output_audiotrack, "audiotrack"),
+  AAudio(R.string.pref_audio_output_aaudio, "aaudio"),
+  OpenSles(R.string.pref_audio_output_opensles, "opensles"),
+  ;
+
+  /** mpv's ao list. The trailing comma keeps the other drivers as fallbacks, e.g. AAudio before Android 8. */
+  val mpvValue: String get() = driver?.let { "$it," }.orEmpty()
+}
+
+enum class AudioPassthrough(
+  @StringRes val titleRes: Int,
+  /** mpv's audio-spdif codec list. */
+  val codecs: String,
+) {
+  Off(R.string.pref_audio_passthrough_off, ""),
+  DolbyDigital(R.string.pref_audio_passthrough_dolby, "ac3,eac3"),
+  DolbyDigitalAndDts(R.string.pref_audio_passthrough_dolby_dts, "ac3,eac3,dts"),
+  All(R.string.pref_audio_passthrough_all, "ac3,eac3,dts,dts-hd,truehd"),
+  ;
+
+  /**
+   * mpv's ao list while this passthrough mode is set. Only AudioTrack bitstreams: AAudio before
+   * Android 14 and OpenSL ES open a passthrough format as PCM, so mpv would decode instead of
+   * trying AudioTrack.
+   */
+  fun audioOutput(output: AudioOutput): String =
+    if (this == Off) output.mpvValue else AudioOutput.AudioTrack.mpvValue
+}
 
 enum class AudioChannels(
   @StringRes val title: Int,

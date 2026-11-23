@@ -13,6 +13,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.view.PixelCopy
+import android.view.Surface
 import app.gyrolet.mpvrx.ui.player.MPVView
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -73,7 +74,6 @@ private const val FRAME_CHANGE_THRESHOLD = 2
 private const val CHANGE_SAMPLE_STEP = 7
 private const val MAX_BACKOFF_MULTIPLIER = 4L
 private const val FAILURES_BEFORE_FALLBACK = 2
-private const val FAILURES_BEFORE_CLEAR = 3
 
 private const val CAPTURE_OK = 0
 private const val CAPTURE_RETRY = 1
@@ -130,7 +130,8 @@ fun rememberVideoAmbientFrame(
   orientation: Int,
   isSurfaceReadyProvider: () -> Boolean,
   isPlayingProvider: () -> Boolean,
-  retainFrameWhenInactive: Boolean = false,
+  captureBoundsProvider: () -> Rect?,
+  fadeOutMillis: Long,
   fallbackFrameProvider: suspend (Int) -> Bitmap?,
 ): VideoAmbientFrame {
   var state by remember(surfaceView, playbackGeneration, hdrScreenMode, orientation) {
@@ -138,6 +139,7 @@ fun rememberVideoAmbientFrame(
   }
   val currentIsSurfaceReadyProvider by rememberUpdatedState(isSurfaceReadyProvider)
   val currentIsPlayingProvider by rememberUpdatedState(isPlayingProvider)
+  val currentCaptureBoundsProvider by rememberUpdatedState(captureBoundsProvider)
   val currentFallbackFrameProvider by rememberUpdatedState(fallbackFrameProvider)
   val lifecycleOwner = LocalLifecycleOwner.current
 
@@ -148,17 +150,16 @@ fun rememberVideoAmbientFrame(
     playbackGeneration,
     hdrScreenMode,
     orientation,
-    retainFrameWhenInactive,
+    fadeOutMillis,
   ) {
-    if (!retainFrameWhenInactive) state = VideoAmbientFrame()
     if (!active) {
+      delay(fadeOutMillis)
+      state = VideoAmbientFrame()
       return@LaunchedEffect
     }
 
     lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-      if (!retainFrameWhenInactive) state = VideoAmbientFrame()
       val pipeline = VideoAmbientPipeline()
-      var unsupported = false
       try {
         coroutineScope {
           launch {
@@ -166,10 +167,9 @@ fun rememberVideoAmbientFrame(
               surfaceView = surfaceView,
               isSurfaceReady = currentIsSurfaceReadyProvider,
               isPlaying = currentIsPlayingProvider,
+              captureBounds = { currentCaptureBoundsProvider() },
               fallbackFrame = { currentFallbackFrameProvider(SAMPLE_WIDTH) },
-              onCaptureLost = { state = VideoAmbientFrame() },
               onUnsupported = {
-                unsupported = true
                 state = VideoAmbientFrame(supported = false)
               },
             )
@@ -178,7 +178,6 @@ fun rememberVideoAmbientFrame(
         }
       } finally {
         pipeline.close()
-        if (!unsupported && !retainFrameWhenInactive) state = VideoAmbientFrame()
       }
     }
   }
@@ -227,8 +226,8 @@ private class VideoAmbientPipeline : AutoCloseable {
     surfaceView: MPVView,
     isSurfaceReady: () -> Boolean,
     isPlaying: () -> Boolean,
+    captureBounds: () -> Rect?,
     fallbackFrame: suspend () -> Bitmap?,
-    onCaptureLost: () -> Unit,
     onUnsupported: () -> Unit,
   ) {
     if (!supported) {
@@ -238,8 +237,19 @@ private class VideoAmbientPipeline : AutoCloseable {
 
     while (currentCoroutineContext().isActive && supported && !closed) {
       var cadence = IDLE_INTERVAL_MS
-      if (isSurfaceReady() && surfaceView.width > 0 && surfaceView.height > 0) {
-        when (captureSurface(surfaceView, sample, pixelCopyHandler)) {
+      val bounds = if (isSurfaceReady()) captureBounds() else null
+      if (bounds != null) {
+        val surface = surfaceView.renderSurface
+        fun captureStillCurrent() =
+          isSurfaceReady() && surfaceView.renderSurface === surface && captureBounds() == bounds
+
+        val result = captureSurface(surface, bounds, sample, pixelCopyHandler)
+        if (!captureStillCurrent()) {
+          // Keep displaying the last good sample while a crop or renderer change resizes the surface.
+          delay(CAPTURE_INTERVAL_MS)
+          continue
+        }
+        when (result) {
           CAPTURE_OK -> {
             consecutiveFailures = 0
             cadence = if (isPlaying()) CAPTURE_INTERVAL_MS else IDLE_INTERVAL_MS
@@ -255,7 +265,7 @@ private class VideoAmbientPipeline : AutoCloseable {
             consecutiveFailures++
             val fallbackApplied =
               if (consecutiveFailures >= FAILURES_BEFORE_FALLBACK) {
-                applyFallbackFrame(fallbackFrame)
+                applyFallbackFrame(fallbackFrame, ::captureStillCurrent)
               } else {
                 false
               }
@@ -263,10 +273,6 @@ private class VideoAmbientPipeline : AutoCloseable {
               consecutiveFailures = FAILURES_BEFORE_FALLBACK - 1
               cadence = if (isPlaying()) CAPTURE_INTERVAL_MS * 2 else IDLE_INTERVAL_MS
             } else {
-              if (consecutiveFailures == FAILURES_BEFORE_CLEAR) {
-                resetScene()
-                onCaptureLost()
-              }
               val multiplier =
                 (1L shl consecutiveFailures.coerceAtMost(3))
                   .coerceAtMost(MAX_BACKOFF_MULTIPLIER)
@@ -307,10 +313,13 @@ private class VideoAmbientPipeline : AutoCloseable {
     hasTarget = true
   }
 
-  private suspend fun applyFallbackFrame(provider: suspend () -> Bitmap?): Boolean {
+  private suspend fun applyFallbackFrame(
+    provider: suspend () -> Bitmap?,
+    captureStillCurrent: () -> Boolean,
+  ): Boolean {
     val frame = provider() ?: return false
     return try {
-      if (frame.isRecycled || closed) return false
+      if (frame.isRecycled || closed || !captureStillCurrent()) return false
       fallbackCanvas.drawBitmap(frame, null, sampleBounds, fallbackPaint)
       processSample()
       true
@@ -533,12 +542,12 @@ internal fun ambientMeanAbsoluteDifference(
 }
 
 private suspend fun captureSurface(
-  surfaceView: MPVView,
+  surface: Surface?,
+  bounds: Rect,
   destination: Bitmap,
   handler: Handler,
 ): Int =
   suspendCancellableCoroutine { continuation ->
-    val surface = surfaceView.renderSurface
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
       continuation.resume(CAPTURE_UNSUPPORTED)
       return@suspendCancellableCoroutine
@@ -551,6 +560,7 @@ private suspend fun captureSurface(
     try {
       PixelCopy.request(
         surface,
+        bounds,
         destination,
         { result ->
           if (continuation.isActive) {
@@ -564,7 +574,7 @@ private suspend fun captureSurface(
         },
         handler,
       )
-    } catch (_: Throwable) {
+    } catch (_: IllegalArgumentException) {
       if (continuation.isActive) continuation.resume(CAPTURE_RETRY)
     }
   }

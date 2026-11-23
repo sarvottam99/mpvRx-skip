@@ -13,6 +13,7 @@ import android.app.Activity
 import android.app.ActivityManager
 import android.app.Application
 import android.content.ComponentName
+import android.content.ComponentCallbacks2
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Build
@@ -21,11 +22,8 @@ import android.os.Process
 import android.os.StrictMode
 import android.os.SystemClock
 import android.util.Log
-import android.view.View
 import androidx.compose.ui.AndroidComposeUiFlags
 import androidx.compose.ui.ExperimentalComposeUiApi
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import app.gyrolet.mpvrx.database.repository.VideoMetadataCacheRepository
 import app.gyrolet.mpvrx.di.DatabaseModule
 import app.gyrolet.mpvrx.di.FileManagerModule
@@ -37,17 +35,18 @@ import app.gyrolet.mpvrx.preferences.PlayerPreferences
 import app.gyrolet.mpvrx.preferences.SettingsRestoreGuard
 import app.gyrolet.mpvrx.remote.TvInputDispatcher
 import app.gyrolet.mpvrx.remote.TvRemoteServer
-import android.widget.Toast
 import app.gyrolet.mpvrx.presentation.crash.CrashMonitor
 import app.gyrolet.mpvrx.domain.network.NetworkImageRepository
 import app.gyrolet.mpvrx.repository.NetworkRepository
 import app.gyrolet.mpvrx.ui.player.MediaPlayerWidget
+import app.gyrolet.mpvrx.ui.player.PlaybackActivityOwner
 import app.gyrolet.mpvrx.ui.player.PlaybackPhase
 import app.gyrolet.mpvrx.ui.player.PlaybackPerformanceTrace
 import app.gyrolet.mpvrx.ui.player.PlaybackSession
 import app.gyrolet.mpvrx.ui.player.PlayerActivity
 import app.gyrolet.mpvrx.ui.theme.AppTheme
 import app.gyrolet.mpvrx.ui.theme.DarkMode
+import app.gyrolet.mpvrx.utils.memory.BitmapMemoryCaches
 import `is`.xyz.mpv.FastThumbnails
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -55,6 +54,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
@@ -101,8 +102,13 @@ class App :
   )
 
   companion object {
+    private val _foregroundState = MutableStateFlow(false)
+    val foregroundState = _foregroundState.asStateFlow()
     @Volatile var isInForeground: Boolean = false
-      private set
+      private set(value) {
+        field = value
+        _foregroundState.value = value
+      }
     private const val TAG = "App"
     private const val POST_START_MAINTENANCE_DELAY_MS = 10_000L
     private const val THUMBNAIL_WARMUP_DELAY_MS = 1_500L
@@ -146,9 +152,8 @@ class App :
 
     configureDebugStrictMode()
 
-    // Before anything reads them: restored settings that kept the app from starting are reverted.
-    runCatching { SettingsRestoreGuard.onProcessStart(this) }
-      .onFailure { Log.w(TAG, "Could not check restored settings", it) }
+    // Imports no longer revert later; drop any rollback an older version left behind.
+    applicationScope.launch(Dispatchers.IO) { runCatching { SettingsRestoreGuard.discardLegacyRollback(this@App) } }
 
     // Initialize Koin
     startKoin {
@@ -177,12 +182,15 @@ class App :
     // A library initialized during startup may have replaced the handler; keep ours on top.
     CrashMonitor.ensureInstalled(this)
     CrashMonitor.recordPreviousExits(this)
-    SettingsRestoreGuard.consumeRevertedSource(this)?.let { source ->
-      Toast.makeText(this, getString(R.string.settings_restore_reverted, source), Toast.LENGTH_LONG).show()
-    }
     startIdleMpvCoreReaper()
     startWidgetUpdates()
     startWatchStatsTracking()
+    applicationScope.launch(Dispatchers.IO) {
+      delay(2_000L)
+      runCatching {
+        getKoin().get<app.gyrolet.mpvrx.domain.jellyfin.JellyfinOfflineSyncManager>().ensureStarted()
+      }.onFailure { Log.w(TAG, "Failed to start Jellyfin offline sync manager", it) }
+    }
 
     applicationScope.launch {
       runCatching {
@@ -195,17 +203,20 @@ class App :
           } else {
             PackageManager.COMPONENT_ENABLED_STATE_DISABLED
           }
-        packageManager.setComponentEnabledSetting(
-          componentName,
-          newState,
-          PackageManager.DONT_KILL_APP,
-        )
+        if (packageManager.getComponentEnabledSetting(componentName) != newState) {
+          packageManager.setComponentEnabledSetting(
+            componentName,
+            newState,
+            PackageManager.DONT_KILL_APP,
+          )
+        }
       }.onFailure { error ->
         Log.e(TAG, "Failed to initialize MediaInfoActivityAlias setting on launch", error)
       }
       runCatching {
         val preferences: PlayerPreferences = getKoin().get()
         val enableWebLinks = preferences.enableWebStreamLinkIntents.get()
+        if (!BuildConfig.ENABLE_YTDLP) return@runCatching
         val componentName = ComponentName(this@App, "app.gyrolet.mpvrx.ui.player.WebStreamLinksActivityAlias")
         val newState =
           if (enableWebLinks) {
@@ -213,11 +224,13 @@ class App :
           } else {
             PackageManager.COMPONENT_ENABLED_STATE_DISABLED
           }
-        packageManager.setComponentEnabledSetting(
-          componentName,
-          newState,
-          PackageManager.DONT_KILL_APP,
-        )
+        if (packageManager.getComponentEnabledSetting(componentName) != newState) {
+          packageManager.setComponentEnabledSetting(
+            componentName,
+            newState,
+            PackageManager.DONT_KILL_APP,
+          )
+        }
       }.onFailure { error ->
         Log.e(TAG, "Failed to initialize WebStreamLinksActivityAlias setting on launch", error)
       }
@@ -233,8 +246,20 @@ class App :
     // Explicit library refreshes and normal MediaStore notifications still invalidate app caches.
   }
 
+  override fun onTrimMemory(level: Int) {
+    super.onTrimMemory(level)
+    BitmapMemoryCaches.trimMemory(level)
+  }
+
+  @Suppress("DEPRECATION")
+  override fun onLowMemory() {
+    super.onLowMemory()
+    BitmapMemoryCaches.trimMemory(ComponentCallbacks2.TRIM_MEMORY_COMPLETE)
+  }
+
   override fun onConfigurationChanged(newConfig: Configuration) {
     super.onConfigurationChanged(newConfig)
+    PlaybackSession.updateStatisticsLanguage(this)
     MediaPlayerWidget.requestUpdate(this)
   }
 
@@ -261,8 +286,8 @@ class App :
   }
 
   private fun startWatchStatsTracking() {
-    val repository = getKoin().get<app.gyrolet.mpvrx.repository.WatchStatsRepository>()
     applicationScope.launch {
+      val repository = getKoin().get<app.gyrolet.mpvrx.repository.WatchStatsRepository>()
       var lastSessionKey: Triple<Long, Long, String>? = null
       combine(
         PlaybackSession.state,
@@ -380,28 +405,10 @@ class App :
     savedInstanceState: Bundle?,
   ) {
     if (activity is PlayerActivity) PlaybackPerformanceTrace.mark("PLAYER_ACTIVITY_CREATE_END")
-    if (activity.javaClass.name.contains("leakcanary", ignoreCase = true)) {
-      val rootView = activity.findViewById<View>(android.R.id.content)
-      rootView?.let { view ->
-        ViewCompat.setOnApplyWindowInsetsListener(view) { v, insets ->
-          val statusBarInsets = insets.getInsets(WindowInsetsCompat.Type.statusBars())
-          val navBarInsets = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
-          v.setPadding(
-            v.paddingLeft,
-            statusBarInsets.top,
-            v.paddingRight,
-            navBarInsets.bottom,
-          )
-          insets
-        }
-      }
-    }
   }
 
   override fun onActivityResumed(activity: Activity) {
     TvInputDispatcher.onActivityResumed(activity)
-    // Restored settings count as working once a screen has stayed up with them for a while.
-    SettingsRestoreGuard.onScreenShown(activity)
     if (BuildConfig.ENABLE_UPDATE_FEATURE) {
       applicationScope.launch(Dispatchers.IO) {
         runCatching { app.gyrolet.mpvrx.domain.update.UpdateInstaller.onForeground(this@App) }
@@ -431,7 +438,6 @@ class App :
   }
 
   override fun onActivityPaused(activity: Activity) {
-    SettingsRestoreGuard.onScreenHidden()
     TvInputDispatcher.onActivityPaused(activity)
   }
 
@@ -464,25 +470,18 @@ class App :
 
   private fun startIdleMpvCoreReaper() {
     applicationScope.launch {
-      PlaybackSession.state.collectLatest { state ->
-        val isFullyIdle =
-          state.phase == PlaybackPhase.IDLE &&
+      combine(PlaybackSession.state, PlaybackActivityOwner.hasOwner) { state, hasOwner ->
+        !hasOwner && state.phase == PlaybackPhase.IDLE &&
             state.currentItem == null &&
             !state.surfaceAttached &&
             PlaybackSession.isInitialized
+      }.distinctUntilChanged().collectLatest { isFullyIdle ->
         if (!isFullyIdle) return@collectLatest
 
         delay(IDLE_MPV_CORE_GRACE_MS)
 
-        val latest = PlaybackSession.state.value
-        val stillFullyIdle =
-          latest.phase == PlaybackPhase.IDLE &&
-            latest.currentItem == null &&
-            !latest.surfaceAttached &&
-            PlaybackSession.isInitialized
-        if (stillFullyIdle) {
+        if (PlaybackSession.destroyIfIdle()) {
           Log.d(TAG, "Destroying libmpv after idle grace period")
-          PlaybackSession.destroy()
         }
       }
     }
@@ -574,6 +573,7 @@ class App :
         )
         val imageRepository: NetworkImageRepository = getKoin().get()
         imageRepository.evictStaleImageCaches()
+        app.gyrolet.mpvrx.presentation.components.RemoteImageLoader.trimDiskCache(this@App)
         Log.d(TAG, "Network image cache cleanup completed")
       } catch (cancellation: CancellationException) {
         imageCacheCleanupStarted.set(false)

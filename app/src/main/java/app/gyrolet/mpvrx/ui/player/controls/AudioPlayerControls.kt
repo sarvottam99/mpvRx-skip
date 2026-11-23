@@ -15,6 +15,7 @@ import app.gyrolet.mpvrx.ui.player.inAppMusicSheetDrag
 import app.gyrolet.mpvrx.ui.player.playerSheetAnchor
 import app.gyrolet.mpvrx.ui.player.swipeDownToMiniPlayer
 import app.gyrolet.mpvrx.ui.player.PlaybackSession
+import app.gyrolet.mpvrx.ui.player.PlaybackQueueReducer
 import android.Manifest
 import android.content.pm.PackageManager
 import android.content.res.Configuration
@@ -32,6 +33,7 @@ import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -44,7 +46,6 @@ import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -54,14 +55,16 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
@@ -70,11 +73,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.systemBarsIgnoringVisibility
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -102,7 +109,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -129,8 +135,12 @@ import app.gyrolet.mpvrx.ui.player.controls.components.MiniAudioVisualizer
 import app.gyrolet.mpvrx.ui.player.controls.components.stableNumericWidth
 import app.gyrolet.mpvrx.ui.player.controls.components.withTabularDigits
 import app.gyrolet.mpvrx.ui.player.controls.components.rememberSmoothedPositionMs
-import app.gyrolet.mpvrx.ui.player.controls.components.AnimatedLyricWord
+import app.gyrolet.mpvrx.ui.player.controls.components.SweepingLyricText
 import app.gyrolet.mpvrx.ui.player.controls.components.hasRtlDirection
+import app.gyrolet.mpvrx.ui.player.controls.components.lyricCharacterPosition
+import app.gyrolet.mpvrx.ui.player.controls.components.lyricSweepX
+import app.gyrolet.mpvrx.ui.player.controls.components.lyricWordEndTime
+import app.gyrolet.mpvrx.ui.player.controls.components.lyricWordSpans
 import app.gyrolet.mpvrx.ui.player.controls.components.sheets.PlaylistItem
 import sh.calvin.reorderable.ReorderableCollectionItemScope
 import sh.calvin.reorderable.ReorderableItem
@@ -142,14 +152,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
@@ -163,6 +171,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -179,6 +188,7 @@ import kotlin.math.abs
 import kotlinx.coroutines.flow.collect
 import kotlin.math.roundToInt
 import app.gyrolet.mpvrx.R
+import app.gyrolet.mpvrx.utils.media.HttpUtils
 import app.gyrolet.mpvrx.preferences.BrowserPreferences
 import app.gyrolet.mpvrx.domain.thumbnail.EmbeddedArtworkResolver
 import app.gyrolet.mpvrx.domain.thumbnail.getArtwork
@@ -187,6 +197,7 @@ import app.gyrolet.mpvrx.ui.player.EmbeddedMotionArtwork
 import app.gyrolet.mpvrx.ui.player.MotionArtworkImage
 import app.gyrolet.mpvrx.ui.player.rememberMotionArtworkDrawable
 import app.gyrolet.mpvrx.presentation.components.RemoteImage
+import app.gyrolet.mpvrx.presentation.components.AudioFormatArtworkBadge
 import app.gyrolet.mpvrx.preferences.AppearancePreferences
 import app.gyrolet.mpvrx.preferences.AudioPreferences
 import app.gyrolet.mpvrx.preferences.AudioVisualizerStyle
@@ -196,6 +207,7 @@ import app.gyrolet.mpvrx.preferences.preference.collectAsState
 import app.gyrolet.mpvrx.ui.icons.Icon
 import app.gyrolet.mpvrx.ui.icons.AnimatedIcon
 import app.gyrolet.mpvrx.ui.theme.AppMotion
+import app.gyrolet.mpvrx.ui.theme.DarkMode
 import app.gyrolet.mpvrx.ui.theme.appPressFeedback
 import app.gyrolet.mpvrx.ui.icons.Icons
 import app.gyrolet.mpvrx.ui.player.Panels
@@ -222,7 +234,6 @@ import app.gyrolet.mpvrx.ui.player.visualizer.rememberAudioVisualizerFeatures
 import app.gyrolet.mpvrx.ui.theme.fontFamilyForText
 import app.gyrolet.mpvrx.ui.utils.isMpvOptionOwnedByConfig
 import app.gyrolet.mpvrx.ui.utils.rememberAppHaptics
-import app.gyrolet.mpvrx.utils.media.fileExtension
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
@@ -238,6 +249,7 @@ private data class AudioPresentationMetadata(
   val artwork: Bitmap?,
   val artist: String?,
   val motionArtwork: ByteArray? = null,
+  val folderMotionArtworkUri: String? = null,
 )
 
 /**
@@ -292,8 +304,19 @@ private object AudioPresentationMetadataCache {
       synchronized(cache) { cache.get(key) }?.let { return@withContext it }
 
       // An old native retriever may still be unwinding; Android artwork must not wait for it.
-      if (isLocalArtworkSource(pathOrUri) && generator != app.gyrolet.mpvrx.preferences.ThumbnailGenerator.Native) {
-        return@withContext AudioPresentationMetadata(artwork = repository.getArtwork(pathOrUri), artist = null)
+      val localFolderMotion = app.gyrolet.mpvrx.domain.thumbnail.EmbeddedArtworkCandidates
+        .audioFolderMotionPath(pathOrUri)
+      if (
+        isLocalArtworkSource(pathOrUri) &&
+        generator != app.gyrolet.mpvrx.preferences.ThumbnailGenerator.Native &&
+        generator != app.gyrolet.mpvrx.preferences.ThumbnailGenerator.MediaStore &&
+        !pathOrUri.startsWith("content://", ignoreCase = true) &&
+        localFolderMotion == null
+      ) {
+        return@withContext AudioPresentationMetadata(
+          artwork = repository.getArtwork(pathOrUri),
+          artist = null,
+        )
       }
       loadMutex.withLock {
         synchronized(cache) { cache.get(key) }?.let { return@withLock it }
@@ -331,9 +354,21 @@ private object AudioPresentationMetadataCache {
               }
             }
 
-            val pictureBytes = if (explicitArtwork == null) retriever?.embeddedPicture else null
+            // Priority: embedded artwork, folder cover.jpg, then animated folder cover.mp4.
+            val pictureBytes = retriever?.embeddedPicture
+            val embeddedArtwork = retriever?.let {
+              EmbeddedArtworkResolver.decodeRetrieverArtwork(it, pictureBytes)
+            }
+            val sidecarArtwork = if (embeddedArtwork == null) {
+              EmbeddedArtworkResolver.decodeAudioSidecar(cleanPath ?: pathOrUri)
+            } else null
+            // Keep a still image underneath while a selected motion cover buffers.
+            val folderMotion = if (embeddedArtwork == null && sidecarArtwork == null) {
+              app.gyrolet.mpvrx.domain.thumbnail.EmbeddedArtworkCandidates
+                .audioFolderMotionPath(cleanPath ?: pathOrUri)
+            } else null
             AudioPresentationMetadata(
-              artwork = explicitArtwork ?: retriever?.let { EmbeddedArtworkResolver.decodeEmbeddedArtwork(cleanPath ?: pathOrUri, it, pictureBytes) },
+              artwork = embeddedArtwork ?: sidecarArtwork ?: explicitArtwork,
               artist = retriever?.let {
                 it.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
                   ?: it.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST)
@@ -341,12 +376,20 @@ private object AudioPresentationMetadataCache {
                   ?: it.extractMetadata(MediaMetadataRetriever.METADATA_KEY_COMPOSER)
               },
               motionArtwork = EmbeddedMotionArtwork.animatedBytes(pictureBytes),
+              folderMotionArtworkUri = folderMotion,
             )
           } catch (_: Exception) {
             val fallbackArtwork = explicitArtwork ?: if (cleanPath != null && !isNetworkStream) {
               EmbeddedArtworkResolver.decodeSidecar(cleanPath)
             } else null
-            AudioPresentationMetadata(artwork = fallbackArtwork, artist = null)
+            AudioPresentationMetadata(
+              artwork = fallbackArtwork,
+              artist = null,
+              folderMotionArtworkUri = if (fallbackArtwork == null) {
+                localFolderMotion
+                  ?: app.gyrolet.mpvrx.domain.thumbnail.EmbeddedArtworkCandidates.audioFolderMotionPath(cleanPath ?: pathOrUri)
+              } else null,
+            )
           } finally {
             runCatching { retriever?.release() }
           }
@@ -378,8 +421,30 @@ private fun rememberAudioPresentationMetadata(
   return metadata
 }
 
+/** FongMi build: decodes the cover mpv parsed from the playing file, once per [key]. */
 @Composable
-private fun rememberAudioAlbumArt(
+private fun rememberMpvAlbumArt(
+  enabled: Boolean,
+  key: Any?,
+): Bitmap? {
+  val active = enabled && app.gyrolet.mpvrx.ui.player.FongMiMpv.isBuildSupported
+  val artwork by androidx.compose.runtime.produceState<Bitmap?>(null, active, key) {
+    value =
+      if (!active) {
+        null
+      } else {
+        withContext(Dispatchers.IO) {
+          PlaybackSession.albumArtBytes()?.let { bytes ->
+            runCatching { android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }.getOrNull()
+          }
+        }
+      }
+  }
+  return artwork
+}
+
+@Composable
+internal fun rememberAudioAlbumArt(
   pathOrUri: String?,
   artworkUri: String? = null,
 ): Bitmap? = rememberAudioPresentationMetadata(pathOrUri, artworkUri)?.artwork
@@ -454,7 +519,12 @@ private fun artworkVisualizerPalette(
 }
 
 @Composable
-private fun Modifier.audioPlaybackGestures(viewModel: PlayerViewModel, onTap: () -> Unit, onHold: () -> Unit): Modifier {
+private fun Modifier.audioPlaybackGestures(
+  viewModel: PlayerViewModel,
+  onTap: () -> Unit,
+  onHold: () -> Unit,
+  enablePlaybackDoubleTap: Boolean = true,
+): Modifier {
   val tap by rememberUpdatedState(onTap)
   val hold by rememberUpdatedState(onHold)
   return this
@@ -462,17 +532,17 @@ private fun Modifier.audioPlaybackGestures(viewModel: PlayerViewModel, onTap: ()
       onClick { tap(); true }
       onLongClick { hold(); true }
     }
-    .pointerInput(viewModel) {
+    .pointerInput(viewModel, enablePlaybackDoubleTap) {
       detectTapGestures(
         onTap = { tap() },
         onLongPress = { hold() },
-        onDoubleTap = { position ->
+        onDoubleTap = if (enablePlaybackDoubleTap) { position: Offset ->
           when {
-            position.x < size.width / 3f -> viewModel.handleLeftDoubleTap()
-            position.x > size.width * 2f / 3f -> viewModel.handleRightDoubleTap()
-            else -> viewModel.handleCenterDoubleTap()
+            position.x < size.width / 3f -> viewModel.handleLeftTap()
+            position.x > size.width * 2f / 3f -> viewModel.handleRightTap()
+            else -> viewModel.handleCenterTap()
           }
-        },
+        } else null,
       )
     }
 }
@@ -488,6 +558,7 @@ private fun AudioVisualizerViewport(
   onClick: () -> Unit,
   onLongClick: () -> Unit,
   modifier: Modifier = Modifier,
+  landscape: Boolean = false,
 ) {
   Box(
     modifier =
@@ -498,11 +569,21 @@ private fun AudioVisualizerViewport(
       Modifier
         .fillMaxSize()
         .then(
-          if (style == AudioVisualizerStyle.Cuboid) {
+          if (landscape || style == AudioVisualizerStyle.Cuboid) {
             Modifier
               .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
               .drawWithCache {
-                val bottomFade =
+                // Landscape melts into the controls beside it, portrait into the controls below.
+                val edgeFade = if (landscape) {
+                  val rtl = layoutDirection == LayoutDirection.Rtl
+                  Brush.horizontalGradient(
+                    0f to Color.White,
+                    0.72f to Color.White,
+                    1f to Color.Transparent,
+                    startX = if (rtl) size.width else 0f,
+                    endX = if (rtl) 0f else size.width,
+                  )
+                } else {
                   Brush.verticalGradient(
                     0f to Color.White,
                     0.78f to Color.White,
@@ -510,9 +591,10 @@ private fun AudioVisualizerViewport(
                     startY = 0f,
                     endY = size.height,
                   )
+                }
                 onDrawWithContent {
                   drawContent()
-                  drawRect(brush = bottomFade, blendMode = BlendMode.DstIn)
+                  drawRect(brush = edgeFade, blendMode = BlendMode.DstIn)
                 }
               }
           } else {
@@ -559,12 +641,13 @@ private fun AudioVisualizerViewport(
 @Composable
 private fun AudioSpectrumCaptureEffect(
   enabled: Boolean,
+  requestPermission: Boolean,
   features: AudioFeatures,
 ) {
   val context = LocalContext.current
   val scope = rememberCoroutineScope()
   val analyzerActive = remember(features) { AtomicBoolean(false) }
-  var hasRecordPermission by remember {
+  var hasRecordPermission by remember(context) {
     mutableStateOf(
       ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
         PackageManager.PERMISSION_GRANTED,
@@ -575,8 +658,15 @@ private fun AudioSpectrumCaptureEffect(
       hasRecordPermission = granted
     }
 
-  LaunchedEffect(enabled, hasRecordPermission) {
-    if (enabled && !hasRecordPermission) {
+  androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+    hasRecordPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+      PackageManager.PERMISSION_GRANTED
+  }
+
+  LaunchedEffect(requestPermission) {
+    hasRecordPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+      PackageManager.PERMISSION_GRANTED
+    if (requestPermission && !hasRecordPermission) {
       recordPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
     }
   }
@@ -607,8 +697,10 @@ private fun CoverArtCardImage(
   artworkUrl: String? = null,
   contentScale: ContentScale = ContentScale.Crop,
   motionArtwork: ByteArray? = null,
+  localMotionArtworkUri: String? = null,
   isPlaying: Boolean = false,
   remoteMotionQuery: MotionArtworkQuery? = null,
+  modifier: Modifier = Modifier,
 ) {
   val context = LocalContext.current
   val client = org.koin.compose.koinInject<okhttp3.OkHttpClient>()
@@ -635,22 +727,15 @@ private fun CoverArtCardImage(
   val imageBitmap = remember(finalBitmap) { finalBitmap?.asImageBitmap() }
   val animatedDrawable = rememberMotionArtworkDrawable(motionArtwork)
 
-  Box(Modifier.fillMaxSize()) {
-    if (animatedDrawable != null) {
-      MotionArtworkImage(
-        drawable = animatedDrawable,
-        isPlaying = isPlaying,
-        fit = contentScale == ContentScale.Fit,
-        modifier = Modifier.fillMaxSize(),
-      )
-    } else if (imageBitmap != null) {
+  Box(modifier.fillMaxSize()) {
+    if (imageBitmap != null) {
       Image(
         bitmap = imageBitmap,
         contentDescription = null,
         contentScale = contentScale,
         modifier = Modifier.fillMaxSize(),
       )
-    } else {
+    } else if (animatedDrawable == null && localMotionArtworkUri == null) {
       Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,
@@ -663,6 +748,22 @@ private fun CoverArtCardImage(
         )
       }
     }
+    // Motion layers sit above the still cover; until the first decoded frame, the
+    // embedded/folder artwork underneath remains visible.
+    if (animatedDrawable != null) {
+      MotionArtworkImage(
+        drawable = animatedDrawable,
+        isPlaying = isPlaying,
+        fit = contentScale == ContentScale.Fit,
+        modifier = Modifier.fillMaxSize(),
+      )
+    } else if (localMotionArtworkUri != null) {
+      LocalFolderMotionArtworkVideo(
+        uri = localMotionArtworkUri,
+        isPlaying = isPlaying,
+        modifier = Modifier.fillMaxSize(),
+      )
+    }
     if (remoteMotionQuery != null && animatedDrawable == null) {
       RemoteMotionArtwork(
         query = remoteMotionQuery,
@@ -673,7 +774,119 @@ private fun CoverArtCardImage(
   }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+private fun Modifier.artworkHeaderVignette(surfaceColor: Color, height: Dp): Modifier =
+  drawWithCache {
+    val shade = Brush.verticalGradient(
+      0f to surfaceColor.copy(alpha = 0.26f),
+      0.25f to surfaceColor.copy(alpha = 0.22f),
+      0.5f to surfaceColor.copy(alpha = 0.13f),
+      0.75f to surfaceColor.copy(alpha = 0.04f),
+      1f to surfaceColor.copy(alpha = 0f),
+      endY = height.toPx().coerceAtMost(size.height),
+    )
+    onDrawWithContent {
+      drawContent()
+      drawRect(shade)
+    }
+  }
+
+@Composable
+private fun ImmersiveArtworkBackground(
+  bitmap: Bitmap?,
+  artworkUrl: String?,
+  motionArtwork: ByteArray?,
+  localMotionArtworkUri: String?,
+  remoteMotionQuery: MotionArtworkQuery?,
+  isPlaying: Boolean,
+  landscape: Boolean,
+  swipeOffset: androidx.compose.runtime.State<Float>,
+  previousBitmap: Bitmap?,
+  previousArtworkUrl: String?,
+  nextBitmap: Bitmap?,
+  nextArtworkUrl: String?,
+  hasPrevious: Boolean,
+  hasNext: Boolean,
+) {
+  val reducedMotion = AppMotion.playerReducedMotion()
+  val direction by remember(swipeOffset) {
+    derivedStateOf {
+      when {
+        swipeOffset.value > 0f -> 1
+        swipeOffset.value < 0f -> -1
+        else -> 0
+      }
+    }
+  }
+  BoxWithConstraints(Modifier.fillMaxSize().clipToBounds()) {
+    val artworkHeight = if (landscape) maxHeight else minOf(maxHeight * 0.64f, maxWidth * 1.7f)
+    val viewportWidth = constraints.maxWidth.toFloat()
+    Box(
+      Modifier.fillMaxWidth().height(artworkHeight)
+        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+        .drawWithCache {
+          val artworkMask = if (landscape) {
+            val rtl = layoutDirection == LayoutDirection.Rtl
+            Brush.horizontalGradient(
+              0f to Color.White,
+              0.22f to Color.White,
+              0.50f to Color.White.copy(alpha = 0.12f),
+              1f to Color.Transparent,
+              startX = if (rtl) size.width else 0f,
+              endX = if (rtl) 0f else size.width,
+            )
+          } else {
+            Brush.verticalGradient(
+              0f to Color.White,
+              0.48f to Color.White,
+              1f to Color.Transparent,
+            )
+          }
+          onDrawWithContent {
+            drawContent()
+            drawRect(artworkMask, blendMode = BlendMode.DstIn)
+          }
+        },
+    ) {
+      if (direction > 0 && hasPrevious) {
+        Box(
+          Modifier.fillMaxSize().graphicsLayer {
+            translationX = -viewportWidth + swipeOffset.value.coerceIn(0f, viewportWidth)
+          },
+        ) {
+          CoverArtCardImage(bitmap = previousBitmap, artworkUrl = previousArtworkUrl)
+        }
+      }
+      if (direction < 0 && hasNext) {
+        Box(
+          Modifier.fillMaxSize().graphicsLayer {
+            translationX = viewportWidth + swipeOffset.value.coerceIn(-viewportWidth, 0f)
+          },
+        ) {
+          CoverArtCardImage(bitmap = nextBitmap, artworkUrl = nextArtworkUrl)
+        }
+      }
+      Box(
+        Modifier.fillMaxSize().graphicsLayer {
+          translationX = swipeOffset.value.coerceIn(
+            if (hasNext) -viewportWidth else 0f,
+            if (hasPrevious) viewportWidth else 0f,
+          )
+        },
+      ) {
+        CoverArtCardImage(
+          bitmap = bitmap,
+          artworkUrl = artworkUrl,
+          motionArtwork = motionArtwork.takeUnless { reducedMotion },
+          localMotionArtworkUri = localMotionArtworkUri.takeUnless { reducedMotion },
+          remoteMotionQuery = remoteMotionQuery.takeUnless { reducedMotion },
+          isPlaying = isPlaying && !reducedMotion,
+        )
+      }
+    }
+  }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun AudioPlayerControls(
   viewModel: PlayerViewModel,
@@ -791,7 +1004,14 @@ fun AudioPlayerControls(
       pathOrUri = currentMediaSource?.takeIf { isAudiobook || isLocalArtworkSource(it) } ?: mediaPath?.takeIf { it.isNotBlank() } ?: currentMediaSource,
       artworkUri = currentArtworkUri,
     )
-  val albumArtBitmap = currentAudioPresentation?.artwork
+  // Android's retriever cannot read covers from streams; FongMi's mpv already parsed the file's own.
+  val hasMpvAlbumArt by viewModel.hasAlbumArt.collectAsState()
+  val mpvAlbumArt =
+    rememberMpvAlbumArt(
+      enabled = currentAudioPresentation != null && currentAudioPresentation.artwork == null && hasMpvAlbumArt,
+      key = currentItem?.stableId,
+    )
+  val albumArtBitmap = currentAudioPresentation?.artwork ?: mpvAlbumArt
 
   fun cleanSongTitle(
     title: String,
@@ -815,15 +1035,22 @@ fun AudioPlayerControls(
     return titleWithoutExt
   }
 
-  var lastValidTitle by remember {
+  val isYouTubeSource = HttpUtils.isYouTubeUrl(currentItem?.originalUri)
+  val itemTitle = currentItem?.title?.takeIf {
+    it.isNotBlank() && (!isYouTubeSource || !HttpUtils.isLikelyJunkTitle(it))
+  }
+  val controlsTitle = mediaTitle?.takeIf {
+    it.isNotBlank() && (!isYouTubeSource || !HttpUtils.isLikelyJunkTitle(it))
+  }
+  var lastValidTitle by remember(currentItem?.stableId) {
     mutableStateOf(
-      currentItem?.title?.takeIf { it.isNotBlank() }?.stripAudioExtension()
-        ?: mediaTitle?.takeIf { it.isNotBlank() }?.stripAudioExtension()
+      itemTitle?.stripAudioExtension()
+        ?: controlsTitle?.stripAudioExtension()
         ?: "Audio Track",
     )
   }
-  LaunchedEffect(currentItem?.stableId, currentItem?.title, mediaTitle) {
-    val updatedTitle = currentItem?.title?.takeIf { it.isNotBlank() } ?: mediaTitle
+  LaunchedEffect(currentItem?.stableId, itemTitle, controlsTitle) {
+    val updatedTitle = itemTitle ?: controlsTitle
     if (!updatedTitle.isNullOrBlank()) {
       lastValidTitle = updatedTitle.stripAudioExtension()
     }
@@ -844,6 +1071,7 @@ fun AudioPlayerControls(
     }
 
   val audioPreferences = koinInject<AudioPreferences>()
+  val immersiveArtworkEnabled by audioPreferences.immersiveArtwork.collectAsState()
   val animatedAlbumArtwork by audioPreferences.animatedAlbumArtwork.collectAsState()
   val motionQuery =
     if (animatedAlbumArtwork && !isAudiobook &&
@@ -939,9 +1167,11 @@ fun AudioPlayerControls(
   AudioSpectrumCaptureEffect(
     enabled =
       isPlaying &&
+        inAppSheet?.isVisible != false &&
         !isSheetOpen &&
         ((showVisualizer && !showInPlaceLyrics) ||
           (audioWavySeekbar && !isLyricsFullscreen)),
+    requestPermission = showVisualizer && !showInPlaceLyrics && !isLyricsFullscreen && !isSheetOpen && inAppSheet?.isSettledOpen != false,
     features = visualizerFeatures,
   )
 
@@ -1096,10 +1326,9 @@ fun AudioPlayerControls(
   val isTablet = configuration.smallestScreenWidthDp >= 600
   val isTabletLandscape = !isPortrait && isTablet
   val isTabletPortrait = isPortrait && isTablet
-  val isCompactLandscape = !isPortrait && configuration.screenHeightDp < 480
 
-  LaunchedEffect(isTabletLandscape) {
-    if (isTabletLandscape) {
+  LaunchedEffect(isTablet) {
+    if (isTablet) {
       if (showInPlaceLyrics || wasLyricsActiveBeforeLandscape) {
         tabletDualPaneTab = 1
         wasLyricsActiveBeforeLandscape = true
@@ -1113,8 +1342,8 @@ fun AudioPlayerControls(
     }
   }
 
-  LaunchedEffect(showInPlaceLyrics, isPlaying, isTabletLandscape, lastUserInteractionTime) {
-    if (showInPlaceLyrics && !isTabletLandscape && isPlaying) {
+  LaunchedEffect(showInPlaceLyrics, isPlaying, isTablet, lastUserInteractionTime) {
+    if (showInPlaceLyrics && !isTablet && isPlaying) {
       kotlinx.coroutines.delay(5000L)
       isLyricsFullscreen = true
     } else {
@@ -1162,13 +1391,13 @@ fun AudioPlayerControls(
 
   val animatedAmbientTop: Color by animateColorAsState(
     targetValue = targetTopColor,
-    animationSpec = tween(durationMillis = 800),
+    animationSpec = tween(durationMillis = if (AppMotion.playerReducedMotion()) 0 else 800),
     label = "ambient_top_color",
   )
 
   val animatedAmbientBottom: Color by animateColorAsState(
     targetValue = targetBottomColor,
-    animationSpec = tween(durationMillis = 800),
+    animationSpec = tween(durationMillis = if (AppMotion.playerReducedMotion()) 0 else 800),
     label = "ambient_bottom_color",
   )
   val visualizerPalette =
@@ -1188,730 +1417,1016 @@ fun AudioPlayerControls(
         listOf(surface, topBackdrop, bottomBackdrop, ColorUtils.blendARGB(topBackdrop, bottomBackdrop, 0.5f)),
       )
     }
-  val edgeToEdgeVisualizer = showVisualizer && (!showInPlaceLyrics || isTabletLandscape)
+  val edgeToEdgeVisualizer = showVisualizer && (!showInPlaceLyrics || isTablet)
   // In-place lyrics run flush against the screen edges, so the root padding moves onto
   // the header and the footer instead of boxing the lyrics in.
-  val flushInPlaceLyrics = showInPlaceLyrics && isPortrait
+  val flushInPlaceLyrics = showInPlaceLyrics && isPortrait && !isTablet
   val controlsSidePadding = if (edgeToEdgeVisualizer || flushInPlaceLyrics) 16.dp else 0.dp
   // The header keeps the side and top padding the root gives up while the lyrics are flush.
   val headerContentPadding =
     if (flushInPlaceLyrics) Modifier.padding(start = 16.dp, top = 6.dp, end = 16.dp) else Modifier
-  Box(
-    modifier =
-      modifier
-        .then(
-          if (inAppSheet != null) {
-            // The live sheet moves with the finger, so it tracks the drag itself in window space.
-            Modifier.inAppMusicSheetDrag(
-              state = inAppSheet,
-              collapsing = true,
-              enabled = !isSheetOpen && !showInPlaceLyrics && !isLyricsFullscreen,
-            )
-          } else {
-            Modifier
-              .playerSheetAnchor(
-                destination = PlayerSheetDestination.FULL,
-                mediaId = currentItem?.stableId,
-                backgroundColor = MaterialTheme.colorScheme.surface,
+  // Visibility-independent insets keep the layout still while bars re-dispatch on resume.
+  val stableInsets = WindowInsets.systemBarsIgnoringVisibility.union(WindowInsets.displayCutout)
+  val showImmersiveArtwork = !isTablet && immersiveArtworkEnabled && !showVisualizer && !showInPlaceLyrics &&
+    (albumArtBitmap != null || !currentArtworkUri.isNullOrBlank() ||
+      currentAudioPresentation?.motionArtwork != null ||
+      currentAudioPresentation?.folderMotionArtworkUri != null || motionQuery != null)
+  // PlayerActivity uses light status-bar icons; the in-app player follows the app's bar style.
+  val useLightImmersiveHeaderContent =
+    if (showImmersiveArtwork && inAppSheet != null) {
+      val darkMode by appearancePreferences.darkMode.collectAsState()
+      val systemDark = isSystemInDarkTheme()
+      darkMode == DarkMode.Dark || (darkMode == DarkMode.System && systemDark)
+    } else {
+      true
+    }
+  val immersiveHeaderContentColor = if (useLightImmersiveHeaderContent) Color.White else Color.Black
+  val immersiveSurface by animateColorAsState(
+    targetValue = if (showImmersiveArtwork) {
+      Color(ColorUtils.blendARGB(colorScheme.surface.toArgb(), artworkPalette.primary, 0.10f))
+    } else {
+      colorScheme.surface
+    },
+    animationSpec = tween(durationMillis = if (AppMotion.playerReducedMotion()) 0 else 380),
+    label = "immersive_artwork_surface",
+  )
+  val artworkRevision by koinInject<app.gyrolet.mpvrx.domain.thumbnail.ThumbnailRepository>().cacheRevision.collectAsState()
+  var activeCoverOverride by remember(artworkRevision) { mutableStateOf<Bitmap?>(null) }
+  LaunchedEffect(queueState.currentItem?.queueEntryId, albumArtBitmap) {
+    activeCoverOverride = null
+  }
+  val animatableOffsetX = remember { Animatable(0f) }
+  val haptic = rememberAppHaptics()
+  LaunchedEffect(queueState.currentItem?.queueEntryId, showImmersiveArtwork, isPortrait) {
+    animatableOffsetX.snapTo(0f)
+  }
+  val nextItem = remember(queueState) { PlaybackQueueReducer.peekNext(queueState) }
+  val prevItem = remember(queueState) { PlaybackQueueReducer.peekPrevious(queueState) }
+  val nextCoverBitmap = rememberAudioAlbumArt(nextItem?.originalUri, nextItem?.artworkUri)
+  val prevCoverBitmap = rememberAudioAlbumArt(prevItem?.originalUri, prevItem?.artworkUri)
+  val swipeNextCoverBitmap by rememberUpdatedState(nextCoverBitmap ?: albumArtBitmap)
+  val swipePrevCoverBitmap by rememberUpdatedState(prevCoverBitmap ?: albumArtBitmap)
+  BoxWithConstraints(
+    Modifier
+      .fillMaxSize()
+      .then(
+        if (inAppSheet == null) {
+          Modifier.playerSheetAnchor(
+            destination = PlayerSheetDestination.FULL,
+            mediaId = currentItem?.stableId,
+            backgroundColor = immersiveSurface,
+          )
+        } else {
+          Modifier
+        },
+      )
+      .then(modifier)
+      .background(immersiveSurface)
+      .drawWithCache {
+      if (ambientModeEnabled &&
+        (animatedAmbientTop != Color.Transparent || animatedAmbientBottom != Color.Transparent)
+      ) {
+        val topColor = animatedAmbientTop
+        val bottomColor = animatedAmbientBottom
+        val radialGradient = Brush.radialGradient(
+          colors = listOf(topColor, bottomColor, Color.Transparent),
+          center = Offset(size.width * 0.5f, size.height * if (showImmersiveArtwork) 0.55f else 0.25f),
+          radius = size.width * 1.3f,
+        )
+        val linearGradient = Brush.verticalGradient(
+          colors = listOf(
+            topColor.copy(alpha = topColor.alpha * 0.65f),
+            bottomColor.copy(alpha = bottomColor.alpha * 0.35f),
+            Color.Transparent,
+          ),
+          startY = if (showImmersiveArtwork) size.height * 0.35f else 0f,
+          endY = size.height * if (showImmersiveArtwork) 1f else 0.80f,
+        )
+        onDrawBehind {
+          drawRect(radialGradient)
+          drawRect(linearGradient)
+        }
+      } else {
+        onDrawBehind {}
+      }
+    },
+  ) {
+    val immersiveViewportWidthPx = constraints.maxWidth.toFloat()
+    if (showImmersiveArtwork) {
+      ImmersiveArtworkBackground(
+        bitmap = activeCoverOverride ?: albumArtBitmap,
+        artworkUrl = currentArtworkUri?.takeUnless { isLocalArtworkSource(currentMediaSource) },
+        motionArtwork = currentAudioPresentation?.motionArtwork?.takeIf { activeCoverOverride == null },
+        localMotionArtworkUri = currentAudioPresentation?.folderMotionArtworkUri?.takeIf { activeCoverOverride == null },
+        remoteMotionQuery = motionQuery?.takeIf { activeCoverOverride == null },
+        isPlaying = isPlaying,
+        landscape = !isPortrait,
+        swipeOffset = animatableOffsetX.asState(),
+        previousBitmap = swipePrevCoverBitmap,
+        previousArtworkUrl = prevItem?.artworkUri?.takeIf {
+          it.isNotBlank() && !isLocalArtworkSource(prevItem.originalUri)
+        },
+        nextBitmap = swipeNextCoverBitmap,
+        nextArtworkUrl = nextItem?.artworkUri?.takeIf {
+          it.isNotBlank() && !isLocalArtworkSource(nextItem.originalUri)
+        },
+        hasPrevious = prevItem != null,
+        hasNext = nextItem != null,
+      )
+    }
+    if (showImmersiveArtwork) {
+      val topInset = with(LocalDensity.current) { stableInsets.getTop(this).toDp() }
+      val protectedHeight = topInset + 54.dp
+      val vignetteHeight = protectedHeight + if (isPortrait) 112.dp else 72.dp
+      val fadeStart = protectedHeight / vignetteHeight
+      val shadeColor = if (useLightImmersiveHeaderContent) Color.Black else Color.White
+      val vignette = remember(shadeColor, fadeStart) {
+        Brush.verticalGradient(
+          0f to shadeColor.copy(alpha = 0.78f),
+          fadeStart to shadeColor.copy(alpha = 0.68f),
+          (fadeStart + (1f - fadeStart) * 0.5f) to shadeColor.copy(alpha = 0.24f),
+          1f to shadeColor.copy(alpha = 0f),
+        )
+      }
+      Box(Modifier.fillMaxWidth().height(vignetteHeight).background(vignette))
+    } else if (!showVisualizer && !showInPlaceLyrics) {
+      val headerFadeHeight = with(LocalDensity.current) { stableInsets.getTop(this).toDp() } + 144.dp
+      Box(
+        Modifier.fillMaxWidth().height(headerFadeHeight)
+          .artworkHeaderVignette(immersiveSurface, headerFadeHeight),
+      )
+    }
+    BoxWithConstraints(
+      modifier =
+        Modifier
+          .then(
+            if (inAppSheet != null) {
+              // The live sheet moves with the finger, so it tracks the drag itself in window space.
+              Modifier.inAppMusicSheetDrag(
+                state = inAppSheet,
+                collapsing = true,
+                enabled = !isSheetOpen && !showInPlaceLyrics && !isLyricsFullscreen,
               )
-              .swipeDownToMiniPlayer(
+            } else {
+              Modifier.swipeDownToMiniPlayer(
                 mediaId = currentItem?.stableId,
                 enabled = !isSheetOpen && !showInPlaceLyrics && !isLyricsFullscreen,
                 onMinimize = viewModel::minimizeToMiniPlayer,
               )
-          },
-        )
-        .fillMaxSize()
-        .background(MaterialTheme.colorScheme.surface)
-        .drawWithCache {
-          if (ambientModeEnabled && (animatedAmbientTop != Color.Transparent || animatedAmbientBottom != Color.Transparent)) {
-            val topColor = animatedAmbientTop
-            val bottomColor = animatedAmbientBottom
-            val radialGradient = Brush.radialGradient(
-              colors = listOf(
-                topColor,
-                bottomColor,
-                Color.Transparent,
-              ),
-              center = Offset(size.width * 0.5f, size.height * 0.25f),
-              radius = size.width * 1.3f,
-            )
-            val linearGradient = Brush.verticalGradient(
-              colors = listOf(
-                topColor.copy(alpha = topColor.alpha * 0.65f),
-                bottomColor.copy(alpha = bottomColor.alpha * 0.35f),
-                Color.Transparent,
-              ),
-              startY = 0f,
-              endY = size.height * 0.80f,
-            )
-            onDrawBehind {
-              drawRect(radialGradient)
-              drawRect(linearGradient)
-            }
-          } else {
-            onDrawBehind {}
-          }
-        }
-        .windowInsetsPadding(
-          if (edgeToEdgeVisualizer) {
-            WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
-          } else {
-            WindowInsets.safeDrawing
-          },
-        )
-        .padding(horizontal = if (edgeToEdgeVisualizer || flushInPlaceLyrics) 0.dp else 16.dp)
-        .padding(top = if (edgeToEdgeVisualizer || flushInPlaceLyrics) 0.dp else 6.dp, bottom = 12.dp),
-  ) {
-    val headerBar = @Composable {
-      Box(modifier = Modifier.fillMaxWidth()) {
-        ReactiveIconButton(
-          onClick = {
-            if (isLyricsFullscreen) {
-              isLyricsFullscreen = false
-            } else if (showInPlaceLyrics) {
-              showInPlaceLyrics = false
-            } else {
-              onBackPress()
-            }
-          },
-          modifier = Modifier.align(Alignment.CenterStart),
-        ) {
-          Icon(
-            imageVector = if (showInPlaceLyrics || isLyricsFullscreen) Icons.RoundedFilled.ArrowBack else Icons.RoundedFilled.ExpandMore,
-            contentDescription = stringResource(if (showInPlaceLyrics || isLyricsFullscreen) R.string.back else R.string.ui_close),
-            tint = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.size(if (showInPlaceLyrics || isLyricsFullscreen) 28.dp else 32.dp),
+            },
           )
-        }
-
-        Text(
-          text = stringResource(R.string.ui_now_playing),
-          style = MaterialTheme.typography.labelSmall,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-          letterSpacing = 2.sp,
-          modifier = Modifier.align(Alignment.Center),
-        )
-
-        Row(
-          modifier = Modifier.align(Alignment.CenterEnd),
-          verticalAlignment = Alignment.CenterVertically,
-        ) {
-          ReactiveIconButton(onClick = { onOpenSheet(Sheets.AudioProperties) }) {
+          .fillMaxSize()
+          .windowInsetsPadding(
+            if (!isPortrait && !isTablet) {
+              WindowInsets(0, 0, 0, 0)
+            } else if (edgeToEdgeVisualizer) {
+              stableInsets.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
+            } else {
+              stableInsets
+            },
+          )
+          .padding(
+            horizontal =
+              if ((!isPortrait && !isTablet) || edgeToEdgeVisualizer || flushInPlaceLyrics) {
+                0.dp
+              } else if (isTablet) {
+                if (isTabletLandscape) 24.dp else 16.dp
+              } else {
+                16.dp
+              },
+          )
+          .padding(
+            top = if ((!isPortrait && !isTablet) || edgeToEdgeVisualizer || flushInPlaceLyrics) 0.dp else 6.dp,
+            bottom = if (isPortrait || isTablet) 12.dp else 0.dp,
+          ),
+    ) {
+      val availableHeight = maxHeight - with(LocalDensity.current) {
+        (stableInsets.getTop(this) + stableInsets.getBottom(this)).toDp()
+      }
+      val isCompactLandscape = !isPortrait && availableHeight < 480.dp
+      val isShortLandscape = !isPortrait && availableHeight < 320.dp
+      val audioHeaderSize = if (isShortLandscape) 28.dp else if (isCompactLandscape) 36.dp else 48.dp
+      val headerBar = @Composable {
+        Box(modifier = Modifier.fillMaxWidth()) {
+          ReactiveIconButton(
+            onClick = {
+              if (isLyricsFullscreen) {
+                isLyricsFullscreen = false
+              } else if (showInPlaceLyrics) {
+                showInPlaceLyrics = false
+              } else {
+                onBackPress()
+              }
+            },
+            modifier = Modifier.align(Alignment.CenterStart).size(audioHeaderSize),
+          ) {
             Icon(
-              imageVector = Icons.RoundedFilled.Info,
-              contentDescription = stringResource(R.string.player_sheets_more_title),
-              tint = MaterialTheme.colorScheme.onSurface,
-              modifier = Modifier.size(28.dp),
+              imageVector = if (showInPlaceLyrics || isLyricsFullscreen) Icons.RoundedFilled.ArrowBack else Icons.RoundedFilled.ExpandMore,
+              contentDescription = stringResource(if (showInPlaceLyrics || isLyricsFullscreen) R.string.back else R.string.ui_close),
+              tint = if (showImmersiveArtwork) immersiveHeaderContentColor else MaterialTheme.colorScheme.onSurface,
+              modifier = Modifier.size(if (showInPlaceLyrics || isLyricsFullscreen) 28.dp else 32.dp),
             )
+          }
+
+          Text(
+            text = if (isCompactLandscape && audioFormatInfo != null) {
+              "${audioFormatInfo.codecLabel} · $qualityLabel"
+            } else stringResource(R.string.ui_now_playing),
+            style = MaterialTheme.typography.labelSmall,
+            color =
+              if (showImmersiveArtwork) {
+                immersiveHeaderContentColor.copy(alpha = 0.92f)
+              } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+              },
+            letterSpacing = 2.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.align(Alignment.Center).padding(horizontal = audioHeaderSize + 4.dp)
+              .clickable(enabled = isCompactLandscape && audioFormatInfo != null) { onOpenSheet(Sheets.AudioProperties) },
+          )
+
+          Row(
+            modifier = Modifier.align(Alignment.CenterEnd),
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            ReactiveIconButton(
+              onClick = { onOpenSheet(Sheets.MediaInfo) },
+              onLongClick = if (isShortLandscape) null else ({ onOpenSheet(Sheets.AudioProperties) }),
+              onLongClickLabel = stringResource(R.string.audio_information_title),
+              modifier = Modifier.size(audioHeaderSize),
+            ) {
+              Icon(
+                imageVector = Icons.RoundedFilled.Info,
+                contentDescription = stringResource(R.string.ui_media_info),
+                tint = if (showImmersiveArtwork) immersiveHeaderContentColor else MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.size(28.dp),
+              )
+            }
           }
         }
       }
-    }
 
 
-    val animatableOffsetX = remember { Animatable(0f) }
-    val coroutineScope = rememberCoroutineScope()
-    val haptic = rememberAppHaptics()
-    val artworkRevision by koinInject<app.gyrolet.mpvrx.domain.thumbnail.ThumbnailRepository>().cacheRevision.collectAsState()
-    var activeCoverOverride by remember(artworkRevision) { mutableStateOf<Bitmap?>(null) }
-
-    LaunchedEffect(currentItem?.stableId, albumArtBitmap) {
-      activeCoverOverride = null
-    }
-
-    val nextItem = remember(filteredPlaylist, mediaPath) {
-      val idx = filteredPlaylist.indexOfFirst { it.isPlaying || it.path == mediaPath || it.uri.toString() == mediaPath }
-      if (idx in 0 until filteredPlaylist.lastIndex) filteredPlaylist[idx + 1] else null
-    }
-
-    val prevItem = remember(filteredPlaylist, mediaPath) {
-      val idx = filteredPlaylist.indexOfFirst { it.isPlaying || it.path == mediaPath || it.uri.toString() == mediaPath }
-      if (idx > 0) filteredPlaylist[idx - 1] else null
-    }
-
-    val nextCoverBitmap =
-      rememberAudioAlbumArt(
-        pathOrUri = nextItem?.let { it.path.ifBlank { it.uri.toString() } },
-        artworkUri = nextItem?.tvgLogo,
-      )
-    val prevCoverBitmap =
-      rememberAudioAlbumArt(
-        pathOrUri = prevItem?.let { it.path.ifBlank { it.uri.toString() } },
-        artworkUri = prevItem?.tvgLogo,
-      )
-    val swipeNextCoverBitmap by androidx.compose.runtime.rememberUpdatedState(nextCoverBitmap ?: albumArtBitmap)
-    val swipePrevCoverBitmap by androidx.compose.runtime.rememberUpdatedState(prevCoverBitmap ?: albumArtBitmap)
-
-    @OptIn(ExperimentalFoundationApi::class)
-    val centerVisualizerView = @Composable { visualizerModifier: Modifier ->
-      BoxWithConstraints(
-        modifier =
-          visualizerModifier
-            .then(if (showVisualizer) Modifier else Modifier.clipToBounds())
-            .then(
-              if (showVisualizer || showInPlaceLyrics) {
-                Modifier
-              } else {
-                Modifier.audioPlaybackGestures(
-                  viewModel,
-                  onTap = resetInactivityTimer,
-                  onHold = { onOpenSheet(Sheets.VisualizerStyle) },
-                )
-              },
-            ),
-        contentAlignment = Alignment.Center,
-      ) {
-        val containerWidthPx = constraints.maxWidth.toFloat()
-        val currentOffset = animatableOffsetX.value
-
-        if (showInPlaceLyrics && !isTabletLandscape) {
-          app.gyrolet.mpvrx.ui.player.controls.components.LyricsView(
-            viewModel = viewModel,
-            modifier = Modifier.fillMaxSize(),
-            isLyricsFullscreen = isLyricsFullscreen,
-            onTap = resetInactivityTimer,
-          )
-        } else {
-          AnimatedContent(
-            targetState = showVisualizer,
-            contentAlignment = Alignment.Center,
-            transitionSpec = {
-              val contentTransform =
-                if (targetState) {
-                  (fadeIn(animationSpec = tween(350, easing = FastOutSlowInEasing)) +
-                    scaleIn(animationSpec = tween(350, easing = FastOutSlowInEasing), initialScale = 0.90f))
-                    .togetherWith(
-                      fadeOut(animationSpec = tween(280)) +
-                        scaleOut(animationSpec = tween(280), targetScale = 1.06f),
-                    )
+      @OptIn(ExperimentalFoundationApi::class)
+      val centerVisualizerView = @Composable { visualizerModifier: Modifier ->
+        BoxWithConstraints(
+          modifier =
+            visualizerModifier
+              .then(if (showVisualizer) Modifier else Modifier.clipToBounds())
+              .then(
+                if (showVisualizer || showInPlaceLyrics) {
+                  Modifier
                 } else {
-                  (fadeIn(animationSpec = tween(350, easing = FastOutSlowInEasing)) +
-                    scaleIn(animationSpec = spring(dampingRatio = 0.72f, stiffness = 400f), initialScale = 0.88f))
-                    .togetherWith(
-                      fadeOut(animationSpec = tween(280)) +
-                        scaleOut(animationSpec = tween(280), targetScale = 1.06f),
-                    )
-                }
-              contentTransform.using(SizeTransform(clip = false))
-            },
-            label = "visualizer_toggle",
-            modifier = Modifier.fillMaxSize(),
-          ) { isVisualizerActive ->
-          if (isVisualizerActive) {
-            AudioVisualizerViewport(
+                  Modifier.audioPlaybackGestures(
+                    viewModel,
+                    onTap = resetInactivityTimer,
+                    onHold = { onOpenSheet(Sheets.VisualizerStyle) },
+                    enablePlaybackDoubleTap = false,
+                  )
+                },
+              ),
+          contentAlignment = Alignment.Center,
+        ) {
+          val containerWidthPx = constraints.maxWidth.toFloat()
+          val currentOffset = animatableOffsetX.value
+
+          if (showInPlaceLyrics && !isTablet) {
+            app.gyrolet.mpvrx.ui.player.controls.components.LyricsView(
               viewModel = viewModel,
-              style = audioVisualizerStyle,
-              palette = visualizerPalette,
-              isPlaying = isPlaying,
-              isSheetOpen = isSheetOpen,
-              features = visualizerFeatures,
-              onClick = viewModel::toggleAudioVisualizer,
-              onLongClick = { onOpenSheet(Sheets.VisualizerStyle) },
               modifier = Modifier.fillMaxSize(),
+              isLyricsFullscreen = isLyricsFullscreen,
+              onTap = resetInactivityTimer,
+              onOpenTranslateSheet = { onOpenSheet(Sheets.LyricsTranslate) },
             )
           } else {
-            val coverShape = RoundedCornerShape(32.dp)
-            val density = LocalDensity.current
-            val gap = with(density) { 24.dp.toPx() }
-            val stride = containerWidthPx + gap
+            AnimatedContent(
+              targetState = showVisualizer,
+              contentAlignment = Alignment.Center,
+              transitionSpec = {
+                val contentTransform =
+                  if (targetState) {
+                    (fadeIn(animationSpec = tween(350, easing = FastOutSlowInEasing)) +
+                      scaleIn(animationSpec = tween(350, easing = FastOutSlowInEasing), initialScale = 0.90f))
+                      .togetherWith(
+                        fadeOut(animationSpec = tween(280)) +
+                          scaleOut(animationSpec = tween(280), targetScale = 1.06f),
+                      )
+                  } else {
+                    (fadeIn(animationSpec = tween(350, easing = FastOutSlowInEasing)) +
+                      scaleIn(animationSpec = spring(dampingRatio = 0.72f, stiffness = 400f), initialScale = 0.88f))
+                      .togetherWith(
+                        fadeOut(animationSpec = tween(280)) +
+                          scaleOut(animationSpec = tween(280), targetScale = 1.06f),
+                      )
+                  }
+                contentTransform.using(SizeTransform(clip = false))
+              },
+              label = "visualizer_toggle",
+              modifier = Modifier.fillMaxSize(),
+            ) { isVisualizerActive ->
+            if (isVisualizerActive) {
+              AudioVisualizerViewport(
+                viewModel = viewModel,
+                style = audioVisualizerStyle,
+                palette = visualizerPalette,
+                isPlaying = isPlaying,
+                isSheetOpen = isSheetOpen,
+                features = visualizerFeatures,
+                onClick = viewModel::toggleAudioVisualizer,
+                onLongClick = { onOpenSheet(Sheets.VisualizerStyle) },
+                modifier = Modifier.fillMaxSize(),
+                landscape = !isPortrait && !isTablet,
+              )
+            } else {
+              val coverShape = if (isPortrait || isTablet) RoundedCornerShape(32.dp) else androidx.compose.ui.graphics.RectangleShape
+              val coverSize = if (isPortrait || isTablet) {
+                Modifier.aspectRatio(1f, matchHeightConstraintsFirst = isTabletLandscape)
+              } else {
+                Modifier.fillMaxSize()
+              }
+              val density = LocalDensity.current
+              val gap = with(density) { 24.dp.toPx() }
+              val swipeWidth = if (showImmersiveArtwork) immersiveViewportWidthPx else containerWidthPx
+              val stride = if (showImmersiveArtwork) swipeWidth else swipeWidth + gap
+              val swipeAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float> =
+                if (AppMotion.playerReducedMotion()) {
+                  tween(durationMillis = 0)
+                } else {
+                  spring(
+                    stiffness = Spring.StiffnessMediumLow,
+                    dampingRatio = if (showImmersiveArtwork) 1f else 0.85f,
+                  )
+                }
 
-            Box(
-              modifier = Modifier
-                .fillMaxHeight()
-                .fillMaxWidth(if (isTabletPortrait) 0.52f else if (isPortrait) 0.88f else 1f)
-                .pointerInput(viewModel, mediaPath, showVisualizer, containerWidthPx, isAudiobook) {
-                  if (showVisualizer || isAudiobook || containerWidthPx <= 0f) return@pointerInput
-                  detectHorizontalDragGestures(
-                    onDragStart = {
-                      coroutineScope.launch { animatableOffsetX.snapTo(0f) }
-                    },
-                    onDragEnd = {
-                      val threshold = containerWidthPx * 0.25f
-                      val dragVal = animatableOffsetX.value
-                      coroutineScope.launch {
-                        if (dragVal < -threshold) {
-                          haptic.pickup()
-                          animatableOffsetX.animateTo(
-                            targetValue = -stride,
-                            animationSpec = spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.85f),
-                          )
-                          activeCoverOverride = swipeNextCoverBitmap
-                          animatableOffsetX.snapTo(0f)
-                          if (viewModel.hasPlaylistSupport()) {
-                            viewModel.playNext()
+              Box(
+                modifier = Modifier
+                  .fillMaxHeight()
+                  .fillMaxWidth(if (isTablet) (if (isTabletPortrait) 0.92f else 0.88f) else if (isPortrait) 0.88f else 1f)
+                  .pointerInput(viewModel, queueState, showVisualizer, stride, showImmersiveArtwork, isAudiobook, isPortrait, containerWidthPx) {
+                    if (showVisualizer || isAudiobook || swipeWidth <= 0f) return@pointerInput
+                    detectHorizontalDragGestures(
+                      onDragStart = {
+                        coroutineScope.launch { animatableOffsetX.stop() }
+                      },
+                      onDragEnd = {
+                        val threshold = (if (showImmersiveArtwork && !isPortrait) containerWidthPx else swipeWidth) * 0.25f
+                        val dragVal = animatableOffsetX.value
+                        coroutineScope.launch {
+                          if (dragVal < -threshold && nextItem != null) {
+                            haptic.pickup()
+                            animatableOffsetX.animateTo(
+                              targetValue = -stride,
+                              animationSpec = swipeAnimationSpec,
+                            )
+                            activeCoverOverride = swipeNextCoverBitmap
+                            animatableOffsetX.snapTo(0f)
+                            if (viewModel.hasPlaylistSupport()) {
+                              viewModel.playNext()
+                            } else {
+                              runCatching { PlaybackSession.command("playlist-next") }
+                            }
+                          } else if (dragVal > threshold && prevItem != null) {
+                            haptic.pickup()
+                            animatableOffsetX.animateTo(
+                              targetValue = stride,
+                              animationSpec = swipeAnimationSpec,
+                            )
+                            activeCoverOverride = swipePrevCoverBitmap
+                            animatableOffsetX.snapTo(0f)
+                            if (viewModel.hasPlaylistSupport()) {
+                              viewModel.playPrevious()
+                            } else {
+                              runCatching { PlaybackSession.command("playlist-prev") }
+                            }
                           } else {
-                            runCatching { PlaybackSession.command("playlist-next") }
+                            animatableOffsetX.animateTo(
+                              targetValue = 0f,
+                              animationSpec = swipeAnimationSpec,
+                            )
                           }
-                        } else if (dragVal > threshold) {
-                          haptic.pickup()
-                          animatableOffsetX.animateTo(
-                            targetValue = stride,
-                            animationSpec = spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.85f),
-                          )
-                          activeCoverOverride = swipePrevCoverBitmap
-                          animatableOffsetX.snapTo(0f)
-                          if (viewModel.hasPlaylistSupport()) {
-                            viewModel.playPrevious()
-                          } else {
-                            runCatching { PlaybackSession.command("playlist-prev") }
-                          }
-                        } else {
-                          animatableOffsetX.animateTo(
-                            targetValue = 0f,
-                            animationSpec = spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.85f),
+                        }
+                      },
+                      onDragCancel = {
+                        coroutineScope.launch {
+                          animatableOffsetX.animateTo(0f, swipeAnimationSpec)
+                        }
+                      },
+                      onHorizontalDrag = { change, dragAmount ->
+                        change.consume()
+                        coroutineScope.launch {
+                          val target = animatableOffsetX.value + dragAmount
+                          animatableOffsetX.snapTo(
+                            if (showImmersiveArtwork) {
+                              target.coerceIn(if (nextItem != null) -stride else 0f, if (prevItem != null) stride else 0f)
+                            } else {
+                              target
+                            },
                           )
                         }
                       }
-                    },
-                    onDragCancel = {
-                      coroutineScope.launch {
-                        animatableOffsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.85f))
-                      }
-                    },
-                    onHorizontalDrag = { change, dragAmount ->
-                      change.consume()
-                      coroutineScope.launch {
-                        animatableOffsetX.snapTo(animatableOffsetX.value + dragAmount)
-                      }
-                    }
-                  )
-                },
-              contentAlignment = Alignment.Center,
-            ) {
-              // 1. Previous Cover Art Card (Visible when dragging right -> currentOffset > 0)
-              if (currentOffset > 0f) {
-                Surface(
-                  modifier = Modifier
-                    .aspectRatio(1f)
-                    .offset { IntOffset((-stride + currentOffset).roundToInt(), 0) }
-                    .clip(coverShape),
-                  shape = coverShape,
-                  color = Color.Transparent,
-                ) {
-                  CoverArtCardImage(
-                    bitmap = prevCoverBitmap,
-                    artworkUrl = prevItem?.tvgLogo?.takeIf { it.isNotBlank() && !isLocalArtworkSource(prevItem?.path) },
-                    contentScale = if (isAudiobook) ContentScale.Fit else ContentScale.Crop,
-                  )
-                }
-              }
-
-              // 2. Next Cover Art Card (Visible when dragging left -> currentOffset < 0)
-              if (currentOffset < 0f) {
-                Surface(
-                  modifier = Modifier
-                    .aspectRatio(1f)
-                    .offset { IntOffset((stride + currentOffset).roundToInt(), 0) }
-                    .clip(coverShape),
-                  shape = coverShape,
-                  color = Color.Transparent,
-                ) {
-                  CoverArtCardImage(
-                    bitmap = nextCoverBitmap,
-                    artworkUrl = nextItem?.tvgLogo?.takeIf { it.isNotBlank() && !isLocalArtworkSource(nextItem?.path) },
-                    contentScale = if (isAudiobook) ContentScale.Fit else ContentScale.Crop,
-                  )
-                }
-              }
-
-              // 3. Current Cover Art Card
-              Surface(
-                modifier = Modifier
-                  .aspectRatio(1f)
-                  .offset { IntOffset(currentOffset.roundToInt(), 0) }
-                  .clip(coverShape),
-                shape = coverShape,
-                color = Color.Transparent,
+                    )
+                  },
+                contentAlignment = Alignment.Center,
               ) {
-                Box(Modifier.fillMaxSize()) {
-                  CoverArtCardImage(
-                    bitmap = activeCoverOverride ?: albumArtBitmap,
-                    artworkUrl = currentArtworkUri?.takeUnless { isLocalArtworkSource(currentMediaSource) },
-                    contentScale = if (isAudiobook) ContentScale.Fit else ContentScale.Crop,
-                    motionArtwork = currentAudioPresentation?.motionArtwork?.takeIf { activeCoverOverride == null },
-                    isPlaying = isPlaying,
-                    remoteMotionQuery = motionQuery?.takeIf {
-                      activeCoverOverride == null && !showVisualizer && !showInPlaceLyrics
-                    },
-                  )
+                // 1. Previous Cover Art Card (Visible when dragging right -> currentOffset > 0)
+                if (!showImmersiveArtwork && currentOffset > 0f) {
+                  Surface(
+                    modifier = Modifier
+                      .then(coverSize)
+                      .offset { IntOffset((-stride + currentOffset).roundToInt(), 0) }
+                      .clip(coverShape),
+                    shape = coverShape,
+                    color = Color.Transparent,
+                  ) {
+                    CoverArtCardImage(
+                      bitmap = prevCoverBitmap,
+                      artworkUrl = prevItem?.artworkUri?.takeIf {
+                        it.isNotBlank() && !isLocalArtworkSource(prevItem.originalUri)
+                      },
+                      contentScale = if (isAudiobook) ContentScale.Fit else ContentScale.Crop,
+                      modifier = Modifier.artworkHeaderVignette(immersiveSurface, 120.dp),
+                    )
+                  }
+                }
 
+                // 2. Next Cover Art Card (Visible when dragging left -> currentOffset < 0)
+                if (!showImmersiveArtwork && currentOffset < 0f) {
+                  Surface(
+                    modifier = Modifier
+                      .then(coverSize)
+                      .offset { IntOffset((stride + currentOffset).roundToInt(), 0) }
+                      .clip(coverShape),
+                    shape = coverShape,
+                    color = Color.Transparent,
+                  ) {
+                    CoverArtCardImage(
+                      bitmap = nextCoverBitmap,
+                      artworkUrl = nextItem?.artworkUri?.takeIf {
+                        it.isNotBlank() && !isLocalArtworkSource(nextItem.originalUri)
+                      },
+                      contentScale = if (isAudiobook) ContentScale.Fit else ContentScale.Crop,
+                      modifier = Modifier.artworkHeaderVignette(immersiveSurface, 120.dp),
+                    )
+                  }
+                }
+
+                // 3. Current Cover Art Card
+                Surface(
+                  modifier = Modifier
+                    .then(coverSize)
+                    .offset { IntOffset(currentOffset.roundToInt(), 0) }
+                    .clip(coverShape),
+                  shape = coverShape,
+                  color = Color.Transparent,
+                ) {
+                  Box(Modifier.fillMaxSize()) {
+                    if (!showImmersiveArtwork) CoverArtCardImage(
+                      bitmap = activeCoverOverride ?: albumArtBitmap,
+                      artworkUrl = currentArtworkUri?.takeUnless { isLocalArtworkSource(currentMediaSource) },
+                      contentScale = if (isAudiobook) ContentScale.Fit else ContentScale.Crop,
+                      motionArtwork = currentAudioPresentation?.motionArtwork?.takeIf { activeCoverOverride == null },
+                      localMotionArtworkUri = currentAudioPresentation?.folderMotionArtworkUri?.takeIf { activeCoverOverride == null },
+                      isPlaying = isPlaying,
+                      remoteMotionQuery = motionQuery?.takeIf {
+                        activeCoverOverride == null && !showVisualizer && !showInPlaceLyrics
+                      },
+                      modifier = Modifier.artworkHeaderVignette(immersiveSurface, 120.dp),
+                    )
+
+                    if (isAudioOnly && !isAudiobook && activeCoverOverride == null) {
+                      AudioFormatArtworkBadge(
+                        format = audioFormatInfo,
+                        modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
+                      )
+                    }
+                  }
                 }
               }
             }
           }
         }
       }
-    }
-    }
+      }
 
-    @OptIn(ExperimentalFoundationApi::class)
-    val trackMetadataView = @Composable {
-      Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.Start,
-      ) {
-        val displayTitle =
-          remember(audiobook?.book?.title, lastValidTitle, displayArtist) {
-            audiobook?.book?.title ?: cleanSongTitle(lastValidTitle, displayArtist)
-          }
+      @OptIn(ExperimentalFoundationApi::class)
+      val trackMetadataView = @Composable {
+        Column(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalAlignment = Alignment.Start,
+        ) {
+          val displayTitle =
+            remember(audiobook?.book?.title, lastValidTitle, displayArtist) {
+              audiobook?.book?.title ?: cleanSongTitle(lastValidTitle, displayArtist)
+            }
 
-        // 1. Song Title Only
-        Text(
-          text = displayTitle,
-          style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
-          fontFamily = fontFamilyForText(displayTitle),
-          color = MaterialTheme.colorScheme.onSurface,
-          maxLines = 1,
-          overflow = TextOverflow.Ellipsis,
-          modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE),
-        )
-        Spacer(modifier = Modifier.height(2.dp))
-
-        // 2. Singer / Artist Name
-        Text(
-          text = displayArtist,
-          style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Medium),
-          fontFamily = fontFamilyForText(displayArtist),
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-          maxLines = 1,
-          overflow = TextOverflow.Ellipsis,
-          modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE),
-        )
-        Spacer(modifier = Modifier.height(2.dp))
-
-        // 3. Track Info | A-B Loop Control
-        audiobook?.book?.narrator?.takeIf(String::isNotBlank)?.let { narrator ->
+          // 1. Song Title Only
           Text(
-            text = "${stringResource(R.string.audiobook_narrator)}: $narrator",
-            style = MaterialTheme.typography.bodySmall,
+            text = displayTitle,
+            style = (if (isCompactLandscape) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineMedium)
+              .copy(fontWeight = FontWeight.ExtraBold,
+                fontSize = if (isShortLandscape) 18.sp else if (isCompactLandscape) 22.sp else MaterialTheme.typography.headlineMedium.fontSize,
+                lineHeight = if (isShortLandscape) 22.sp else if (isCompactLandscape) 26.sp else MaterialTheme.typography.headlineMedium.lineHeight),
+            fontFamily = fontFamilyForText(displayTitle),
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            minLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE),
+          )
+          Spacer(modifier = Modifier.height(2.dp))
+
+          // 2. Singer / Artist Name
+          Text(
+            text = displayArtist,
+            style = (if (isCompactLandscape) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.titleMedium)
+              .copy(fontWeight = FontWeight.Medium),
+            fontFamily = fontFamilyForText(displayArtist),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
+            minLines = 1,
             overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE),
           )
-          Spacer(Modifier.height(4.dp))
-        }
-        val playlistInfo = viewModel.getPlaylistInfo()
-        val trackText = if (isAudiobook && bookChapterIndex >= 0) {
-          "${stringResource(R.string.audiobook_chapter_number, bookChapterIndex + 1)} / ${chapters.size}"
-        } else if (playlistInfo != null) "Track $playlistInfo" else "Audio Media"
+          Spacer(modifier = Modifier.height(2.dp))
 
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-          Row(
-            modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-          ) {
+          // 3. Track Info | A-B Loop Control
+          audiobook?.book?.narrator?.takeIf(String::isNotBlank)?.let { narrator ->
             Text(
-              text = trackText,
-              style = MaterialTheme.typography.labelLarge,
-              color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+              text = "${stringResource(R.string.audiobook_narrator)}: $narrator",
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
               maxLines = 1,
               overflow = TextOverflow.Ellipsis,
-              modifier = Modifier.combinedClickable(
-                onClick = { onOpenSheet(Sheets.Chapters) },
-                onLongClick = {
-                  if (viewModel.preparePlaybackBookmark()) onOpenSheet(Sheets.BookmarkEditor)
-                },
-              ),
             )
-            Text(
-              text = "|",
-              style = MaterialTheme.typography.labelLarge,
-              color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-            )
+            Spacer(Modifier.height(4.dp))
+          }
+          val playlistInfo = viewModel.getPlaylistInfo()
+          val trackText = if (isAudiobook && bookChapterIndex >= 0) {
+            "${stringResource(R.string.audiobook_chapter_number, bookChapterIndex + 1)} / ${chapters.size}"
+          } else if (playlistInfo != null) "Track $playlistInfo" else "Audio Media"
 
-            // 4. Playback Speed (left of A-B Loop)
-            Surface(
-              shape = CircleShape,
-              color = Color.Transparent,
-              modifier =
-                Modifier
-                  .height(30.dp)
-                  .clip(CircleShape)
-                  .clickable(enabled = !speedConfigOwned, onClick = { onOpenSheet(Sheets.PlaybackSpeed) }),
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+          ) {
+            Row(
+              modifier = Modifier.weight(1f).then(if (isPortrait) Modifier.horizontalScroll(rememberScrollState()) else Modifier),
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-              Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier.padding(horizontal = 10.dp),
-              ) {
-                Icon(
-                  imageVector = Icons.RoundedFilled.Speed,
-                  contentDescription = stringResource(R.string.ui_playback_speed),
-                  tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (speedConfigOwned) 0.38f else 1f),
-                  modifier = Modifier.size(16.dp),
-                )
-                val speedText = String.format("%.2fx", playbackSpeed ?: 1f)
-                Text(
-                  text = speedText,
-                  style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold).withTabularDigits(),
-                  color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (speedConfigOwned) 0.38f else 1f),
-                  modifier = Modifier.stableNumericWidth(speedText),
-                )
-              }
-            }
+              Text(
+                text = trackText,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.combinedClickable(
+                  onClick = { onOpenSheet(Sheets.Chapters) },
+                  onLongClick = {
+                    if (viewModel.preparePlaybackBookmark()) onOpenSheet(Sheets.BookmarkEditor)
+                  },
+                ),
+              )
+              Text(
+                text = "|",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+              )
 
-            AnimatedContent(
-              targetState = abLoop.isExpanded,
-              transitionSpec = {
-                (fadeIn(animationSpec = tween(200)) + expandHorizontally(animationSpec = tween(250)))
-                  .togetherWith(fadeOut(animationSpec = tween(200)) + shrinkHorizontally(animationSpec = tween(250)))
-              },
-              label = "AudioABLoopExpand",
-            ) { expanded ->
-              if (expanded) {
+              // 4. Playback Speed (left of A-B Loop)
+              Surface(
+                shape = CircleShape,
+                color = Color.Transparent,
+                modifier =
+                  Modifier
+                    .height(30.dp)
+                    .clip(CircleShape)
+                    .clickable(enabled = !speedConfigOwned, onClick = { onOpenSheet(Sheets.PlaybackSpeed) }),
+              ) {
                 Row(
-                  horizontalArrangement = Arrangement.spacedBy(6.dp),
                   verticalAlignment = Alignment.CenterVertically,
+                  horizontalArrangement = Arrangement.spacedBy(4.dp),
+                  modifier = Modifier.padding(horizontal = 10.dp),
                 ) {
-                  Surface(
-                    shape = CircleShape,
-                    color =
-                      if (abLoopA !=
-                        null
-                      ) {
-                        MaterialTheme.colorScheme.primaryContainer
-                      } else {
-                        MaterialTheme.colorScheme.surfaceVariant
-                      },
-                    modifier = Modifier.height(30.dp).clip(CircleShape).clickable(onClick = { viewModel.setLoopA() }),
-                  ) {
-                    Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 10.dp)) {
-                      Text(
-                        text = if (abLoopA != null) formatSec(abLoopA.toLong()) else "A",
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                        color =
-                          if (abLoopA !=
-                            null
-                          ) {
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                          } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                          },
-                      )
-                    }
-                  }
-                  Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    modifier =
-                      Modifier.size(30.dp).clip(CircleShape).clickable(onClick = {
-                        viewModel.clearABLoop()
-                        viewModel.toggleABLoopExpanded()
-                      }),
-                  ) {
-                    Box(contentAlignment = Alignment.Center) {
-                      Icon(
-                        imageVector = Icons.RoundedFilled.Close,
-                        contentDescription = "Clear A-B Loop",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(16.dp),
-                      )
-                    }
-                  }
-                  Surface(
-                    shape = CircleShape,
-                    color =
-                      if (abLoopB !=
-                        null
-                      ) {
-                        MaterialTheme.colorScheme.primaryContainer
-                      } else {
-                        MaterialTheme.colorScheme.surfaceVariant
-                      },
-                    modifier = Modifier.height(30.dp).clip(CircleShape).clickable(onClick = { viewModel.setLoopB() }),
-                  ) {
-                    Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 10.dp)) {
-                      Text(
-                        text = if (abLoopB != null) formatSec(abLoopB.toLong()) else "B",
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                        color =
-                          if (abLoopB !=
-                            null
-                          ) {
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                          } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                          },
-                      )
-                    }
-                  }
-                }
-              } else {
-                Surface(
-                  shape = CircleShape,
-                  color = Color.Transparent,
-                  modifier = Modifier.clip(CircleShape).clickable(onClick = viewModel::toggleABLoopExpanded),
-                ) {
-                  AbLoopIcon(
-                    modifier = Modifier.size(30.dp),
-                    tint =
-                      if (abLoopA != null ||
-                        abLoopB != null
-                      ) {
-                        MaterialTheme.colorScheme.primary
-                      } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                      },
-                    isASet = abLoopA != null,
-                    isBSet = abLoopB != null,
+                  Icon(
+                    imageVector = Icons.RoundedFilled.Speed,
+                    contentDescription = stringResource(R.string.ui_playback_speed),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (speedConfigOwned) 0.38f else 1f),
+                    modifier = Modifier.size(16.dp),
+                  )
+                  val speedText = String.format("%.2fx", playbackSpeed ?: 1f)
+                  Text(
+                    text = speedText,
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold).withTabularDigits(),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (speedConfigOwned) 0.38f else 1f),
+                    modifier = Modifier.stableNumericWidth(speedText),
                   )
                 }
               }
-            }
-          }
 
-          Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-          ) {
-            // Favorite Button (right before Add to Playlist)
-            ReactiveIconButton(
-              onClick = {
-                val path = mediaPath?.takeIf { it.isNotBlank() } ?: activeTrackPath ?: return@ReactiveIconButton
-                val server = activeJellyfinServer
-                val itemId = jellyfinInfo?.second
-                val navServer = activeNavidromeServer
-                val navSongId = navidromeInfo?.second
-                val newFavState = !isCurrentTrackFavorite
-
-                coroutineScope.launch {
-                  // Toggle local Room favorite state
-                  playlistRepository.toggleFavorite(filePath = path, fileName = displayTitle, isAudio = true)
-                  actionHaptics.selection(newFavState)
-                  // Toggle Jellyfin server favorite status via API if playing from Jellyfin
-                  if (server != null && !itemId.isNullOrBlank()) {
-                    jellyfinFavoriteOverride = newFavState
-                    withContext(Dispatchers.IO) {
-                      jellyfinRepository.toggleFavorite(server = server, itemId = itemId, isFavorite = newFavState)
+              AnimatedContent(
+                targetState = abLoop.isExpanded,
+                transitionSpec = {
+                  (fadeIn(animationSpec = tween(200)) + expandHorizontally(animationSpec = tween(250)))
+                    .togetherWith(fadeOut(animationSpec = tween(200)) + shrinkHorizontally(animationSpec = tween(250)))
+                },
+                label = "AudioABLoopExpand",
+              ) { expanded ->
+                if (expanded) {
+                  Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                  ) {
+                    Surface(
+                      shape = CircleShape,
+                      color =
+                        if (abLoopA !=
+                          null
+                        ) {
+                          MaterialTheme.colorScheme.primaryContainer
+                        } else {
+                          MaterialTheme.colorScheme.surfaceVariant
+                        },
+                      modifier = Modifier.height(30.dp).clip(CircleShape).clickable(onClick = { viewModel.setLoopA() }),
+                    ) {
+                      Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 10.dp)) {
+                        Text(
+                          text = if (abLoopA != null) formatSec(abLoopA.toLong()) else "A",
+                          style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                          color =
+                            if (abLoopA !=
+                              null
+                            ) {
+                              MaterialTheme.colorScheme.onPrimaryContainer
+                            } else {
+                              MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                      }
+                    }
+                    Surface(
+                      shape = CircleShape,
+                      color = MaterialTheme.colorScheme.surfaceVariant,
+                      modifier =
+                        Modifier.size(30.dp).clip(CircleShape).clickable(onClick = {
+                          viewModel.clearABLoop()
+                          viewModel.toggleABLoopExpanded()
+                        }),
+                    ) {
+                      Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                          imageVector = Icons.RoundedFilled.Close,
+                          contentDescription = "Clear A-B Loop",
+                          tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                          modifier = Modifier.size(16.dp),
+                        )
+                      }
+                    }
+                    Surface(
+                      shape = CircleShape,
+                      color =
+                        if (abLoopB !=
+                          null
+                        ) {
+                          MaterialTheme.colorScheme.primaryContainer
+                        } else {
+                          MaterialTheme.colorScheme.surfaceVariant
+                        },
+                      modifier = Modifier.height(30.dp).clip(CircleShape).clickable(onClick = { viewModel.setLoopB() }),
+                    ) {
+                      Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 10.dp)) {
+                        Text(
+                          text = if (abLoopB != null) formatSec(abLoopB.toLong()) else "B",
+                          style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                          color =
+                            if (abLoopB !=
+                              null
+                            ) {
+                              MaterialTheme.colorScheme.onPrimaryContainer
+                            } else {
+                              MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                      }
                     }
                   }
-                  // Toggle Navidrome server favorite status via API if playing from Navidrome
-                  if (navServer != null && !navSongId.isNullOrBlank()) {
-                    navidromeFavoriteOverride = newFavState
-                    withContext(Dispatchers.IO) {
-                      navidromeRepository.toggleFavorite(server = navServer, songId = navSongId, isFavorite = newFavState)
-                    }
+                } else {
+                  Surface(
+                    shape = CircleShape,
+                    color = Color.Transparent,
+                    modifier = Modifier.clip(CircleShape).clickable(onClick = viewModel::toggleABLoopExpanded),
+                  ) {
+                    AbLoopIcon(
+                      modifier = Modifier.size(30.dp),
+                      tint =
+                        if (abLoopA != null ||
+                          abLoopB != null
+                        ) {
+                          MaterialTheme.colorScheme.primary
+                        } else {
+                          MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                      isASet = abLoopA != null,
+                      isBSet = abLoopB != null,
+                    )
                   }
                 }
-              },
-              modifier = Modifier.size(40.dp),
-            ) {
-              AnimatedIcon(
-                imageVector = if (isCurrentTrackFavorite) Icons.RoundedFilled.Favorite else Icons.RoundedFilled.FavoriteBorder,
-                contentDescription = stringResource(
-                  if (isCurrentTrackFavorite) R.string.generic_remove_from_favorites else R.string.notification_add_to_favorites,
-                ),
-                tint = if (isCurrentTrackFavorite) Color.White else MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.size(28.dp),
-                reduceMotion = AppMotion.playerReducedMotion(),
-              )
+              }
             }
 
-            ReactiveIconButton(
-              onClick = { addToPlaylistDialogOpen = true },
-              modifier = Modifier.size(40.dp),
+            Row(
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-              Icon(
-                imageVector = Icons.RoundedFilled.PlaylistAdd,
-                contentDescription = stringResource(R.string.ui_add_to_playlist),
-                tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.size(32.dp),
-              )
+              // Favorite Button (right before Add to Playlist)
+              ReactiveIconButton(
+                onClick = {
+                  val path = mediaPath?.takeIf { it.isNotBlank() } ?: activeTrackPath ?: return@ReactiveIconButton
+                  val server = activeJellyfinServer
+                  val itemId = jellyfinInfo?.second
+                  val navServer = activeNavidromeServer
+                  val navSongId = navidromeInfo?.second
+                  val newFavState = !isCurrentTrackFavorite
+
+                  coroutineScope.launch {
+                    // Toggle local Room favorite state
+                    playlistRepository.toggleFavorite(filePath = path, fileName = displayTitle, isAudio = true)
+                    actionHaptics.selection(newFavState)
+                    // Toggle Jellyfin server favorite status via API if playing from Jellyfin
+                    if (server != null && !itemId.isNullOrBlank()) {
+                      jellyfinFavoriteOverride = newFavState
+                      withContext(Dispatchers.IO) {
+                        jellyfinRepository.toggleFavorite(server = server, itemId = itemId, isFavorite = newFavState)
+                      }
+                    }
+                    // Toggle Navidrome server favorite status via API if playing from Navidrome
+                    if (navServer != null && !navSongId.isNullOrBlank()) {
+                      navidromeFavoriteOverride = newFavState
+                      withContext(Dispatchers.IO) {
+                        navidromeRepository.toggleFavorite(server = navServer, songId = navSongId, isFavorite = newFavState)
+                      }
+                    }
+                  }
+                },
+                modifier = Modifier.size(if (isCompactLandscape) 32.dp else 40.dp),
+              ) {
+                AnimatedIcon(
+                  imageVector = if (isCurrentTrackFavorite) Icons.RoundedFilled.Favorite else Icons.RoundedFilled.FavoriteBorder,
+                  contentDescription = stringResource(
+                    if (isCurrentTrackFavorite) R.string.generic_remove_from_favorites else R.string.notification_add_to_favorites,
+                  ),
+                  tint = if (isCurrentTrackFavorite) Color.White else MaterialTheme.colorScheme.onSurface,
+                  modifier = Modifier.size(28.dp),
+                  reduceMotion = AppMotion.playerReducedMotion(),
+                )
+              }
+
+              ReactiveIconButton(
+                onClick = { addToPlaylistDialogOpen = true },
+                modifier = Modifier.size(40.dp),
+              ) {
+                Icon(
+                  imageVector = Icons.RoundedFilled.PlaylistAdd,
+                  contentDescription = stringResource(R.string.ui_add_to_playlist),
+                  tint = MaterialTheme.colorScheme.onSurface,
+                  modifier = Modifier.size(32.dp),
+                )
+              }
             }
           }
         }
       }
-    }
 
-    val lyricsSourceLineView = @Composable {
-      val lyricsState by viewModel.lyricsUiState.collectAsState()
-      app.gyrolet.mpvrx.ui.player.controls.components.LyricsSourceLine(
-        preferredProvider = lyricsState.preferredProvider,
-        onlineProvider = lyricsState.onlineProvider,
-        isLoading = lyricsState.isLoading,
-        onOpenSheet = {
-          onOpenSheet(Sheets.LyricsProvider)
-          resetInactivityTimer()
-        },
-      )
-    }
-
-    val currentLyricStripView = @Composable {
-      val lyricsState by viewModel.lyricsUiState.collectAsState()
-      val translationDisplayMode by audioPreferences.lyricsTranslationDisplayMode.collectAsState()
-      val activeLyrics = lyricsState.lyrics
-      val syncedLines = activeLyrics?.synced
-      val activeIndex = lyricsState.activeLineIndex
-      val precisePosition by viewModel.precisePosition.collectAsStateWithLifecycle()
-      val paused by PlaybackSession.propBoolean["pause"].collectAsState()
-      val playbackSpeed by PlaybackSession.propFloat["speed"].collectAsState()
-
-      val currentPosMs = remember(precisePosition, lyricsState.syncOffsetMs) {
-        (precisePosition * 1000).toLong() + lyricsState.syncOffsetMs
-      }
-      val smoothPositionMs = rememberSmoothedPositionMs(currentPosMs, paused == false, playbackSpeed ?: 1f)
-
-      val currentLine = syncedLines?.getOrNull(activeIndex)
-      val hasSyncedLyrics = !syncedLines.isNullOrEmpty()
-      val isInstrumentalGap = hasSyncedLyrics && (currentLine == null || currentLine.line.isBlank() || currentLine.line.trim().equals("[instrumental]", ignoreCase = true) || currentLine.line.trim().equals("instrumental", ignoreCase = true))
-
-      Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Start,
-        modifier = Modifier
-          .fillMaxWidth()
-          .clip(RoundedCornerShape(8.dp))
-          .clickable {
-            if (isTabletLandscape) {
-              tabletDualPaneTab = 1
-            } else {
-              showInPlaceLyrics = true
-            }
+      val lyricsSourceLineView = @Composable {
+        val lyricsState by viewModel.lyricsUiState.collectAsState()
+        app.gyrolet.mpvrx.ui.player.controls.components.LyricsSourceLine(
+          preferredProvider = lyricsState.preferredProvider,
+          onlineProvider = lyricsState.onlineProvider,
+          isLoading = lyricsState.isLoading,
+          hasSavedEdits = lyricsState.hasSavedEdits && lyricsState.selectedSource == app.gyrolet.mpvrx.domain.lyrics.LyricsSourceType.LOCAL,
+          onOpenSheet = {
+            onOpenSheet(Sheets.LyricsProvider)
             resetInactivityTimer()
-          }
-          .padding(horizontal = 4.dp, vertical = 4.dp),
-      ) {
-        Box(
-          modifier = Modifier.weight(1f, fill = false),
-          contentAlignment = Alignment.CenterStart,
-        ) {
-          if (lyricsState.isLoading) {
-            Row(
-              verticalAlignment = Alignment.CenterVertically,
-              horizontalArrangement = Arrangement.Start,
-            ) {
-              CircularProgressIndicator(
-                modifier = Modifier.size(14.dp),
-                strokeWidth = 2.dp,
-                color = MaterialTheme.colorScheme.primary,
-              )
-              Spacer(Modifier.width(8.dp))
-              val loadingLine =
-                app.gyrolet.mpvrx.ui.player.controls.components.rememberPlaceholderLine(
-                  app.gyrolet.mpvrx.ui.player.controls.components.LyricsPlaceholders.LOADING,
-                  app.gyrolet.mpvrx.ui.player.controls.components.PLACEHOLDER_ROTATE_MS,
-                )
-              Text(
-                text = loadingLine,
-                style = MaterialTheme.typography.titleMedium.copy(
-                  fontSize = 18.sp,
-                  fontWeight = FontWeight.Bold,
-                  fontFamily = fontFamilyForText(loadingLine),
-                ),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Start,
-              )
+          },
+        )
+      }
+
+      val currentLyricStripView = @Composable {
+        val lyricsState by viewModel.lyricsUiState.collectAsState()
+        val translationDisplayMode by audioPreferences.lyricsTranslationDisplayMode.collectAsState()
+        val activeLyrics = lyricsState.lyrics
+        val syncedLines = activeLyrics?.synced
+        val activeIndex = lyricsState.activeLineIndex
+        val precisePosition by viewModel.precisePosition.collectAsStateWithLifecycle()
+        val paused by PlaybackSession.propBoolean["pause"].collectAsState()
+        val playbackSpeed by PlaybackSession.propFloat["speed"].collectAsState()
+
+        val currentPosMs = remember(precisePosition, lyricsState.syncOffsetMs) {
+          (precisePosition * 1000).toLong() + lyricsState.syncOffsetMs
+        }
+        val smoothPositionMs = rememberSmoothedPositionMs(currentPosMs, paused == false, playbackSpeed ?: 1f)
+
+        val currentLine = syncedLines?.getOrNull(activeIndex)
+        val hasSyncedLyrics = !syncedLines.isNullOrEmpty()
+        val isInstrumentalGap = hasSyncedLyrics && (currentLine == null || currentLine.line.isBlank() || currentLine.line.trim().equals("[instrumental]", ignoreCase = true) || currentLine.line.trim().equals("instrumental", ignoreCase = true))
+
+        Row(
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.Start,
+          modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable {
+              if (isTablet) {
+                tabletDualPaneTab = 1
+              } else {
+                showInPlaceLyrics = true
+              }
+              resetInactivityTimer()
             }
-          } else if (hasSyncedLyrics) {
-            if (isInstrumentalGap) {
+            .padding(horizontal = 4.dp, vertical = 4.dp),
+        ) {
+          Box(
+            modifier = Modifier.weight(1f, fill = false),
+            contentAlignment = Alignment.CenterStart,
+          ) {
+            if (lyricsState.isLoading) {
+              Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Start,
+              ) {
+                CircularProgressIndicator(
+                  modifier = Modifier.size(14.dp),
+                  strokeWidth = 2.dp,
+                  color = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.width(8.dp))
+                val loadingLine =
+                  app.gyrolet.mpvrx.ui.player.controls.components.rememberPlaceholderLine(
+                    app.gyrolet.mpvrx.ui.player.controls.components.LyricsPlaceholders.LOADING,
+                    app.gyrolet.mpvrx.ui.player.controls.components.PLACEHOLDER_ROTATE_MS,
+                  )
+                Text(
+                  text = loadingLine,
+                  style = MaterialTheme.typography.titleMedium.copy(
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = fontFamilyForText(loadingLine),
+                  ),
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+                  maxLines = 1,
+                  overflow = TextOverflow.Ellipsis,
+                  textAlign = TextAlign.Start,
+                )
+              }
+            } else if (hasSyncedLyrics) {
+              if (isInstrumentalGap) {
+                Row(
+                  verticalAlignment = Alignment.CenterVertically,
+                  horizontalArrangement = Arrangement.Start,
+                ) {
+                  Icon(
+                    imageVector = Icons.RoundedFilled.Audiotrack,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp),
+                  )
+                  Spacer(Modifier.width(6.dp))
+                  // Before the first line it is the intro, which deserves more than a label.
+                  val gapLabel =
+                    if (activeIndex <= 0) {
+                      app.gyrolet.mpvrx.ui.player.controls.components.rememberPlaceholderLine(app.gyrolet.mpvrx.ui.player.controls.components.LyricsPlaceholders.INTRO)
+                    } else {
+                      stringResource(R.string.instrumental)
+                    }
+                  Text(
+                    text = gapLabel,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                      fontSize = 18.sp,
+                      fontWeight = FontWeight.Medium,
+                      fontFamily = fontFamilyForText(gapLabel),
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Start,
+                  )
+                }
+              } else {
+                val rawTrans = currentLine?.translation?.trim()
+                val displayText = if (translationDisplayMode == LyricsTranslationDisplayMode.Replace && !rawTrans.isNullOrBlank()) {
+                  rawTrans
+                } else {
+                  currentLine?.line?.trim() ?: ""
+                }
+
+                AnimatedContent(
+                  targetState = Triple(currentLine, syncedLines.getOrNull(activeIndex + 1)?.time, displayText),
+                  transitionSpec = {
+                    (fadeIn(animationSpec = tween(300, easing = FastOutSlowInEasing)) +
+                      slideInVertically(animationSpec = tween(300, easing = FastOutSlowInEasing)) { height -> (height * 0.4f).toInt() })
+                      .togetherWith(
+                        fadeOut(animationSpec = tween(280, easing = FastOutSlowInEasing)) +
+                          slideOutVertically(animationSpec = tween(280, easing = FastOutSlowInEasing)) { height -> -(height * 0.4f).toInt() },
+                      ).using(
+                        SizeTransform(clip = false),
+                      )
+                  },
+                  label = "currentLyricTransition",
+                  contentAlignment = Alignment.CenterStart,
+                  modifier = Modifier.fillMaxWidth(),
+                ) { (line, nextLineTime, text) ->
+                  val words = if (line != null && text == line.line.trim()) line.words else null
+                  val scrollState = rememberScrollState()
+                  val lyricLayout = remember(line, text) { mutableStateOf<TextLayoutResult?>(null) }
+                  val isRtl = text.hasRtlDirection()
+                  val lineStartMs = line?.time?.toLong() ?: 0L
+                  val lineEndMs = nextLineTime?.toLong()?.takeIf { it > lineStartMs } ?: (lineStartMs + 8_000L)
+                  val sweepEndMs = if (!words.isNullOrEmpty()) {
+                    lyricWordEndTime(
+                      words, words.lastIndex, line?.endTime?.toLong(),
+                      nextLineTime?.toLong()?.coerceAtMost(lineStartMs + 8_000L),
+                    )
+                  } else {
+                    lineEndMs
+                  }
+                  val spans = remember(text, words, sweepEndMs) {
+                    lyricWordSpans(text, words.orEmpty(), sweepEndMs)
+                  }
+
+                  LaunchedEffect(line, nextLineTime, text, scrollState, spans, isRtl) {
+                    snapshotFlow {
+                      val maxScroll = scrollState.maxValue
+                      val viewportWidth = scrollState.viewportSize
+                      if (maxScroll <= 0 || maxScroll == Int.MAX_VALUE || viewportWidth <= 0) {
+                        0
+                      } else {
+                        val positionMs = smoothPositionMs.value
+                        val highlightPosition = if (!words.isNullOrEmpty()) {
+                          val layout = lyricLayout.value
+                          if (layout == null || spans.isEmpty()) {
+                            0f
+                          } else {
+                            val head = lyricCharacterPosition(text.length, spans, positionMs)
+                            val x = lyricSweepX(layout, head, isRtl)
+                            if (isRtl) layout.size.width - x else x
+                          }
+                        } else {
+                          val progress = ((positionMs - lineStartMs).toFloat() / (lineEndMs - lineStartMs))
+                            .coerceIn(0f, 1f)
+                          (maxScroll.toFloat() + viewportWidth) * progress
+                        }
+                        (highlightPosition - viewportWidth * 0.65f).roundToInt().coerceIn(0, maxScroll)
+                      }
+                    }.collect { offset ->
+                      scrollState.scrollTo(offset)
+                    }
+                  }
+
+                  if (!words.isNullOrEmpty()) {
+                    val activeColor = MaterialTheme.colorScheme.onSurface
+                    val inactiveColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f)
+                    CompositionLocalProvider(
+                      LocalLayoutDirection provides if (isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr,
+                    ) {
+                      SweepingLyricText(
+                        text = text,
+                        words = words,
+                        endTimeMs = sweepEndMs,
+                        positionMs = smoothPositionMs,
+                        activeColor = activeColor,
+                        inactiveColor = inactiveColor,
+                        fontSize = 19.sp,
+                        textAlign = TextAlign.Start,
+                        modifier = Modifier
+                          .fillMaxWidth()
+                          .horizontalScroll(scrollState, enabled = false),
+                        maxLines = 1,
+                        softWrap = false,
+                        onTextLayout = { lyricLayout.value = it },
+                      )
+                    }
+                  } else {
+                    Text(
+                      text = text,
+                      modifier = Modifier.fillMaxWidth().horizontalScroll(scrollState, enabled = false),
+                      style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontFamily = fontFamilyForText(text),
+                      ),
+                      color = MaterialTheme.colorScheme.onSurface,
+                      maxLines = 1,
+                      softWrap = false,
+                      overflow = TextOverflow.Clip,
+                      textAlign = TextAlign.Start,
+                    )
+                  }
+                }
+              }
+            } else if (!activeLyrics?.plain.isNullOrEmpty()) {
               Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Start,
@@ -1923,621 +2438,527 @@ fun AudioPlayerControls(
                   modifier = Modifier.size(18.dp),
                 )
                 Spacer(Modifier.width(6.dp))
-                // Before the first line it is the intro, which deserves more than a label.
-                val gapLabel =
-                  if (activeIndex <= 0) {
-                    app.gyrolet.mpvrx.ui.player.controls.components.rememberPlaceholderLine(app.gyrolet.mpvrx.ui.player.controls.components.LyricsPlaceholders.INTRO)
-                  } else {
-                    stringResource(R.string.instrumental)
-                  }
                 Text(
-                  text = gapLabel,
+                  text = stringResource(R.string.player_lyrics_title),
                   style = MaterialTheme.typography.titleMedium.copy(
                     fontSize = 18.sp,
-                    fontWeight = FontWeight.Medium,
-                    fontFamily = fontFamilyForText(gapLabel),
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = fontFamilyForText(stringResource(R.string.player_lyrics_title)),
                   ),
-                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+                  color = MaterialTheme.colorScheme.onSurface,
                   maxLines = 1,
                   overflow = TextOverflow.Ellipsis,
                   textAlign = TextAlign.Start,
                 )
               }
             } else {
-              val rawTrans = currentLine?.translation?.trim()
-              val displayText = if (translationDisplayMode == LyricsTranslationDisplayMode.Replace && !rawTrans.isNullOrBlank()) {
-                rawTrans
-              } else {
-                currentLine?.line?.trim() ?: ""
-              }
-
-              AnimatedContent(
-                targetState = Triple(currentLine, syncedLines.getOrNull(activeIndex + 1)?.time, displayText),
-                transitionSpec = {
-                  (fadeIn(animationSpec = tween(300, easing = FastOutSlowInEasing)) +
-                    slideInVertically(animationSpec = tween(300, easing = FastOutSlowInEasing)) { height -> (height * 0.4f).toInt() })
-                    .togetherWith(
-                      fadeOut(animationSpec = tween(280, easing = FastOutSlowInEasing)) +
-                        slideOutVertically(animationSpec = tween(280, easing = FastOutSlowInEasing)) { height -> -(height * 0.4f).toInt() },
-                    ).using(
-                      SizeTransform(clip = false),
-                    )
-                },
-                label = "currentLyricTransition",
-                contentAlignment = Alignment.CenterStart,
-                modifier = Modifier.fillMaxWidth(),
-              ) { (line, nextLineTime, text) ->
-                val words = if (line != null && text == line.line.trim()) line.words else null
-                val scrollState = rememberScrollState()
-                val wordWidths = remember(line, text) { mutableStateMapOf<Int, Int>() }
-                val lineStartMs = line?.time?.toLong() ?: 0L
-                val lineEndMs = nextLineTime?.toLong()?.takeIf { it > lineStartMs } ?: (lineStartMs + 8_000L)
-                val wordEndTimes = remember(words, lineStartMs, nextLineTime) {
-                  words.orEmpty().mapIndexed { wordIndex, word ->
-                    val wordStartMs = word.time.toLong()
-                    words?.getOrNull(wordIndex + 1)?.time?.toLong()
-                      ?.takeIf { it > wordStartMs }
-                      ?: nextLineTime?.toLong()
-                        ?.coerceAtMost(lineStartMs + 8_000L)
-                        ?.takeIf { it > wordStartMs }
-                      ?: (wordStartMs + 600L)
+              Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Start,
+              ) {
+                Icon(
+                  imageVector = Icons.RoundedFilled.Lyrics,
+                  contentDescription = null,
+                  tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                  modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+                val emptyLine =
+                  if (isAudiobook) {
+                    stringResource(R.string.audiobook_no_text)
+                  } else {
+                    app.gyrolet.mpvrx.ui.player.controls.components.rememberPlaceholderLine(app.gyrolet.mpvrx.ui.player.controls.components.LyricsPlaceholders.EMPTY)
                   }
-                }
-
-                LaunchedEffect(line, nextLineTime, text, scrollState) {
-                  snapshotFlow {
-                    val maxScroll = scrollState.maxValue
-                    val viewportWidth = scrollState.viewportSize
-                    if (maxScroll <= 0 || maxScroll == Int.MAX_VALUE || viewportWidth <= 0) {
-                      0
-                    } else {
-                      val positionMs = smoothPositionMs.value
-                      val highlightPosition = if (!words.isNullOrEmpty()) {
-                        val activeWordIndex = words.indexOfLast { it.time.toLong() <= positionMs }
-                        if (activeWordIndex < 0 || wordWidths.size != words.size) {
-                          0f
-                        } else {
-                          val wordStartMs = words[activeWordIndex].time.toLong()
-                          val wordDurationMs = (wordEndTimes[activeWordIndex] - wordStartMs).coerceAtLeast(1L)
-                          val progress = ((positionMs - wordStartMs).toFloat() / wordDurationMs).coerceIn(0f, 1f)
-                          val precedingWidth = (0 until activeWordIndex).sumOf { wordWidths[it] ?: 0 }
-                          precedingWidth + (wordWidths[activeWordIndex] ?: 0) * progress
-                        }
-                      } else {
-                        val progress = ((positionMs - lineStartMs).toFloat() / (lineEndMs - lineStartMs))
-                          .coerceIn(0f, 1f)
-                        (maxScroll.toFloat() + viewportWidth) * progress
-                      }
-                      (highlightPosition - viewportWidth * 0.65f).roundToInt().coerceIn(0, maxScroll)
-                    }
-                  }.collect { offset ->
-                    scrollState.scrollTo(offset)
-                  }
-                }
-
-                if (!words.isNullOrEmpty()) {
-                  val activeColor = MaterialTheme.colorScheme.onSurface
-                  val inactiveColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f)
-                  val isRtl = text.hasRtlDirection()
-                  CompositionLocalProvider(
-                    LocalLayoutDirection provides if (isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr,
-                  ) {
-                    Row(
-                      modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(scrollState, enabled = false),
-                      horizontalArrangement = Arrangement.Start,
-                      verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                      words.forEachIndexed { wordIndex, word ->
-                        Box(Modifier.onSizeChanged { wordWidths[wordIndex] = it.width }) {
-                          AnimatedLyricWord(
-                            word = word,
-                            endTimeMs = wordEndTimes[wordIndex],
-                            positionMs = smoothPositionMs,
-                            activeColor = activeColor,
-                            inactiveColor = inactiveColor,
-                            fontSize = 19.sp,
-                            isRtl = isRtl,
-                          )
-                        }
-                      }
-                    }
-                  }
-                } else {
-                  Text(
-                    text = text,
-                    modifier = Modifier.fillMaxWidth().horizontalScroll(scrollState, enabled = false),
-                    style = MaterialTheme.typography.titleMedium.copy(
-                      fontSize = 19.sp,
-                      fontWeight = FontWeight.ExtraBold,
-                      fontFamily = fontFamilyForText(text),
-                    ),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    softWrap = false,
-                    overflow = TextOverflow.Clip,
-                    textAlign = TextAlign.Start,
-                  )
-                }
+                Text(
+                  text = emptyLine,
+                  style = MaterialTheme.typography.titleMedium.copy(
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Normal,
+                    fontFamily = fontFamilyForText(emptyLine),
+                  ),
+                  color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                  maxLines = 1,
+                  overflow = TextOverflow.Ellipsis,
+                  textAlign = TextAlign.Start,
+                )
               }
             }
-          } else if (!activeLyrics?.plain.isNullOrEmpty()) {
-            Row(
-              verticalAlignment = Alignment.CenterVertically,
-              horizontalArrangement = Arrangement.Start,
-            ) {
-              Icon(
-                imageVector = Icons.RoundedFilled.Audiotrack,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(18.dp),
-              )
-              Spacer(Modifier.width(6.dp))
-              Text(
-                text = stringResource(R.string.player_lyrics_title),
-                style = MaterialTheme.typography.titleMedium.copy(
-                  fontSize = 18.sp,
-                  fontWeight = FontWeight.Bold,
-                  fontFamily = fontFamilyForText(stringResource(R.string.player_lyrics_title)),
-                ),
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Start,
-              )
-            }
-          } else {
-            Row(
-              verticalAlignment = Alignment.CenterVertically,
-              horizontalArrangement = Arrangement.Start,
-            ) {
-              Icon(
-                imageVector = Icons.RoundedFilled.Lyrics,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                modifier = Modifier.size(18.dp),
-              )
-              Spacer(Modifier.width(6.dp))
-              val emptyLine =
-                if (isAudiobook) {
-                  stringResource(R.string.audiobook_no_text)
-                } else {
-                  app.gyrolet.mpvrx.ui.player.controls.components.rememberPlaceholderLine(app.gyrolet.mpvrx.ui.player.controls.components.LyricsPlaceholders.EMPTY)
-                }
-              Text(
-                text = emptyLine,
-                style = MaterialTheme.typography.titleMedium.copy(
-                  fontSize = 18.sp,
-                  fontWeight = FontWeight.Normal,
-                  fontFamily = fontFamilyForText(emptyLine),
-                ),
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Start,
-              )
-            }
           }
-        }
 
-        Spacer(Modifier.width(6.dp))
-        Icon(
-          imageVector = Icons.RoundedFilled.ChevronRight,
-          contentDescription = null,
-          tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-          modifier = Modifier.size(18.dp),
-        )
-      }
-    }
-
-    val seekbarView = @Composable {
-      val position by PlaybackSession.propInt["time-pos"].collectAsStateWithLifecycle()
-      val remaining  by PlaybackSession.propFloat["playtime-remaining"].collectAsState()
-      val precisePosition by viewModel.precisePosition.collectAsStateWithLifecycle()
-      val currentPosSec = if (precisePosition > 0f) precisePosition else position?.toFloat() ?: 0f
-      val isPaused = paused ?: false
-      val bookOffset = currentItem?.audiobook?.let { audiobook?.positionInBook(it.trackId, 0) }?.div(1000f) ?: 0f
-      val timelinePosition = if (audiobook != null) (bookOffset + currentPosSec).coerceIn(0f, audiobook.durationMs / 1000f) else currentPosSec
-      val timelineDuration = audiobook?.durationMs?.div(1000f) ?: currentDurSec
-      val effectiveRemaining =
-        if (audiobook != null) (timelineDuration - timelinePosition).coerceAtLeast(0f) / (playbackSpeed ?: 1f).coerceAtLeast(0.1f)
-        else (remaining ?: 0f).takeIf { it > 0f }
-          ?: (currentDurSec - currentPosSec).coerceAtLeast(0f)
-
-      androidx.compose.runtime.key(audiobook?.book?.id ?: currentItem?.stableId) {
-      SeekbarWithTimers(
-        position = timelinePosition,
-        committedPosition = timelinePosition,
-        duration = timelineDuration.coerceAtLeast(1f),
-        remaining = effectiveRemaining,
-        onValueChange = { value -> if (!isAudiobook) viewModel.seekPreviewTo(value) },
-        onValueChangeFinished = viewModel::seekAudioTo,
-        timersInverted = Pair(false, invertDuration),
-        durationTimerOnCLick = { playerPreferences.invertDuration.set(!invertDuration) },
-        positionTimerOnClick = {},
-        chapters = seekbarChapters,
-        skipSegments = persistentListOf(),
-        paused = isPaused,
-        seekbarStyle = seekbarStyle,
-        showWavyVisualizer = audioWavySeekbar,
-        waveFeatures = if (audioWavySeekbar) visualizerFeatures else null,
-        wavePalette = visualizerPalette,
-        waveSheetOpen = isSheetOpen,
-        loopStart = abLoopA?.toFloat()?.plus(bookOffset),
-        loopEnd = abLoopB?.toFloat()?.plus(bookOffset),
-        isPortrait = true,
-        applyHorizontalPadding = false,
-        centerContent = {
-          audioFormatInfo?.let { format ->
-            Surface(
-              shape = RoundedCornerShape(8.dp),
-              color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f),
-              modifier = Modifier.clickable { showAudioFormatDetails = !showAudioFormatDetails },
-            ) {
-              Text(
-                text = when {
-                  showAudioFormatDetails -> format.details(qualityLabel)
-                  format.quality == AudioQuality.Unknown -> format.codecLabel
-                  else -> "${format.codecLabel} · $qualityLabel"
-                },
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 0.8.sp),
-                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-              )
-            }
-          }
-        },
-        modifier = Modifier.fillMaxWidth(),
-      )
-      }
-    }
-
-    val playbackControlsRow = @Composable {
-      val seekable by PlaybackSession.propBoolean["seekable"].collectAsStateWithLifecycle()
-      val canSeek = seekable == true && playbackState.phase in setOf(PlaybackPhase.READY, PlaybackPhase.BACKGROUND)
-      val prevEnabled = if (isAudiobook) bookChapterIndex >= 0 else playlistModeEnabled
-      val nextEnabled = if (isAudiobook) bookChapterIndex >= 0 && bookChapterIndex < chapters.lastIndex else playlistModeEnabled
-      Row(
-        modifier =
-          Modifier
-            .fillMaxWidth()
-            .then(if (isAudiobook) Modifier.horizontalScroll(rememberScrollState()) else Modifier),
-        horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment = Alignment.CenterVertically,
-      ) {
-        ReactiveIconButton(
-          onClick = {
-            if (isAudiobook) viewModel.stepPlaybackChapter(-1) else viewModel.playPrevious()
-          },
-          enabled = prevEnabled,
-          modifier = Modifier.size(if (isAudiobook) 48.dp else 56.dp),
-        ) {
+          Spacer(Modifier.width(6.dp))
           Icon(
-            imageVector = Icons.RoundedFilled.SkipPrevious,
-            contentDescription = if (isAudiobook) stringResource(R.string.audiobook_previous_chapter) else null,
-            tint =
-              if (prevEnabled) {
-                MaterialTheme.colorScheme.onSurface
-              } else {
-                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-              },
-            modifier = Modifier.size(if (isAudiobook) 28.dp else 38.dp),
+            imageVector = Icons.RoundedFilled.ChevronRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            modifier = Modifier.size(18.dp),
           )
         }
-        if (isAudiobook) {
-          AudioSeekButton(forward = false, seconds = 30, enabled = canSeek) {
-            viewModel.seekBy(-30)
-            actionHaptics.confirm()
-          }
+      }
+
+      val seekbarView = @Composable {
+        val position by PlaybackSession.propInt["time-pos"].collectAsStateWithLifecycle()
+        val remaining  by PlaybackSession.propFloat["playtime-remaining"].collectAsState()
+        val precisePosition by viewModel.precisePosition.collectAsStateWithLifecycle()
+        val currentPosSec = if (precisePosition > 0f) precisePosition else position?.toFloat() ?: 0f
+        val isPaused = paused ?: false
+        val bookOffset = currentItem?.audiobook?.let { audiobook?.positionInBook(it.trackId, 0) }?.div(1000f) ?: 0f
+        val timelinePosition = if (audiobook != null) (bookOffset + currentPosSec).coerceIn(0f, audiobook.durationMs / 1000f) else currentPosSec
+        val timelineDuration = audiobook?.durationMs?.div(1000f) ?: currentDurSec
+        val effectiveRemaining =
+          if (audiobook != null) (timelineDuration - timelinePosition).coerceAtLeast(0f) / (playbackSpeed ?: 1f).coerceAtLeast(0.1f)
+          else (remaining ?: 0f).takeIf { it > 0f }
+            ?: (currentDurSec - currentPosSec).coerceAtLeast(0f)
+
+        androidx.compose.runtime.key(audiobook?.book?.id ?: currentItem?.stableId) {
+        val isLiveMedia by viewModel.isLiveMedia.collectAsState()
+        SeekbarWithTimers(
+          isLive = isLiveMedia,
+          position = timelinePosition,
+          committedPosition = timelinePosition,
+          duration = timelineDuration.coerceAtLeast(1f),
+          remaining = effectiveRemaining,
+          onValueChange = { value -> if (!isAudiobook) viewModel.scrubTo(value) },
+          onValueChangeFinished = viewModel::seekAudioTo,
+          timersInverted = Pair(false, invertDuration),
+          durationTimerOnCLick = { playerPreferences.invertDuration.set(!invertDuration) },
+          positionTimerOnClick = {},
+          chapters = seekbarChapters,
+          skipSegments = persistentListOf(),
+          paused = isPaused,
+          seekbarStyle = seekbarStyle,
+          showWavyVisualizer = audioWavySeekbar,
+          waveFeatures = if (audioWavySeekbar) visualizerFeatures else null,
+          wavePalette = visualizerPalette,
+          waveSheetOpen = isSheetOpen,
+          loopStart = abLoopA?.toFloat()?.plus(bookOffset),
+          loopEnd = abLoopB?.toFloat()?.plus(bookOffset),
+          isPortrait = !isCompactLandscape,
+          applyHorizontalPadding = false,
+          centerContent = {
+            Box(Modifier.height(28.dp).widthIn(max = 200.dp), contentAlignment = Alignment.Center) {
+            audioFormatInfo?.let { format ->
+              Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f),
+                modifier = Modifier.combinedClickable(
+                  onClick = { showAudioFormatDetails = !showAudioFormatDetails },
+                  onLongClick = { onOpenSheet(Sheets.AudioProperties) },
+                  onLongClickLabel = stringResource(R.string.audio_information_title),
+                ),
+              ) {
+                Text(
+                  text = when {
+                    showAudioFormatDetails -> format.details(qualityLabel)
+                    format.quality == AudioQuality.Unknown -> format.codecLabel
+                    else -> "${format.codecLabel} · $qualityLabel"
+                  },
+                  style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 0.8.sp),
+                  color = MaterialTheme.colorScheme.onSecondaryContainer,
+                  modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                  maxLines = 1,
+                  overflow = TextOverflow.Ellipsis,
+                )
+              }
+            }
+            }
+          },
+          modifier = Modifier.fillMaxWidth(),
+        )
         }
-        ReactiveSurfaceButton(
-          onClick = { viewModel.pauseUnpause() },
-          shape = CircleShape,
-          color = MaterialTheme.colorScheme.primary,
-          modifier = Modifier.tvInitialFocus(tvPlayFocusRequester).size(if (isPortrait) 76.dp else 64.dp),
-          shadowElevation = 8.dp,
+      }
+
+      val playbackControlsRow = @Composable {
+        val seekable by PlaybackSession.propBoolean["seekable"].collectAsStateWithLifecycle()
+        val canSeek = seekable == true && playbackState.phase in setOf(PlaybackPhase.READY, PlaybackPhase.BACKGROUND)
+        val prevEnabled = if (isAudiobook) bookChapterIndex >= 0 else playlistModeEnabled
+        val nextEnabled =
+          if (isAudiobook) bookChapterIndex >= 0 && bookChapterIndex < chapters.lastIndex else playlistModeEnabled
+        val sideSize =
+          when {
+            isShortLandscape -> 42.dp
+            isCompactLandscape -> 48.dp
+            isAudiobook -> 48.dp
+            isPortrait || isTablet -> 64.dp
+            else -> 56.dp
+          }
+        val playHeight =
+          when {
+            isShortLandscape -> 44.dp
+            isCompactLandscape -> 52.dp
+            isPortrait || isTablet -> 72.dp
+            else -> 60.dp
+          }
+        val sideIconSize = if (isCompactLandscape || isAudiobook) 24.dp else 28.dp
+        val controlSpacing = if (isCompactLandscape || isAudiobook) 10.dp else 18.dp
+        val controlPadding = if (isPortrait || isTablet) 8.dp else 0.dp
+        val halfWidth = !isPortrait && !isAudiobook
+        Row(
+          modifier = Modifier
+            .then(
+              // Preserve usable touch targets when a narrow pane cannot fit the half-width row.
+              if (halfWidth) {
+                Modifier.widthIn(min = maxOf(sideSize, 48.dp) * 2 + 48.dp + controlSpacing * 2 + controlPadding * 2)
+              } else {
+                Modifier
+              },
+            )
+            .fillMaxWidth(if (halfWidth) 0.5f else 1f)
+            .padding(horizontal = controlPadding),
+          horizontalArrangement = Arrangement.spacedBy(controlSpacing),
+          verticalAlignment = Alignment.CenterVertically,
         ) {
-          Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+          ExpressiveTransportSideButton(
+            onClick = {
+              if (isAudiobook) viewModel.stepPlaybackChapter(-1) else viewModel.playPrevious()
+              actionHaptics.confirm()
+            },
+            enabled = prevEnabled,
+            size = sideSize,
+          ) {
+            Icon(
+              imageVector = Icons.RoundedFilled.SkipPrevious,
+              contentDescription = if (isAudiobook) stringResource(R.string.audiobook_previous_chapter) else null,
+              tint =
+                MaterialTheme.colorScheme.onSecondaryContainer.copy(
+                  alpha = if (prevEnabled) 1f else 0.38f,
+                ),
+              modifier = Modifier.size(sideIconSize),
+            )
+          }
+          if (isAudiobook) {
+            AudioSeekButton(forward = false, seconds = 30, enabled = canSeek, modifier = Modifier.size(sideSize)) {
+              viewModel.seekBy(-30)
+              actionHaptics.confirm()
+            }
+          }
+          ExpressivePlayPauseButton(
+            isPlaying = isPlaying,
+            height = playHeight,
+            compact = isCompactLandscape || isShortLandscape,
+            onClick = {
+              viewModel.pauseUnpause()
+              actionHaptics.confirm()
+            },
+            modifier = Modifier.weight(1f).tvInitialFocus(tvPlayFocusRequester),
+          ) {
             AnimatedIcon(
               imageVector = if (isPlaying) Icons.RoundedFilled.Pause else Icons.RoundedFilled.PlayArrow,
               contentDescription = stringResource(if (isPlaying) R.string.audiobook_pause else R.string.ui_play),
               tint = MaterialTheme.colorScheme.onPrimary,
-              modifier = Modifier.size(if (isPortrait) 44.dp else 36.dp),
+              modifier = Modifier.size(if (isPortrait || isTablet) 34.dp else 28.dp),
               reduceMotion = AppMotion.playerReducedMotion(),
             )
           }
-        }
-        if (isAudiobook) {
-          AudioSeekButton(forward = true, seconds = 30, enabled = canSeek) {
-            viewModel.seekBy(30)
-            actionHaptics.confirm()
+          if (isAudiobook) {
+            AudioSeekButton(forward = true, seconds = 30, enabled = canSeek, modifier = Modifier.size(sideSize)) {
+              viewModel.seekBy(30)
+              actionHaptics.confirm()
+            }
           }
-        }
-        ReactiveIconButton(
-          onClick = {
-            if (isAudiobook) viewModel.stepPlaybackChapter(1) else viewModel.playNext()
-          },
-          enabled = nextEnabled,
-          modifier = Modifier.size(if (isAudiobook) 48.dp else 56.dp),
-        ) {
-          Icon(
-            imageVector = Icons.RoundedFilled.SkipNext,
-            contentDescription = if (isAudiobook) stringResource(R.string.audiobook_next_chapter) else null,
-            tint =
-              if (nextEnabled) {
-                MaterialTheme.colorScheme.onSurface
-              } else {
-                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-              },
-            modifier = Modifier.size(if (isAudiobook) 28.dp else 38.dp),
-          )
-        }
-      }
-    }
-
-    val playbackModeButtons = @Composable {
-      if (isAudiobook) {
-        val timer by app.gyrolet.mpvrx.ui.player.AudiobookPlayback.timer.collectAsStateWithLifecycle()
-        ReactiveIconButton(onClick = { onOpenSheet(Sheets.AudiobookRewind) }, modifier = Modifier.size(40.dp)) {
-          Icon(Icons.RoundedFilled.Replay, stringResource(R.string.audiobook_smart_rewind), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        ReactiveIconButton(onClick = { onOpenSheet(Sheets.AudiobookSleepTimer) }, modifier = Modifier.size(40.dp)) {
-          Icon(Icons.RoundedFilled.Timer, stringResource(R.string.audiobook_sleep_timer),
-            tint = if (timer != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-      } else {
-        ReactiveIconButton(
-          onClick = { viewModel.toggleShuffle(); actionHaptics.selection(!shuffleEnabled) },
-          enabled = playlistModeEnabled,
-          modifier = Modifier.size(40.dp),
-        ) {
-          AnimatedIcon(if (shuffleEnabled) Icons.RoundedFilled.ShuffleOn else Icons.RoundedFilled.Shuffle, null,
-            tint = if (shuffleEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-            reduceMotion = AppMotion.playerReducedMotion())
-        }
-        ReactiveIconButton(onClick = { viewModel.cycleRepeatMode(); actionHaptics.confirm() }, modifier = Modifier.size(40.dp)) {
-          AnimatedIcon(when (repeatMode) {
-            RepeatMode.OFF -> Icons.RoundedFilled.Repeat
-            RepeatMode.ONE -> Icons.RoundedFilled.RepeatOne
-            RepeatMode.ALL -> Icons.RoundedFilled.RepeatOn
-          }, null, tint = if (repeatMode != RepeatMode.OFF) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-            reduceMotion = AppMotion.playerReducedMotion())
-        }
-      }
-    }
-
-    val bottomActionRow = @Composable {
-      Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-      ) {
-        ReactiveIconButton(
-          onClick = { onOpenSheet(Sheets.Equalizer) },
-          enabled = !audioFiltersConfigOwned,
-          modifier =
-            Modifier
-              .clip(
-                CircleShape,
-              ).background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.65f))
-              .size(48.dp),
-        ) {
-          Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+          ExpressiveTransportSideButton(
+            onClick = {
+              if (isAudiobook) viewModel.stepPlaybackChapter(1) else viewModel.playNext()
+              actionHaptics.confirm()
+            },
+            enabled = nextEnabled,
+            size = sideSize,
+          ) {
             Icon(
-              imageVector = Icons.RoundedFilled.Equalizer,
-              contentDescription = "Equalizer",
-              tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (audioFiltersConfigOwned) 0.38f else 1f),
-              modifier = Modifier.size(24.dp),
+              imageVector = Icons.RoundedFilled.SkipNext,
+              contentDescription = if (isAudiobook) stringResource(R.string.audiobook_next_chapter) else null,
+              tint =
+                MaterialTheme.colorScheme.onSecondaryContainer.copy(
+                  alpha = if (nextEnabled) 1f else 0.38f,
+                ),
+              modifier = Modifier.size(sideIconSize),
             )
           }
         }
-        if (isTabletLandscape) {
-          Box(
-            modifier = Modifier.weight(1f),
-            contentAlignment = Alignment.CenterEnd,
-          ) {
-            Row(
-              modifier =
-                Modifier
-                  .clip(CircleShape)
-                  .background(
-                    MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.65f),
-                  )
-                  .horizontalScroll(rememberScrollState())
-                  .padding(horizontal = 8.dp, vertical = 4.dp),
-              verticalAlignment = Alignment.CenterVertically,
-              horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-              playbackModeButtons()
-              ReactiveIconButton(
-                onClick = { viewModel.toggleAudioVisualizer() },
-                onLongClick = { onOpenSheet(Sheets.VisualizerStyle) },
-                modifier = Modifier.size(40.dp),
-              ) {
-                Icon(
-                  imageVector = if (showVisualizer) Icons.RoundedFilled.AutoAwesome else Icons.RoundedFilled.Audiotrack,
-                  contentDescription = null,
-                  tint = if (showVisualizer) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-              }
-              if (!isAudiobook) ReactiveIconButton(
-                onClick = {
-                  val act = context as? PlayerActivity
-                  if (act != null) {
-                    act.toggleAudioBackgroundPlayback()
-                  } else {
-                    audioPreferences.audioBackgroundPlayback.set(!backgroundPlaybackEnabled)
-                  }
-                },
-                modifier = Modifier.size(40.dp),
-              ) {
-                Icon(
-                  imageVector = Icons.RoundedFilled.Headset,
-                  contentDescription = stringResource(R.string.btn_label_background_playback),
-                  tint = if (backgroundPlaybackEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-              }
+      }
+
+      val bottomActionRow = @Composable {
+        val timer by app.gyrolet.mpvrx.ui.player.AudiobookPlayback.timer.collectAsStateWithLifecycle()
+        val equalizerEnabled by audioPreferences.equalizerEnabled.collectAsState()
+        val isQueueActive = !isTablet && sheetShown == Sheets.Playlist
+        val barHeight = if (isShortLandscape) 38.dp else if (isCompactLandscape) 42.dp else 50.dp
+        val centerCount = if (isAudiobook) 3 else 4
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+          val showPlaylistButton = !isTablet
+          val endWidth = minOf(barHeight, maxWidth * 0.15f)
+          val outerSpacing = if (maxWidth < 280.dp) 4.dp else 8.dp
+          val centerSpacing = if (maxWidth < 320.dp) 2.dp else 4.dp
+          val centerWidth =
+            if (showPlaylistButton) {
+              (maxWidth - endWidth * 2f - outerSpacing * 2f).coerceAtLeast(0.dp)
+            } else {
+              (maxWidth - endWidth - outerSpacing).coerceAtLeast(0.dp)
             }
-          }
-        } else {
-          Spacer(modifier = Modifier.width(12.dp))
-          Box(
-            modifier = Modifier.weight(1f),
-            contentAlignment = Alignment.Center,
+          val centerCellWidth =
+            ((centerWidth - centerSpacing * (centerCount - 1).toFloat()) / centerCount.toFloat()).coerceAtLeast(0.dp)
+          val iconSize = minOf(if (isCompactLandscape) 20.dp else 22.dp, centerCellWidth * 0.72f)
+          val endIconSize = minOf(if (isCompactLandscape) 20.dp else 22.dp, endWidth * 0.72f)
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(outerSpacing),
           ) {
-            Row(
-              modifier =
-                Modifier
-                  .clip(CircleShape)
-                  .background(
-                    MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.65f),
-                  )
-                  .horizontalScroll(rememberScrollState())
-                  .padding(horizontal = 8.dp, vertical = 4.dp),
-              verticalAlignment = Alignment.CenterVertically,
-              horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ExpressiveTransportSideButton(
+              onClick = { onOpenSheet(Sheets.Equalizer); actionHaptics.confirm() },
+              size = barHeight,
+              modifier = Modifier.width(endWidth),
+              enabled = !audioFiltersConfigOwned,
+              active = equalizerEnabled && !audioFiltersConfigOwned,
             ) {
-              playbackModeButtons()
-              ReactiveIconButton(
-                onClick = { viewModel.toggleAudioVisualizer() },
-                onLongClick = { onOpenSheet(Sheets.VisualizerStyle) },
-                modifier = Modifier.size(40.dp),
-              ) {
-                Icon(
-                  imageVector = if (showVisualizer) Icons.RoundedFilled.AutoAwesome else Icons.RoundedFilled.Audiotrack,
-                  contentDescription = null,
-                  tint = if (showVisualizer) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-              }
-              if (!isAudiobook) ReactiveIconButton(
-                onClick = {
-                  val act = context as? PlayerActivity
-                  if (act != null) {
-                    act.toggleAudioBackgroundPlayback()
-                  } else {
-                    audioPreferences.audioBackgroundPlayback.set(!backgroundPlaybackEnabled)
-                  }
-                },
-                modifier = Modifier.size(40.dp),
-              ) {
-                Icon(
-                  imageVector = Icons.RoundedFilled.Headset,
-                  contentDescription = stringResource(R.string.btn_label_background_playback),
-                  tint = if (backgroundPlaybackEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-              }
-            }
-          }
-          Spacer(modifier = Modifier.width(12.dp))
-          ReactiveIconButton(
-            onClick = { onOpenSheet(Sheets.Playlist) },
-            modifier =
-              Modifier
-                .clip(
-                  CircleShape,
-                ).background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.65f))
-                .size(48.dp),
-          ) {
-            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
               Icon(
-                imageVector = Icons.RoundedFilled.QueueMusic,
-                contentDescription = if (isAudiobook) stringResource(R.string.audiobook_chapters) else stringResource(R.string.player_up_next_title),
-                tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.size(24.dp),
+                imageVector = Icons.RoundedFilled.Equalizer,
+                contentDescription = stringResource(R.string.btn_label_equalizer),
+                tint =
+                  when {
+                    audioFiltersConfigOwned -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                    equalizerEnabled -> MaterialTheme.colorScheme.onPrimaryContainer
+                    else -> MaterialTheme.colorScheme.onSecondaryContainer
+                  },
+                modifier = Modifier.size(endIconSize),
               )
             }
+            Row(
+              modifier = Modifier.weight(1f).height(barHeight),
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(centerSpacing),
+            ) {
+              if (isAudiobook) {
+                ExpressiveConnectedBarButton(
+                  index = 0, itemCount = centerCount, height = barHeight, selected = false,
+                  onClick = { onOpenSheet(Sheets.AudiobookRewind); actionHaptics.confirm() },
+                ) { tint ->
+                  Icon(
+                    Icons.RoundedFilled.Replay,
+                    contentDescription = stringResource(R.string.audiobook_smart_rewind),
+                    tint = tint,
+                    modifier = Modifier.size(iconSize),
+                  )
+                }
+                ExpressiveConnectedBarButton(
+                  index = 1, itemCount = centerCount, height = barHeight, selected = timer != null,
+                  onClick = { onOpenSheet(Sheets.AudiobookSleepTimer); actionHaptics.confirm() },
+                ) { tint ->
+                  Icon(
+                    Icons.RoundedFilled.Timer,
+                    contentDescription = stringResource(R.string.audiobook_sleep_timer),
+                    tint = tint,
+                    modifier = Modifier.size(iconSize),
+                  )
+                }
+              } else {
+                ExpressiveConnectedBarButton(
+                  index = 0, itemCount = centerCount, height = barHeight, selected = shuffleEnabled,
+                  enabled = playlistModeEnabled,
+                  onClick = { viewModel.toggleShuffle(); actionHaptics.selection(!shuffleEnabled) },
+                ) { tint ->
+                  AnimatedIcon(
+                    imageVector = if (shuffleEnabled) Icons.RoundedFilled.ShuffleOn else Icons.RoundedFilled.Shuffle,
+                    contentDescription = stringResource(R.string.btn_label_shuffle),
+                    tint = tint,
+                    modifier = Modifier.size(iconSize),
+                    reduceMotion = AppMotion.playerReducedMotion(),
+                  )
+                }
+                ExpressiveConnectedBarButton(
+                  index = 1, itemCount = centerCount, height = barHeight, selected = repeatMode != RepeatMode.OFF,
+                  onClick = { viewModel.cycleRepeatMode(); actionHaptics.confirm() },
+                ) { tint ->
+                  AnimatedIcon(
+                    imageVector = when (repeatMode) {
+                      RepeatMode.OFF -> Icons.RoundedFilled.Repeat
+                      RepeatMode.ONE -> Icons.RoundedFilled.RepeatOne
+                      RepeatMode.ALL -> Icons.RoundedFilled.RepeatOn
+                    },
+                    contentDescription = stringResource(R.string.btn_label_repeat_mode),
+                    tint = tint,
+                    modifier = Modifier.size(iconSize),
+                    reduceMotion = AppMotion.playerReducedMotion(),
+                  )
+                }
+              }
+              ExpressiveConnectedBarButton(
+                index = 2, itemCount = centerCount, height = barHeight, selected = showVisualizer,
+                onClick = {
+                  if (viewModel.toggleAudioVisualizer()) actionHaptics.selection(!showVisualizer)
+                },
+                onLongClick = { onOpenSheet(Sheets.VisualizerStyle) },
+                onLongClickLabel = stringResource(R.string.pref_audio_visualizer_style_title),
+              ) { tint ->
+                AnimatedIcon(
+                  imageVector = if (showVisualizer) Icons.RoundedFilled.AutoAwesome else Icons.RoundedFilled.Audiotrack,
+                  contentDescription = stringResource(
+                    if (showVisualizer) R.string.audio_footer_show_artwork else R.string.audio_footer_show_visualizer,
+                  ),
+                  tint = tint,
+                  modifier = Modifier.size(iconSize),
+                  reduceMotion = AppMotion.playerReducedMotion(),
+                )
+              }
+              if (!isAudiobook) {
+                ExpressiveConnectedBarButton(
+                  index = 3, itemCount = centerCount, height = barHeight, selected = backgroundPlaybackEnabled,
+                  onClick = {
+                    val enabled = !audioPreferences.audioBackgroundPlayback.get()
+                    val activity = context as? PlayerActivity
+                    if (activity != null) {
+                      activity.toggleAudioBackgroundPlayback()
+                    } else {
+                      audioPreferences.audioBackgroundPlayback.set(enabled)
+                      viewModel.showToast(
+                        context.getString(
+                          if (enabled) R.string.toast_audio_background_playback_on
+                          else R.string.toast_audio_background_playback_off,
+                        ),
+                      )
+                    }
+                    actionHaptics.selection(enabled)
+                  },
+                ) { tint ->
+                  Icon(
+                    Icons.RoundedFilled.Headset,
+                    contentDescription = stringResource(R.string.btn_label_background_playback),
+                    tint = tint,
+                    modifier = Modifier.size(iconSize),
+                  )
+                }
+              }
+            }
+            if (showPlaylistButton) {
+              ExpressiveTransportSideButton(
+                size = barHeight,
+                modifier = Modifier.width(endWidth),
+                active = isQueueActive,
+                onClick = {
+                  onOpenSheet(Sheets.Playlist)
+                  actionHaptics.confirm()
+                },
+              ) {
+                Icon(
+                  Icons.RoundedFilled.QueueMusic,
+                  contentDescription = stringResource(
+                    if (isAudiobook) R.string.audiobook_chapters else R.string.player_up_next_title,
+                  ),
+                  tint = if (isQueueActive) {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                  } else {
+                    MaterialTheme.colorScheme.onSecondaryContainer
+                  },
+                  modifier = Modifier.size(endIconSize),
+                )
+              }
+            }
           }
         }
       }
-    }
 
-    if (isPortrait) {
-      Column(
-        modifier = Modifier
-          .fillMaxSize()
-          .clickable(
-            enabled = showInPlaceLyrics,
-            interactionSource = remember { MutableInteractionSource() },
-            indication = null,
-          ) { resetInactivityTimer() },
-        horizontalAlignment = Alignment.CenterHorizontally,
-      ) {
-        if (edgeToEdgeVisualizer) {
-          Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            centerVisualizerView(Modifier.fillMaxSize())
-            Column(
-              modifier =
-                Modifier
-                  .fillMaxWidth()
-                  .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
-                  .padding(horizontal = controlsSidePadding)
-                  .padding(top = 6.dp),
-              horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-              headerBar()
-            }
-          }
-        } else {
-          androidx.compose.animation.AnimatedVisibility(
-            visible = !isLyricsFullscreen,
-            enter = fadeIn(animationSpec = tween(300)) +
-              androidx.compose.animation.expandVertically(animationSpec = tween(300)),
-            exit = fadeOut(animationSpec = tween(300)) +
-              androidx.compose.animation.shrinkVertically(animationSpec = tween(300)),
-          ) {
-            Column(
-              modifier = Modifier.fillMaxWidth().then(headerContentPadding),
-              horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-              headerBar()
-              if (!showInPlaceLyrics) Spacer(modifier = Modifier.height(16.dp))
-            }
-          }
-
-          centerVisualizerView(Modifier.weight(1f).fillMaxWidth())
-        }
-
-        androidx.compose.animation.AnimatedVisibility(
-          visible = !isLyricsFullscreen,
-          enter = fadeIn(animationSpec = tween(300)) + androidx.compose.animation.expandVertically(animationSpec = tween(300)),
-          exit = fadeOut(animationSpec = tween(300)) + androidx.compose.animation.shrinkVertically(animationSpec = tween(300)),
+      if (isTablet) {
+        Row(
+          modifier = Modifier.fillMaxSize(),
+          horizontalArrangement = Arrangement.spacedBy(if (isTabletLandscape) 24.dp else 16.dp),
+          verticalAlignment = Alignment.CenterVertically,
         ) {
           Column(
-            modifier = Modifier.padding(horizontal = controlsSidePadding),
+            modifier = Modifier
+              .weight(1f)
+              .fillMaxHeight(),
+            verticalArrangement = Arrangement.SpaceBetween,
             horizontalAlignment = Alignment.CenterHorizontally,
           ) {
-            Spacer(modifier = Modifier.height(4.dp))
-            trackMetadataView()
-            if (!showInPlaceLyrics) {
-              Spacer(modifier = Modifier.height(6.dp))
-              currentLyricStripView()
-              Spacer(modifier = Modifier.height(4.dp))
+            if (edgeToEdgeVisualizer) {
+              Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                centerVisualizerView(Modifier.fillMaxSize())
+                Column(
+                  modifier =
+                    Modifier
+                      .fillMaxWidth()
+                      .windowInsetsPadding(stableInsets.only(WindowInsetsSides.Top))
+                      .padding(horizontal = controlsSidePadding)
+                      .padding(top = 6.dp),
+                  horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                  headerBar()
+                }
+              }
             } else {
-              Spacer(modifier = Modifier.height(6.dp))
-              lyricsSourceLineView()
-              Spacer(modifier = Modifier.height(4.dp))
+              Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = controlsSidePadding),
+                horizontalAlignment = Alignment.CenterHorizontally,
+              ) {
+                headerBar()
+                Spacer(modifier = Modifier.height(6.dp))
+              }
+              centerVisualizerView(
+                Modifier
+                  .weight(1f)
+                  .fillMaxWidth()
+                  .padding(
+                    vertical = if (isTabletPortrait) 16.dp else 8.dp,
+                    horizontal = if (isTabletPortrait) 8.dp else 16.dp,
+                  ),
+              )
             }
-            seekbarView()
-            Spacer(modifier = Modifier.height(28.dp))
-            playbackControlsRow()
-            Spacer(modifier = Modifier.height(30.dp))
-            bottomActionRow()
+            Column(
+              modifier = Modifier.padding(horizontal = controlsSidePadding),
+              horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+              Spacer(modifier = Modifier.height(4.dp))
+              trackMetadataView()
+              if (tabletDualPaneTab != 1) {
+                Spacer(modifier = Modifier.height(4.dp))
+                currentLyricStripView()
+                Spacer(modifier = Modifier.height(4.dp))
+              } else {
+                Spacer(modifier = Modifier.height(4.dp))
+                lyricsSourceLineView()
+                Spacer(modifier = Modifier.height(4.dp))
+              }
+              seekbarView()
+              Spacer(modifier = Modifier.height(if (isTabletPortrait) 18.dp else 12.dp))
+              playbackControlsRow()
+              Spacer(modifier = Modifier.height(if (isTabletPortrait) 18.dp else 14.dp))
+              bottomActionRow()
+            }
+          }
+
+          val sidePanelShape = RoundedCornerShape(24.dp)
+          Surface(
+            modifier = Modifier
+              .weight(if (isTabletLandscape) 1.1f else 1f)
+              .fillMaxHeight()
+              .padding(end = if (isTabletLandscape) 16.dp else 12.dp)
+              .then(
+                if (edgeToEdgeVisualizer) {
+                  Modifier.windowInsetsPadding(stableInsets.only(WindowInsetsSides.Top)).padding(top = 6.dp)
+                } else {
+                  Modifier
+                }
+              )
+              .clip(sidePanelShape),
+            color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.45f),
+            shape = sidePanelShape,
+          ) {
+            DualPaneSidePanel(
+              viewModel = viewModel,
+              playlist = filteredPlaylist,
+              selectedTab = tabletDualPaneTab,
+              onTabSelected = { tabletDualPaneTab = it },
+              onOpenTranslateSheet = { onOpenSheet(Sheets.LyricsTranslate) },
+            )
           }
         }
-      }
-    } else if (isTabletLandscape && (showVisualizer || tabletDualPaneTab == 1)) {
-      Row(
-        modifier = Modifier.fillMaxSize(),
-        horizontalArrangement = Arrangement.spacedBy(20.dp),
-        verticalAlignment = Alignment.CenterVertically,
-      ) {
+      } else if (isPortrait) {
         Column(
           modifier = Modifier
-            .weight(1f)
-            .fillMaxHeight(),
-          verticalArrangement = Arrangement.SpaceBetween,
+            .fillMaxSize()
+            .clickable(
+              enabled = showInPlaceLyrics,
+              interactionSource = remember { MutableInteractionSource() },
+              indication = null,
+            ) { resetInactivityTimer() },
           horizontalAlignment = Alignment.CenterHorizontally,
         ) {
           if (edgeToEdgeVisualizer) {
@@ -2547,7 +2968,7 @@ fun AudioPlayerControls(
                 modifier =
                   Modifier
                     .fillMaxWidth()
-                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
+                    .windowInsetsPadding(stableInsets.only(WindowInsetsSides.Top))
                     .padding(horizontal = controlsSidePadding)
                     .padding(top = 6.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -2556,102 +2977,96 @@ fun AudioPlayerControls(
               }
             }
           } else {
+            androidx.compose.animation.AnimatedVisibility(
+              visible = !isLyricsFullscreen,
+              enter = fadeIn(animationSpec = tween(300)) +
+                androidx.compose.animation.expandVertically(animationSpec = tween(300)),
+              exit = fadeOut(animationSpec = tween(300)) +
+                androidx.compose.animation.shrinkVertically(animationSpec = tween(300)),
+            ) {
+              Column(
+                modifier = Modifier.fillMaxWidth().then(headerContentPadding),
+                horizontalAlignment = Alignment.CenterHorizontally,
+              ) {
+                headerBar()
+                if (!showInPlaceLyrics) Spacer(modifier = Modifier.height(16.dp))
+              }
+            }
+
+            centerVisualizerView(Modifier.weight(1f).fillMaxWidth())
+          }
+
+          androidx.compose.animation.AnimatedVisibility(
+            visible = !isLyricsFullscreen,
+            enter = fadeIn(animationSpec = tween(300)) + androidx.compose.animation.expandVertically(animationSpec = tween(300)),
+            exit = fadeOut(animationSpec = tween(300)) + androidx.compose.animation.shrinkVertically(animationSpec = tween(300)),
+          ) {
             Column(
-              modifier = Modifier.fillMaxWidth().padding(horizontal = controlsSidePadding),
+              modifier = Modifier.padding(horizontal = controlsSidePadding),
               horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-              headerBar()
-              Spacer(modifier = Modifier.height(6.dp))
+              Spacer(modifier = Modifier.height(4.dp))
+              trackMetadataView()
+              if (!showInPlaceLyrics) {
+                Spacer(modifier = Modifier.height(6.dp))
+                currentLyricStripView()
+                Spacer(modifier = Modifier.height(4.dp))
+              } else {
+                Spacer(modifier = Modifier.height(6.dp))
+                lyricsSourceLineView()
+                Spacer(modifier = Modifier.height(4.dp))
+              }
+              seekbarView()
+              Spacer(modifier = Modifier.height(22.dp))
+              playbackControlsRow()
+              Spacer(modifier = Modifier.height(18.dp))
+              bottomActionRow()
             }
-            centerVisualizerView(
-              Modifier.weight(1f).fillMaxWidth().padding(vertical = 12.dp, horizontal = 24.dp),
-            )
           }
+        }
+      } else {
+        Row(
+          modifier = Modifier.fillMaxSize(),
+          verticalAlignment = Alignment.CenterVertically,
+        ) {
+          centerVisualizerView(
+            Modifier
+              .weight(0.42f)
+              .fillMaxHeight(),
+          )
           Column(
-            modifier = Modifier.padding(horizontal = controlsSidePadding),
+            modifier =
+              Modifier
+                .weight(0.58f)
+                .fillMaxHeight()
+                // The art pane owns the start edge, so this pane only insets its own edges.
+                .windowInsetsPadding(stableInsets.only(WindowInsetsSides.Vertical + WindowInsetsSides.End))
+                .padding(
+                  horizontal = if (isCompactLandscape) 12.dp else 24.dp,
+                  vertical = if (isCompactLandscape) 4.dp else 8.dp,
+                ),
+            verticalArrangement = Arrangement.SpaceBetween,
             horizontalAlignment = Alignment.CenterHorizontally,
           ) {
-            Spacer(modifier = Modifier.height(6.dp))
-            trackMetadataView()
-            if (tabletDualPaneTab != 1) {
-              Spacer(modifier = Modifier.height(4.dp))
-              currentLyricStripView()
-              Spacer(modifier = Modifier.height(4.dp))
-            } else {
-              Spacer(modifier = Modifier.height(4.dp))
-              lyricsSourceLineView()
-              Spacer(modifier = Modifier.height(4.dp))
+            // Rows keep their natural, content-independent heights and share the spare height evenly;
+            // only the text rows may shrink when the window is too short.
+            Box(Modifier.fillMaxWidth().height(audioHeaderSize), contentAlignment = Alignment.Center) { headerBar() }
+            Box(Modifier.weight(1f, fill = false).fillMaxWidth()) { trackMetadataView() }
+            if (!isShortLandscape) {
+              Box(
+                Modifier.weight(0.4f, fill = false).fillMaxWidth()
+                  .height(with(LocalDensity.current) { 36.sp.toDp() }),
+                contentAlignment = Alignment.CenterStart,
+              ) { currentLyricStripView() }
             }
             seekbarView()
-            Spacer(modifier = Modifier.height(14.dp))
             playbackControlsRow()
-            Spacer(modifier = Modifier.height(16.dp))
             bottomActionRow()
           }
         }
-
-        Surface(
-          modifier = Modifier
-            .weight(1.1f)
-            .fillMaxHeight()
-            .then(
-              if (edgeToEdgeVisualizer) {
-                Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top)).padding(top = 6.dp)
-              } else {
-                Modifier
-              },
-            )
-            .padding(end = controlsSidePadding)
-            .clip(RoundedCornerShape(24.dp)),
-          color = Color.Transparent,
-          shape = RoundedCornerShape(24.dp),
-        ) {
-          DualPaneSidePanel(
-            viewModel = viewModel,
-            playlist = filteredPlaylist,
-            selectedTab = tabletDualPaneTab,
-            onTabSelected = { tabletDualPaneTab = it },
-          )
-        }
-      }
-    } else {
-      Row(
-        modifier = Modifier.fillMaxSize(),
-        horizontalArrangement = Arrangement.spacedBy(if (isCompactLandscape) 12.dp else 24.dp),
-        verticalAlignment = Alignment.CenterVertically,
-      ) {
-        centerVisualizerView(
-          Modifier
-            .weight(if (isCompactLandscape) 0.9f else 1f)
-            .fillMaxHeight(),
-        )
-        Column(
-          modifier =
-            Modifier
-              .weight(if (isCompactLandscape) 1.35f else 1.2f)
-              .fillMaxHeight()
-              .padding(end = controlsSidePadding)
-              .verticalScroll(rememberScrollState())
-              .then(
-              if (edgeToEdgeVisualizer) {
-                Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top)).padding(top = 6.dp)
-              } else {
-                Modifier
-              },
-            ).padding(vertical = 4.dp),
-          verticalArrangement =
-            if (isCompactLandscape) Arrangement.spacedBy(4.dp) else Arrangement.SpaceEvenly,
-          horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-          headerBar()
-          trackMetadataView()
-          if (!showInPlaceLyrics) currentLyricStripView()
-          seekbarView()
-          playbackControlsRow()
-          bottomActionRow()
-        }
       }
     }
+
   }
 
   // A sibling of the captured controls: the sheet must never sample its own glass surface.
@@ -2712,6 +3127,7 @@ private fun DualPaneSidePanel(
   playlist: List<PlaylistItem>,
   selectedTab: Int = 0,
   onTabSelected: (Int) -> Unit = {},
+  onOpenTranslateSheet: (() -> Unit)? = null,
 ) {
   val playbackState by PlaybackSession.state.collectAsStateWithLifecycle()
   val isAudiobook = playbackState.currentItem?.audiobook != null
@@ -2737,20 +3153,26 @@ private fun DualPaneSidePanel(
             fontWeight = FontWeight.Bold,
           )
         },
+        border = null,
+        shape = RoundedCornerShape(12.dp),
         colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
-          containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.4f),
+          containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
           selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
           selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+          labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
         ),
       )
       androidx.compose.material3.FilterChip(
         selected = selectedTab == 1,
         onClick = { onTabSelected(1) },
         label = { Text(stringResource(R.string.player_lyrics_title), fontWeight = FontWeight.Bold) },
+        border = null,
+        shape = RoundedCornerShape(12.dp),
         colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
-          containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.4f),
+          containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
           selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
           selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+          labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
         ),
       )
     }
@@ -2765,6 +3187,7 @@ private fun DualPaneSidePanel(
         app.gyrolet.mpvrx.ui.player.controls.components.LyricsView(
           viewModel = viewModel,
           showTitleHeader = false,
+          onOpenTranslateSheet = onOpenTranslateSheet,
         )
       }
     }
@@ -2902,8 +3325,9 @@ private fun UpNextPlaylistContent(
   val playingItemIndex by remember(displayPlaylist) {
     derivedStateOf { displayPlaylist.indexOfFirst { it.isPlaying } }
   }
+  val playingItemKey = displayPlaylist.getOrNull(playingItemIndex)?.queueEntryId
 
-  LaunchedEffect(playingItemIndex) {
+  LaunchedEffect(playingItemKey) {
     if (playingItemIndex >= 0) {
       lazyListState.animateScrollToItem(playingItemIndex)
     }
@@ -2971,11 +3395,15 @@ private fun UpNextPlaylistContent(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
       ) {
-        // A queue can contain the same URI more than once.
-        items(displayPlaylist.size, key = { index -> displayPlaylist[index].index }) { index ->
+        // Queue entry IDs stay with rows when positions change, including duplicate URIs.
+        items(displayPlaylist.size, key = { index -> displayPlaylist[index].queueEntryId }) { index ->
           val item = displayPlaylist[index]
           if (showDragHandle) {
-            ReorderableItem(reorderableLazyListState, key = item.index) { isDragging ->
+            ReorderableItem(
+              reorderableLazyListState,
+              key = item.queueEntryId,
+              animateItemModifier = Modifier,
+            ) { isDragging ->
               val isDraggingPrev = remember { mutableStateOf(false) }
               LaunchedEffect(isDragging) {
                 if (isDraggingPrev.value && !isDragging) {
@@ -2991,7 +3419,7 @@ private fun UpNextPlaylistContent(
               UpNextPlaylistItemRow(
                 item = item,
                 isPlaying = item.isPlaying,
-                onClick = { viewModel.playPlaylistItem(item.index) },
+                onClick = { viewModel.playPlaylistItem(index) },
                 scope = this,
                 isDragging = isDragging,
                 reorderFeedback = reorderFeedback,
@@ -3001,7 +3429,7 @@ private fun UpNextPlaylistContent(
             UpNextPlaylistItemRow(
               item = item,
               isPlaying = item.isPlaying,
-              onClick = { viewModel.playPlaylistItem(item.index) },
+              onClick = { viewModel.playPlaylistItem(index) },
               scope = null,
             )
           }
@@ -3250,31 +3678,203 @@ private fun ReactiveIconButton(
 }
 
 @Composable
-private fun ReactiveSurfaceButton(
+private fun ExpressiveTransportSideButton(
   onClick: () -> Unit,
+  size: Dp,
   modifier: Modifier = Modifier,
-  shape: Shape = CircleShape,
-  color: Color = MaterialTheme.colorScheme.primary,
-  shadowElevation: Dp = 0.dp,
   enabled: Boolean = true,
+  active: Boolean = false,
   content: @Composable () -> Unit,
 ) {
   val interactionSource = remember { MutableInteractionSource() }
-  val reducedMotion = app.gyrolet.mpvrx.ui.theme.AppMotion.playerReducedMotion()
+  val pressed by interactionSource.collectIsPressedAsState()
+  val reducedMotion = AppMotion.playerReducedMotion()
+  val cornerSpec = if (reducedMotion) AppMotion.ReducedDp else AppMotion.Spatial.SnappyDp
+  val cornerRadius by animateDpAsState(
+    targetValue = if (pressed || active) 16.dp else size / 2,
+    animationSpec = cornerSpec,
+    label = "transportSideCorner",
+  )
+  val containerColor by animateColorAsState(
+    targetValue =
+      when {
+        active -> MaterialTheme.colorScheme.primaryContainer
+        pressed -> MaterialTheme.colorScheme.secondaryContainer
+        else -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.85f)
+      },
+    animationSpec = if (reducedMotion) androidx.compose.animation.core.snap() else AppMotion.Effect.Color,
+    label = "transportSideColor",
+  )
+  val shape = RoundedCornerShape(cornerRadius)
 
   Surface(
     onClick = onClick,
     shape = shape,
-    color = color,
-    shadowElevation = shadowElevation,
+    color = containerColor,
     enabled = enabled,
     interactionSource = interactionSource,
     modifier =
       modifier
-        .tvFocusHighlight(shape, enabled = enabled, focusedScale = 1.06f)
-        .appPressFeedback(interactionSource, enabled, pressedScale = 0.95f, reduceMotion = reducedMotion),
+        .size(size)
+        .tvFocusHighlight(shape, enabled = enabled, focusedScale = 1.08f)
+        .appPressFeedback(interactionSource, enabled, pressedScale = 0.90f, reduceMotion = reducedMotion),
   ) {
-    content()
+    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+      content()
+    }
+  }
+}
+
+@Composable
+private fun ExpressivePlayPauseButton(
+  isPlaying: Boolean,
+  height: Dp,
+  compact: Boolean,
+  onClick: () -> Unit,
+  modifier: Modifier = Modifier,
+  content: @Composable () -> Unit,
+) {
+  val interactionSource = remember { MutableInteractionSource() }
+  val pressed by interactionSource.collectIsPressedAsState()
+  val reducedMotion = AppMotion.playerReducedMotion()
+  val cornerSpec = if (reducedMotion) AppMotion.ReducedDp else AppMotion.Spatial.SnappyDp
+  val cornerRadius by animateDpAsState(
+    targetValue =
+      when {
+        pressed -> 14.dp
+        isPlaying -> if (compact) 18.dp else 22.dp
+        else -> height / 2
+      },
+    animationSpec = cornerSpec,
+    label = "playPauseCorner",
+  )
+  val shape = RoundedCornerShape(cornerRadius)
+
+  Surface(
+    onClick = onClick,
+    shape = shape,
+    color = MaterialTheme.colorScheme.primary,
+    shadowElevation = 6.dp,
+    interactionSource = interactionSource,
+    modifier =
+      modifier
+        .height(height)
+        .tvFocusHighlight(shape, enabled = true, focusedScale = 1.05f)
+        .appPressFeedback(interactionSource, enabled = true, pressedScale = 0.94f, reduceMotion = reducedMotion),
+  ) {
+    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+      content()
+    }
+  }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun RowScope.ExpressiveConnectedBarButton(
+  index: Int,
+  itemCount: Int,
+  height: Dp,
+  selected: Boolean,
+  onClick: () -> Unit,
+  enabled: Boolean = true,
+  onLongClick: (() -> Unit)? = null,
+  onLongClickLabel: String? = null,
+  content: @Composable (Color) -> Unit,
+) {
+  val interactionSource = remember { MutableInteractionSource() }
+  val pressed by interactionSource.collectIsPressedAsState()
+  val reducedMotion = AppMotion.playerReducedMotion()
+  val cornerSpec = if (reducedMotion) AppMotion.ReducedDp else AppMotion.Spatial.SnappyDp
+  val weightSpec = if (reducedMotion) AppMotion.ReducedAlpha else AppMotion.Spatial.ExpressiveFast
+  val startCorner by animateDpAsState(
+    targetValue =
+      when {
+        index == 0 -> if (pressed) 16.dp else height / 2
+        pressed || selected -> 14.dp
+        else -> 6.dp
+      },
+    animationSpec = cornerSpec,
+    label = "connectedStartCorner",
+  )
+  val endCorner by animateDpAsState(
+    targetValue =
+      when {
+        index == itemCount - 1 -> if (pressed) 16.dp else height / 2
+        pressed || selected -> 14.dp
+        else -> 6.dp
+      },
+    animationSpec = cornerSpec,
+    label = "connectedEndCorner",
+  )
+  val weight by animateFloatAsState(
+    targetValue =
+      when {
+        pressed -> 1.15f
+        selected -> 1.06f
+        else -> 1f
+      },
+    animationSpec = weightSpec,
+    label = "connectedWeight",
+  )
+  val containerColor by animateColorAsState(
+    targetValue =
+      if (selected) {
+        MaterialTheme.colorScheme.secondaryContainer
+      } else {
+        MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.85f)
+      },
+    animationSpec = if (reducedMotion) androidx.compose.animation.core.snap() else AppMotion.Effect.Color,
+    label = "connectedContainerColor",
+  )
+  val contentColor by animateColorAsState(
+    targetValue =
+      when {
+        !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+        selected -> MaterialTheme.colorScheme.onSecondaryContainer
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+      },
+    animationSpec = if (reducedMotion) androidx.compose.animation.core.snap() else AppMotion.Effect.Color,
+    label = "connectedContentColor",
+  )
+  val shape =
+    RoundedCornerShape(
+      topStart = startCorner,
+      bottomStart = startCorner,
+      topEnd = endCorner,
+      bottomEnd = endCorner,
+    )
+
+  Box(
+    modifier =
+      Modifier
+        .weight(weight)
+        .height(height)
+        .tvFocusHighlight(shape, enabled = enabled, focusedScale = 1.06f)
+        .appPressFeedback(interactionSource, enabled, pressedScale = 0.92f, reduceMotion = reducedMotion)
+        .clip(shape)
+        .background(containerColor)
+        .then(
+          if (onLongClick != null) {
+            Modifier.combinedClickable(
+              interactionSource = interactionSource,
+              indication = ripple(bounded = true),
+              enabled = enabled,
+              onClick = onClick,
+              onLongClick = onLongClick,
+              onLongClickLabel = onLongClickLabel,
+            )
+          } else {
+            Modifier.clickable(
+              interactionSource = interactionSource,
+              indication = ripple(bounded = true),
+              enabled = enabled,
+              onClick = onClick,
+            )
+          },
+        ),
+    contentAlignment = Alignment.Center,
+  ) {
+    content(contentColor)
   }
 }
 

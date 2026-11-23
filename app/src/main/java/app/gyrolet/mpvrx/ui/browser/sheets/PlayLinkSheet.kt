@@ -19,20 +19,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SheetValue
+import app.gyrolet.mpvrx.presentation.components.AppTextField as OutlinedTextField
+import app.gyrolet.mpvrx.presentation.components.ResponsiveBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -165,12 +162,8 @@ fun PlayLinkSheet(
     }
   }
 
-  val sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden)
-
-  ModalBottomSheet(
+  ResponsiveBottomSheet(
     onDismissRequest = handleDismiss,
-    sheetState = sheetState,
-    dragHandle = { BottomSheetDefaults.DragHandle() },
     modifier = modifier,
   ) {
     Column(
@@ -258,12 +251,12 @@ fun PlayLinkSheet(
               } else {
                 when (linkDownloadCoordinator.enqueue(playableSource, MediaInfoParser.parseStreamTitle(playableSource))) {
                   app.gyrolet.mpvrx.domain.download.LinkDownloadCoordinator.Route.UNSUPPORTED ->
-                    android.widget.Toast
-                      .makeText(context, app.gyrolet.mpvrx.R.string.downloads_location_invalid, android.widget.Toast.LENGTH_SHORT)
+                    app.gyrolet.mpvrx.ui.components.AppToast
+                      .makeText(context, app.gyrolet.mpvrx.R.string.downloads_location_invalid, app.gyrolet.mpvrx.ui.components.AppToast.LENGTH_SHORT)
                       .show()
                   else ->
-                    android.widget.Toast
-                      .makeText(context, app.gyrolet.mpvrx.R.string.downloads_started, android.widget.Toast.LENGTH_SHORT)
+                    app.gyrolet.mpvrx.ui.components.AppToast
+                      .makeText(context, app.gyrolet.mpvrx.R.string.downloads_started, app.gyrolet.mpvrx.ui.components.AppToast.LENGTH_SHORT)
                       .show()
                 }
               }

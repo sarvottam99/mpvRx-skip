@@ -38,18 +38,20 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.RoundRect
-import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layoutId
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.unit.dp
+import app.gyrolet.mpvrx.ui.liquidglass.playerGlassContainerColor
 import app.gyrolet.mpvrx.ui.theme.AppConnectedShapeTokens
 import app.gyrolet.mpvrx.ui.theme.AppMotion
 import app.gyrolet.mpvrx.ui.theme.ConnectedLayout
 import app.gyrolet.mpvrx.ui.theme.rememberConnectedShape
+import app.gyrolet.mpvrx.ui.theme.animatedConnectedContainerColorState
 import app.gyrolet.mpvrx.ui.theme.rememberLowEndDevice
 import app.gyrolet.mpvrx.ui.player.controls.components.tvFocusHighlight
 import app.gyrolet.mpvrx.ui.tv.isTelevision
@@ -65,7 +67,14 @@ internal val LocalInsidePreferenceCard = staticCompositionLocalOf { false }
 private const val ConnectedPreferenceGap = "mpvrx-settings-connected-gap"
 internal const val SelectedPreferenceTile = "mpvrx-settings-selected-tile"
 
-private data class ConnectedPreferenceFrame(val top: Int, val bottom: Int, val selected: Boolean)
+internal data class PreferenceTileVisualState(val selected: Boolean, val pressed: Boolean)
+
+private data class ConnectedPreferenceFrame(
+  val top: Int,
+  val bottom: Int,
+  val selected: Boolean,
+  val pressed: Boolean,
+)
 
 @Composable
 fun PreferenceCard(
@@ -74,55 +83,55 @@ fun PreferenceCard(
 ) {
   val colors = MaterialTheme.colorScheme
   val spacingPx = with(LocalDensity.current) { AppConnectedShapeTokens.spacing.roundToPx() }
-  val outerRadius = AppConnectedShapeTokens.outerCorner
-  val innerRadius = AppConnectedShapeTokens.innerCorner
   var tileFrames by remember { mutableStateOf(emptyList<ConnectedPreferenceFrame>()) }
   val reduceMotion = AppMotion.shouldReduceMotion()
+  val playerPanel = LocalPlayerSettingsPanel.current
   val lowEnd = rememberLowEndDevice()
   val frames = tileFrames
   val tileColors = frames.map { frame ->
-    animateColorAsState(
-      targetValue = if (frame.selected) colors.secondaryContainer else colors.surfaceContainerLow,
-      animationSpec = if (reduceMotion || lowEnd) snap() else AppMotion.Effect.Color,
-      label = "connectedPreferenceSelection",
+    animatedConnectedContainerColorState(
+      selected = frame.selected,
+      pressed = frame.pressed,
+      containerColor = colors.surfaceContainerLow,
+      reduceMotion = reduceMotion || lowEnd,
     )
   }
+  val tileShapes = frames.mapIndexed { index, frame ->
+    rememberConnectedShape(
+      index, frames.size, ConnectedLayout.Vertical,
+      pressed = frame.pressed, selected = frame.selected, reduceMotion = reduceMotion || lowEnd,
+    )
+  }
+  val groupShape = rememberConnectedShape(
+    0, 1, ConnectedLayout.Vertical,
+    pressed = frames.firstOrNull()?.pressed == true || frames.lastOrNull()?.pressed == true,
+    reduceMotion = reduceMotion || lowEnd,
+  )
 
   // The outer mask keeps highlight/ripple surfaces within the expressive group boundary.
   Column(
     modifier = modifier
       .fillMaxWidth()
-      .padding(horizontal = 16.dp, vertical = 8.dp)
+      .padding(horizontal = 16.dp, vertical = if (playerPanel) 0.dp else 8.dp)
       .then(if (lowEnd || reduceMotion) Modifier else Modifier.animateContentSize(AppMotion.IntSizeSpring)),
   ) {
     val columnScope = this
     Layout(
       modifier = Modifier
         .fillMaxWidth()
-        .clip(RoundedCornerShape(outerRadius))
+        .clip(groupShape)
         .drawWithCache {
-          val connectedPaths = frames.mapIndexedNotNull { index, frame ->
+          val connectedOutlines = frames.mapIndexedNotNull { index, frame ->
             val top = frame.top.toFloat()
             val bottom = frame.bottom.toFloat()
             if (bottom <= top) return@mapIndexedNotNull null
-            val topRadius = if (index == 0) outerRadius.toPx() else innerRadius.toPx()
-            val bottomRadius =
-              if (index == frames.lastIndex) outerRadius.toPx() else innerRadius.toPx()
-            val path = Path().apply {
-              addRoundRect(
-                RoundRect(
-                  left = 0f, top = top, right = size.width, bottom = bottom,
-                  topLeftCornerRadius = CornerRadius(topRadius),
-                  topRightCornerRadius = CornerRadius(topRadius),
-                  bottomRightCornerRadius = CornerRadius(bottomRadius),
-                  bottomLeftCornerRadius = CornerRadius(bottomRadius),
-                ),
-              )
-            }
-            path to index
+            val outline = tileShapes[index].createOutline(Size(size.width, bottom - top), layoutDirection, this)
+            Triple(outline, index, top)
           }
           onDrawBehind {
-            connectedPaths.forEach { (path, index) -> drawPath(path, color = tileColors[index].value) }
+            connectedOutlines.forEach { (outline, index, top) ->
+              translate(top = top) { drawOutline(outline, color = tileColors[index].value) }
+            }
           }
         },
       content = {
@@ -138,12 +147,21 @@ fun PreferenceCard(
       var y = 0
       var precedingTile = false
       placeables.forEachIndexed { index, placeable ->
+        if (placeable.height == 0) return@forEachIndexed
         val isDivider = measurables[index].layoutId == ConnectedPreferenceGap
         // Adjacent rows without an explicit PreferenceDivider still get a small connected gap.
         if (!isDivider && precedingTile) y += spacingPx
         positions[index] = y
         if (!isDivider && placeable.height > 0) {
-          frames.add(ConnectedPreferenceFrame(y, y + placeable.height, measurables[index].layoutId == SelectedPreferenceTile))
+          val visualState = measurables[index].layoutId as? PreferenceTileVisualState
+          frames.add(
+            ConnectedPreferenceFrame(
+              y,
+              y + placeable.height,
+              selected = visualState?.selected ?: (measurables[index].layoutId == SelectedPreferenceTile),
+              pressed = visualState?.pressed == true,
+            ),
+          )
           precedingTile = true
         } else if (isDivider) {
           precedingTile = false
@@ -200,7 +218,9 @@ fun ExpressivePreferenceTile(
 ) {
   val colors = MaterialTheme.colorScheme
   val containerColor by animateColorAsState(
-    targetValue = if (selected) colors.secondaryContainer else colors.surfaceContainerLow,
+    targetValue = playerGlassContainerColor(
+      if (selected) colors.secondaryContainer else colors.surfaceContainerLow, selected = selected,
+    ),
     animationSpec = AppMotion.spatial(AppMotion.Effect.Color, snap()),
     label = "expressivePreferenceTileColor",
   )
@@ -209,6 +229,7 @@ fun ExpressivePreferenceTile(
       index = index,
       itemCount = itemCount,
       layout = ConnectedLayout.Vertical,
+      selected = selected,
     )
   Surface(
     modifier = modifier.fillMaxWidth(),
@@ -245,11 +266,11 @@ fun ExpressivePreferenceItem(
   val color by animateColorAsState(
     // PreferenceCard paints both selected and unselected tiles at their measured connected
     // corners; a child surface must not override that geometry.
-    targetValue = when {
+    targetValue = playerGlassContainerColor(when {
       insideGroup -> androidx.compose.ui.graphics.Color.Transparent
       selected -> colors.secondaryContainer
       else -> colors.surfaceContainerLow
-    },
+    }, selected = selected),
     animationSpec = AppMotion.spatial(AppMotion.Effect.Color, snap()),
     label = "preferenceItemColor",
   )
@@ -271,6 +292,7 @@ fun ExpressivePreferenceItem(
  */
 @Composable
 fun PreferenceDivider(modifier: Modifier = Modifier) {
+  if (LocalPlayerSettingsPanel.current) return
   if (LocalInsidePreferenceCard.current) {
     Spacer(modifier = modifier.fillMaxWidth().height(AppConnectedShapeTokens.spacing).layoutId(ConnectedPreferenceGap))
   } else {

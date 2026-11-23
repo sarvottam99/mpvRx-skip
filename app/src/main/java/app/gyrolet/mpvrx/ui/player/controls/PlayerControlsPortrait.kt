@@ -9,30 +9,23 @@
 
 package app.gyrolet.mpvrx.ui.player.controls
 
-import androidx.compose.foundation.BorderStroke
 import app.gyrolet.mpvrx.ui.liquidglass.liquidGlassActive
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -41,7 +34,6 @@ import app.gyrolet.mpvrx.preferences.PlayerButton
 import app.gyrolet.mpvrx.preferences.preference.collectAsState
 import app.gyrolet.mpvrx.ui.icons.Icon
 import app.gyrolet.mpvrx.ui.icons.Icons
-import app.gyrolet.mpvrx.ui.liquidglass.LiquidPillButton
 import app.gyrolet.mpvrx.ui.player.Panels
 import app.gyrolet.mpvrx.ui.player.PlayerActivity
 import app.gyrolet.mpvrx.ui.player.PlayerViewModel
@@ -49,10 +41,9 @@ import app.gyrolet.mpvrx.ui.player.Sheets
 import app.gyrolet.mpvrx.ui.player.VideoAspect
 import app.gyrolet.mpvrx.ui.player.controls.components.ControlsButton
 import app.gyrolet.mpvrx.ui.player.controls.components.ControlsGroup
-import app.gyrolet.mpvrx.ui.player.controls.components.playerButtonBorderColor
-import app.gyrolet.mpvrx.ui.player.controls.components.playerButtonContainerColor
+import app.gyrolet.mpvrx.ui.player.controls.components.fadingHorizontalScroll
+import app.gyrolet.mpvrx.ui.player.controls.components.PlayerTitlePill
 import app.gyrolet.mpvrx.ui.player.controls.components.playerButtonContentColor
-import app.gyrolet.mpvrx.ui.theme.controlColor
 import app.gyrolet.mpvrx.ui.theme.spacing
 import dev.vivvvek.seeker.Segment
 import org.koin.compose.koinInject
@@ -60,7 +51,6 @@ import org.koin.compose.koinInject
 @Composable
 fun TopPlayerControlsPortrait(
   mediaTitle: String?,
-  hideBackground: Boolean,
   onBackPress: () -> Unit,
   onOpenSheet: (Sheets) -> Unit,
   viewModel: PlayerViewModel,
@@ -71,9 +61,8 @@ fun TopPlayerControlsPortrait(
   translationStatus: String = "",
   translatingTrackName: String = "",
 ) {
-  PlayerButtonTheme(hideBackground) {
+  PlayerButtonTheme {
     val playlistModeEnabled = viewModel.hasPlaylistSupport()
-    val clickEvent = LocalPlayerButtonsClickEvent.current
 
     Column(
       modifier =
@@ -88,95 +77,17 @@ fun TopPlayerControlsPortrait(
           ControlsButton(
             icon = Icons.RoundedFilled.ArrowBack,
             onClick = onBackPress,
-            color = if (hideBackground) controlColor else playerButtonContentColor(),
-            modifier = Modifier.size(45.dp),
+            color = playerButtonContentColor(),
+            modifier = Modifier.size(48.dp),
           )
 
-          Column(
+          PlayerTitlePill(
+            title = mediaTitle,
+            playlistInfo = viewModel.getPlaylistInfo(),
+            onOpenInfo = { onOpenSheet(Sheets.MediaInfo) },
+            onOpenPlaylist = if (playlistModeEnabled) ({ onOpenSheet(Sheets.Playlist) }) else null,
             modifier = Modifier.padding(start = 4.dp),
-          ) {
-            val enableLiquidGlass = liquidGlassActive()
-
-            if (enableLiquidGlass) {
-              LiquidPillButton(
-                onClick = {
-                  if (playlistModeEnabled) {
-                    clickEvent()
-                    onOpenSheet(Sheets.Playlist)
-                  }
-                },
-                isInteractive = playlistModeEnabled,
-                height = 45.dp,
-                horizontalPadding = 14.dp,
-              ) {
-                Text(
-                  mediaTitle ?: "",
-                  maxLines = 1,
-                  overflow = TextOverflow.Ellipsis,
-                  style = MaterialTheme.typography.bodyMedium,
-                  modifier = Modifier.weight(1f, fill = false),
-                )
-                viewModel.getPlaylistInfo()?.let { playlistInfo ->
-                  Text(
-                    " • $playlistInfo",
-                    maxLines = 1,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = LocalContentColor.current.copy(alpha = 0.7f),
-                  )
-                }
-              }
-            } else {
-              val titleInteractionSource =
-                remember {
-                  androidx.compose.foundation.interaction
-                    .MutableInteractionSource()
-                }
-
-              Surface(
-                shape = CircleShape,
-                color =
-                  if (hideBackground) {
-                    Color.Transparent
-                  } else {
-                    playerButtonContainerColor()
-                  },
-                contentColor = if (hideBackground) controlColor else playerButtonContentColor(),
-                onClick = {
-                  clickEvent()
-                  onOpenSheet(Sheets.Playlist)
-                },
-                enabled = playlistModeEnabled,
-                border =
-                  if (hideBackground) {
-                    null
-                  } else {
-                    BorderStroke(1.dp, playerButtonBorderColor())
-                  },
-                modifier = Modifier.height(45.dp),
-              ) {
-                Row(
-                  verticalAlignment = Alignment.CenterVertically,
-                  modifier = Modifier.padding(horizontal = 14.dp),
-                ) {
-                  Text(
-                    mediaTitle ?: "",
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.weight(1f, fill = false),
-                  )
-                  viewModel.getPlaylistInfo()?.let { playlistInfo ->
-                    Text(
-                      " • $playlistInfo",
-                      maxLines = 1,
-                      style = MaterialTheme.typography.bodySmall,
-                      color = LocalContentColor.current.copy(alpha = 0.7f),
-                    )
-                  }
-                }
-              }
-            }
-          }
+          )
         }
       }
 
@@ -260,7 +171,6 @@ fun BottomPlayerControlsPortrait(
   currentZoom: Float,
   aspect: VideoAspect,
   mediaTitle: String?,
-  hideBackground: Boolean,
   decoder: app.gyrolet.mpvrx.ui.player.Decoder,
   playbackSpeed: Float,
   onBackPress: () -> Unit,
@@ -268,50 +178,61 @@ fun BottomPlayerControlsPortrait(
   onOpenPanel: (Panels) -> Unit,
   viewModel: PlayerViewModel,
   activity: PlayerActivity,
+  alignToEnd: Boolean = false,
+  horizontalArrangement: Arrangement.Horizontal =
+    Arrangement.spacedBy(
+      MaterialTheme.spacing.small,
+      Alignment.CenterHorizontally,
+    ),
+  modifier: Modifier = Modifier,
 ) {
-  PlayerButtonTheme(hideBackground) {
+  PlayerButtonTheme {
     val enableLiquidGlass = liquidGlassActive()
+    // fillMaxWidth hands the scroll content a minimum width, so a short row still centers.
     Row(
       modifier =
-        Modifier
+        modifier
           .fillMaxWidth()
-          .horizontalScroll(rememberScrollState())
-          // Padding after horizontalScroll belongs to scroll content, not its clipping viewport.
-          // Vertical room is only for the liquid-glass shadow; the player places this row with its shared gaps.
-          .padding(
-            horizontal = if (enableLiquidGlass) 8.dp else 0.dp,
-            vertical = if (enableLiquidGlass) 6.dp else 0.dp,
-          ),
-      horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.medium, Alignment.CenterHorizontally),
+          .fadingHorizontalScroll(
+            rememberScrollState(),
+            shadowRoom = if (enableLiquidGlass) PortraitActionShadowRoom else 0.dp,
+          )
+          .padding(horizontal = if (enableLiquidGlass) 8.dp else 0.dp),
+      horizontalArrangement = if (alignToEnd) {
+        Arrangement.spacedBy(MaterialTheme.spacing.small, Alignment.End)
+      } else horizontalArrangement,
       verticalAlignment = Alignment.CenterVertically,
     ) {
       buttons.forEach { button ->
-        RenderPlayerButton(
-          button = button,
-          chapters = chapters,
-          currentChapter = currentChapter,
-          isPortrait = true,
-          isSpeedNonOne = isSpeedNonOne,
-          currentZoom = currentZoom,
-          aspect = aspect,
-          mediaTitle = mediaTitle,
-          hideBackground = hideBackground,
-          onBackPress = onBackPress,
-          onOpenSheet = onOpenSheet,
-          onOpenPanel = onOpenPanel,
-          viewModel = viewModel,
-          activity = activity,
-          decoder = decoder,
-          playbackSpeed = playbackSpeed,
-          buttonSize = 44.dp, // Slightly more compact size
-        )
+        val renderButton: @Composable () -> Unit = {
+          RenderPlayerButton(
+            button = button,
+            chapters = chapters,
+            currentChapter = currentChapter,
+            isPortrait = true,
+            isSpeedNonOne = isSpeedNonOne,
+            currentZoom = currentZoom,
+            aspect = aspect,
+            mediaTitle = mediaTitle,
+            onBackPress = onBackPress,
+            onOpenSheet = onOpenSheet,
+            onOpenPanel = onOpenPanel,
+            viewModel = viewModel,
+            activity = activity,
+            decoder = decoder,
+            playbackSpeed = playbackSpeed,
+            buttonSize = 48.dp,
+          )
+        }
+        // Unbounded scroll width would stretch a long title pill across the whole row.
+        if (button == PlayerButton.VIDEO_TITLE) Box(Modifier.widthIn(max = 220.dp)) { renderButton() } else renderButton()
       }
       if (showVideoQualitySelector) {
         ControlsButton(
           icon = Icons.RoundedFilled.Hd,
           onClick = { onOpenSheet(Sheets.VideoQuality) },
           title = stringResource(R.string.player_video_quality_button),
-          modifier = Modifier.size(44.dp),
+          modifier = Modifier.size(48.dp),
         )
       }
     }

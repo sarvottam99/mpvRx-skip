@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -26,6 +28,7 @@ import app.gyrolet.mpvrx.R
 import app.gyrolet.mpvrx.ui.components.InlineSearchBar
 import app.gyrolet.mpvrx.ui.icons.Icon
 import app.gyrolet.mpvrx.ui.icons.Icons
+import app.gyrolet.mpvrx.ui.liquidglass.LocalPlayerGlassSurfaceActive
 
 /**
  * Shared Material 3 Expressive search input for sheet lists. Filtering remains controlled by the
@@ -37,6 +40,7 @@ fun PlayerSheetSearchField(
   onQueryChange: (String) -> Unit,
   modifier: Modifier = Modifier,
   placeholder: String = stringResource(R.string.generic_search),
+  inputFieldModifier: Modifier = Modifier,
   onSubmit: (() -> Unit)? = null,
 ) {
   val focusManager = LocalFocusManager.current
@@ -44,12 +48,19 @@ fun PlayerSheetSearchField(
     onSubmit?.invoke()
     focusManager.clearFocus()
   }
+  // On a frosted player sheet the default solid SearchBar surface and its shadow fight the glass
+  // material; fall back to the translucent tint the other sheet rows use.
+  val frosted = LocalPlayerGlassSurfaceActive.current
   InlineSearchBar(
     query = query,
     onQueryChange = onQueryChange,
     onSearch = { submit() },
     modifier = modifier.fillMaxWidth(),
+    inputFieldModifier = inputFieldModifier,
     placeholder = { Text(placeholder) },
+    containerColor = if (frosted) MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.35f) else null,
+    tonalElevation = if (frosted) 0.dp else SearchBarDefaults.TonalElevation,
+    shadowElevation = if (frosted) 0.dp else SearchBarDefaults.ShadowElevation,
     leadingIcon = {
       if (onSubmit != null) {
         IconButton(

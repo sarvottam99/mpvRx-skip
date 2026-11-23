@@ -38,9 +38,17 @@ The rest of the player remains based on the upstream **mpvRx** project.
 <summary><strong>Original mpvRx README</strong></summary>
 
 <p align="center">
-  <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22app.gyrolet.mpvrx%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FRiteshp2001%2FmpvRx%22%2C%22author%22%3A%22Riteshp2001%22%2C%22name%22%3A%22mpvRx%22%2C%22preferredApkIndex%22%3A0%2C%22additionalSettings%22%3A%22%7B%5C%22includePrereleases%5C%22%3Afalse%2C%5C%22fallbackToOlderReleases%5C%22%3Atrue%2C%5C%22filterReleaseTitlesByRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22filterReleaseNotesByRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22verifyLatestTag%5C%22%3Afalse%2C%5C%22sortMethodChoice%5C%22%3A%5C%22date%5C%22%2C%5C%22useLatestAssetDateAsReleaseDate%5C%22%3Afalse%2C%5C%22releaseTitleAsVersion%5C%22%3Afalse%2C%5C%22trackOnly%5C%22%3Afalse%2C%5C%22versionExtractionRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22matchGroupToUse%5C%22%3A%5C%22%5C%22%2C%5C%22versionDetection%5C%22%3Atrue%2C%5C%22releaseDateAsVersion%5C%22%3Afalse%2C%5C%22useVersionCodeAsOSVersion%5C%22%3Afalse%2C%5C%22apkFilterRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22invertAPKFilter%5C%22%3Afalse%2C%5C%22autoApkFilterByArch%5C%22%3Atrue%2C%5C%22minimumUpdateAgeDays%5C%22%3A%5C%22%5C%22%2C%5C%22appName%5C%22%3A%5C%22%5C%22%2C%5C%22appAuthor%5C%22%3A%5C%22%5C%22%2C%5C%22shizukuPretendToBeGooglePlay%5C%22%3Afalse%2C%5C%22allowInsecure%5C%22%3Afalse%2C%5C%22exemptFromBackgroundUpdates%5C%22%3Afalse%2C%5C%22skipUpdateNotifications%5C%22%3Afalse%2C%5C%22about%5C%22%3A%5C%22%5C%22%2C%5C%22refreshBeforeDownload%5C%22%3Afalse%2C%5C%22includeZips%5C%22%3Afalse%2C%5C%22zippedApkFilterRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22includeTarballs%5C%22%3Afalse%2C%5C%22tarballedApkFilterRegEx%5C%22%3A%5C%22%5C%22%7D%22%2C%22overrideSource%22%3Anull%7D">
-    <img src="https://raw.githubusercontent.com/ImranR98/Obtainium/main/assets/graphics/badge_obtainium.png" alt="Get it on Obtainium" height="80" />
-  </a>
+  <!-- Proportional widths match visible heights; the spacers balance the Obtainium PNG's built-in padding. -->
+  <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22app.gyrolet.mpvrx%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FRiteshp2001%2FmpvRx%22%2C%22author%22%3A%22Riteshp2001%22%2C%22name%22%3A%22mpvRx%22%2C%22preferredApkIndex%22%3A0%2C%22additionalSettings%22%3A%22%7B%5C%22includePrereleases%5C%22%3Afalse%2C%5C%22fallbackToOlderReleases%5C%22%3Atrue%2C%5C%22filterReleaseTitlesByRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22filterReleaseNotesByRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22verifyLatestTag%5C%22%3Afalse%2C%5C%22sortMethodChoice%5C%22%3A%5C%22date%5C%22%2C%5C%22useLatestAssetDateAsReleaseDate%5C%22%3Afalse%2C%5C%22releaseTitleAsVersion%5C%22%3Afalse%2C%5C%22trackOnly%5C%22%3Afalse%2C%5C%22versionExtractionRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22matchGroupToUse%5C%22%3A%5C%22%5C%22%2C%5C%22versionDetection%5C%22%3Atrue%2C%5C%22releaseDateAsVersion%5C%22%3Afalse%2C%5C%22useVersionCodeAsOSVersion%5C%22%3Afalse%2C%5C%22apkFilterRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22invertAPKFilter%5C%22%3Afalse%2C%5C%22autoApkFilterByArch%5C%22%3Atrue%2C%5C%22minimumUpdateAgeDays%5C%22%3A%5C%22%5C%22%2C%5C%22appName%5C%22%3A%5C%22%5C%22%2C%5C%22appAuthor%5C%22%3A%5C%22%5C%22%2C%5C%22shizukuPretendToBeGooglePlay%5C%22%3Afalse%2C%5C%22allowInsecure%5C%22%3Afalse%2C%5C%22exemptFromBackgroundUpdates%5C%22%3Afalse%2C%5C%22skipUpdateNotifications%5C%22%3Afalse%2C%5C%22about%5C%22%3A%5C%22%5C%22%2C%5C%22refreshBeforeDownload%5C%22%3Afalse%2C%5C%22includeZips%5C%22%3Afalse%2C%5C%22zippedApkFilterRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22includeTarballs%5C%22%3Afalse%2C%5C%22tarballedApkFilterRegEx%5C%22%3A%5C%22%5C%22%7D%22%2C%22overrideSource%22%3Anull%7D"
+  ><img src="https://raw.githubusercontent.com/ImranR98/Obtainium/main/assets/graphics/badge_obtainium.png" alt="Get it on Obtainium" width="33%" align="middle" /></a><a
+    href="https://fmhy.net/mobile#android-video-players" target="_blank" rel="noopener noreferrer"
+  ><img src="https://cdn.jsdelivr.net/gh/JMcrafter26/badges@main/src/assets/available/fmhy/cozy.svg" alt="FMHY" width="25%" align="middle" /></a><img
+    src=".github/readme/badge-gap.svg" alt="" width="2.1%" height="1" align="middle"
+  /><a
+    href="https://kotlinlang.org" target="_blank" rel="noopener noreferrer"
+  ><img src="https://cdn.jsdelivr.net/gh/JMcrafter26/badges@main/src/assets/built-with/kotlin/cozy.svg" alt="Built with Kotlin" width="22%" align="middle" /></a><img
+    src=".github/readme/badge-gap.svg" alt="" width="2.1%" height="1" align="middle"
+  />
 </p>
 
 <p align="center">
@@ -48,9 +56,6 @@ The rest of the player remains based on the upstream **mpvRx** project.
   <br>
   <i>No ads. No trackers. No noise. Just a serious video player with a calmer surface and a sharper edge.</i>
 </p>
-
-> [!IMPORTANT]
-> [Join us on Telegram](https://t.me/+yA0f2nknCAc1ODZl)
 
 <p align="center">
   <img src="https://img.shields.io/badge/Platform-Android-brightgreen.svg" />
@@ -64,7 +69,7 @@ The rest of the player remains based on the upstream **mpvRx** project.
 ## Showcase
 
 <div align="center">
-  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/tanjiro-playback.jpg" width="100%" alt="Video playback in mpvRx">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/itsmpv.jpg" width="100%" alt="Video playback in mpvRx">
 </div>
 
 <div align="center">
@@ -78,7 +83,7 @@ The rest of the player remains based on the upstream **mpvRx** project.
 
 
 <div align="center">
-  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/pip.png" width="32%" alt="mpvRx picture-in-picture mode">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/jellyfin.jpg" width="32%" alt="mpvRx picture-in-picture mode">
   <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/music-player.jpg" width="32%" alt="mpvRx music player">
   <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/about-screen.jpg" width="32%" alt="mpvRx About screen">
 </div>
@@ -90,7 +95,7 @@ The rest of the player remains based on the upstream **mpvRx** project.
 mpvRx pushes the mpv-android experience further with deep customization, thermal-aware performance, and unique quality-of-life features. Here's what sets it apart:
 
 <details close>
-<summary><b>🎨 Theme & Visual System</b></summary>
+<summary><picture><source media="(prefers-color-scheme: dark)" srcset=".github/readme/icons/appearance-dark.svg"><img src=".github/readme/icons/appearance-light.svg" width="28" height="28" align="absmiddle" alt=""></picture> <b>Theme & Visual System</b></summary>
 
 | Feature | Description |
 |---|---|
@@ -99,29 +104,36 @@ mpvRx pushes the mpv-android experience further with deep customization, thermal
 | **Player Controls Animation** | 5 animation styles: Default, Elastic Bounce, Cinematic Scale, Slide Up, Minimal Fade |
 | **Always Dark Mode** | Option to keep player controls in dark theme regardless of app theme |
 | **Themed Player Controls** | Adaptive controls that match your app theme or system accent |
+| **Responsive Sheets & Panels** | Long sheets such as Media Info open just over half-height in portrait and can expand to fill the usable space. Landscape panels and initial sheets stay within 85% of the usable height; tablets get wider sheets. Drag floating panels by their handle or compact header. Liquid Glass keeps panel rows translucent and honors the backdrop opacity; native HDR uses a translucent fallback without sampling the video. |
+| **Media Format Badges** | Crisp, vector-only badges below the video title show the source or container, resolution, video and audio formats, HDR, bit depth, and channels when known. They follow active tracks and the player theme on phones, tablets, and TV. Toggle them under **Player Layout → Appearance** (**Display Controls** on TV). |
+| **Adaptive Toasts** | Message-sized pills resize smoothly within safe screen bounds and float above browser navigation, selection actions, and the mini player; swipe dismissal remains available |
 | **Material 3 Expressive UI** | Expressive components, spring-based navigation, responsive grids, and polished predictive-back motion |
 
 </details>
 
 <details close>
-<summary><b>🖐️ Gesture System</b></summary>
+<summary><picture><source media="(prefers-color-scheme: dark)" srcset=".github/readme/icons/gestures-dark.svg"><img src=".github/readme/icons/gestures-light.svg" width="28" height="28" align="absmiddle" alt=""></picture> <b>Gesture System</b></summary>
 
 | Feature | Description |
 |---|---|
 | **Refined Tap Logic** | Configurable double-tap seek zones (left/center/right) with independently assignable actions |
-| **Multi-Tap Continuous Seeking** | Triple/quadruple tap to keep seeking further without lifting |
+| **YouTube-Style Seek Animation** | Signed cumulative seconds that grow inward without shifting the chevrons, an interruption-safe count pulse, and independently overlapping chevrons that slide and morph into the persistent arrow without restarting it, with optional tap-origin ripple feedback |
+| **Multi-Tap Continuous Seeking** | By default, double-tap a seek zone and then keep tapping to accumulate seconds; reversing direction starts a new count. Feedback resets after 1.2 seconds without an accepted seek. Saved seek intervals, custom tap actions, and reduced-motion settings are respected |
+| **Strict Double-Tap Seeking** | Optional **Gestures > Tap gestures > Require double tap for every seek** switch. Off by default; when enabled, each seek in a double-tap zone requires a fresh pair. Single-tap zones are unchanged |
 | **Horizontal Swipe to Seek** | Swipe across video to seek with live time/delta overlay |
 | **Long-Press Dynamic Speed** | Long-press activates configurable speed boost; swipe left/right to adjust across 8 presets |
 | **Subtitle Drag Gesture** | Long-press center screen to drag subtitles vertically when active |
 | **Subtitle Zoom & Dialogue Seek** | Pinch subtitle text to resize it and swipe across subtitles to seek between dialogue lines |
-| **Pinch-to-Zoom with Pan** | Pinch to zoom (-1x to 3x) with simultaneous pan and single-finger pan after zoom |
+| **Pinch-to-Zoom with Pan** | Pinch near Fit, the detected black-bar boundary, or screen fill to snap to that zoom level. You can pinch past each stop and pan as usual. |
+| **Aspect Ratio** | Modes cycle through **Fit Screen** (default), **Stretch**, and **Crop**. |
+| **Ambient in Fit Screen** | Ambient checks the top, bottom, left, and right edges for baked-in black bars, trims confirmed bars, and fills the space around the picture. Turning Ambient off restores the original frame. Stretch, Crop, and fixed or custom ratios do not auto-trim. |
 | **Volume Boost via Gesture** | Vertical swipe volume can exceed 100% into configurable boost range |
 | **Swap Volume/Brightness Sides** | Option to swap which screen side controls volume vs brightness |
 
 </details>
 
 <details>
-<summary><b>📺 HDR & Video Pipeline</b></summary>
+<summary><picture><source media="(prefers-color-scheme: dark)" srcset=".github/readme/icons/hdr-dark.svg"><img src=".github/readme/icons/hdr-light.svg" width="28" height="28" align="absmiddle" alt=""></picture> <b>HDR & Video Pipeline</b></summary>
 
 | Feature | Description |
 |---|---|
@@ -130,12 +142,11 @@ mpvRx pushes the mpv-android experience further with deep customization, thermal
 | **SDR-to-HDR Boost** | Boost SDR content into HDR range when using Linear HDR pipeline |
 | **GPU Deband** | CPU (gradfun) or GPU deband with configurable iterations, threshold, range, grain |
 | **Smart Render Backend** | Auto-selects between OpenGL/Vulkan and gpu/gpu-next based on device support |
-| **Automatic Black-Bar Cropping** | Optional analysis detects and removes encoded black borders on supported videos |
 
 </details>
 
 <details close>
-<summary><b>🔥 Thermal & Battery Management</b></summary>
+<summary><picture><source media="(prefers-color-scheme: dark)" srcset=".github/readme/icons/thermal-dark.svg"><img src=".github/readme/icons/thermal-light.svg" width="28" height="28" align="absmiddle" alt=""></picture> <b>Thermal & Battery Management</b></summary>
 
 | Feature | Description |
 |---|---|
@@ -148,7 +159,7 @@ mpvRx pushes the mpv-android experience further with deep customization, thermal
 </details>
 
 <details close>
-<summary><b>🧩 Anime4K & Upscaling</b></summary>
+<summary><picture><source media="(prefers-color-scheme: dark)" srcset=".github/readme/icons/upscaling-dark.svg"><img src=".github/readme/icons/upscaling-light.svg" width="28" height="28" align="absmiddle" alt=""></picture> <b>Anime4K & Upscaling</b></summary>
 
 | Feature | Description |
 |---|---|
@@ -160,7 +171,7 @@ mpvRx pushes the mpv-android experience further with deep customization, thermal
 </details>
 
 <details close>
-<summary><b>💡 Ambient Mode</b></summary>
+<summary><picture><source media="(prefers-color-scheme: dark)" srcset=".github/readme/icons/ambient-dark.svg"><img src=".github/readme/icons/ambient-light.svg" width="28" height="28" align="absmiddle" alt=""></picture> <b>Ambient Mode</b></summary>
 
 | Feature | Description |
 |---|---|
@@ -171,7 +182,7 @@ mpvRx pushes the mpv-android experience further with deep customization, thermal
 </details>
 
 <details close>
-<summary><b>📝 Subtitle System</b></summary>
+<summary><picture><source media="(prefers-color-scheme: dark)" srcset=".github/readme/icons/subtitles-dark.svg"><img src=".github/readme/icons/subtitles-light.svg" width="28" height="28" align="absmiddle" alt=""></picture> <b>Subtitle System</b></summary>
 
 | Feature | Description |
 |---|---|
@@ -187,7 +198,7 @@ mpvRx pushes the mpv-android experience further with deep customization, thermal
 </details>
 
 <details close>
-<summary><b>🎮 Player Controls</b></summary>
+<summary><picture><source media="(prefers-color-scheme: dark)" srcset=".github/readme/icons/controls-dark.svg"><img src=".github/readme/icons/controls-light.svg" width="28" height="28" align="absmiddle" alt=""></picture> <b>Player Controls</b></summary>
 
 | Feature | Description |
 |---|---|
@@ -204,7 +215,7 @@ mpvRx pushes the mpv-android experience further with deep customization, thermal
 </details>
 
 <details close>
-<summary><b>📺 Google Cast</b></summary>
+<summary><picture><source media="(prefers-color-scheme: dark)" srcset=".github/readme/icons/cast-dark.svg"><img src=".github/readme/icons/cast-light.svg" width="28" height="28" align="absmiddle" alt=""></picture> <b>Google Cast</b></summary>
 
 | Feature | Description |
 |---|---|
@@ -221,21 +232,23 @@ mpvRx pushes the mpv-android experience further with deep customization, thermal
 </details>
 
 <details close>
-<summary><b>🧭 Smart Orientation</b></summary>
+<summary><picture><source media="(prefers-color-scheme: dark)" srcset=".github/readme/icons/orientation-dark.svg"><img src=".github/readme/icons/orientation-light.svg" width="28" height="28" align="absmiddle" alt=""></picture> <b>Smart Orientation</b></summary>
 
 | Feature | Description |
 |---|---|
 | **8 Orientation Modes** | Free, Video (auto aspect ratio), Portrait, Reverse Portrait, Sensor Portrait, Landscape, Reverse Landscape, Sensor Landscape |
 | **Persistent Per-Video** | Orientation remembered per-video across sessions |
+| **Tablets & Foldables** | Every mode and the rotation button apply on large screens as on phones; split-screen and freeform windows follow the system. On Android 16+ large screens, Android itself ignores fixed portrait/landscape requests unless the app default is restored in the system aspect-ratio settings; Free keeps sensor rotation |
 
 </details>
 
 <details close>
-<summary><b>🔍 File Browser & Navigation</b></summary>
+<summary><picture><source media="(prefers-color-scheme: dark)" srcset=".github/readme/icons/library-dark.svg"><img src=".github/readme/icons/library-light.svg" width="28" height="28" align="absmiddle" alt=""></picture> <b>File Browser & Navigation</b></summary>
 
 | Feature | Description |
 |---|---|
 | **Dual Browser Modes** | Album View (folder grid) and Tree View (file manager hierarchy) |
+| **Android TV File Picker** | **Open file** browses internal storage and readable USB drives with the D-pad. **Back** goes up one level and returns focus to the folder you left. Select **Search** to filter the current folder. Use **Grant access** if needed, or **System file picker** when your TV has one. |
 | **Folder Pinning** | Pin frequently accessed folders to top |
 | **Single-Child Auto-Flatten** | Folders with one subfolder auto-flatten for faster browsing |
 | **Auto-Scroll to Last Played** | Opens to the last played video position |
@@ -251,7 +264,7 @@ mpvRx pushes the mpv-android experience further with deep customization, thermal
 </details>
 
 <details close>
-<summary><b>🎵 Music Library & Audio Player</b></summary>
+<summary><picture><source media="(prefers-color-scheme: dark)" srcset=".github/readme/icons/music-dark.svg"><img src=".github/readme/icons/music-light.svg" width="28" height="28" align="absmiddle" alt=""></picture> <b>Music Library & Audio Player</b></summary>
 
 | Feature | Description |
 |---|---|
@@ -271,7 +284,7 @@ mpvRx pushes the mpv-android experience further with deep customization, thermal
 </details>
 
 <details close>
-<summary><b>🎧 Navidrome / Subsonic Music Streaming</b></summary>
+<summary><picture><source media="(prefers-color-scheme: dark)" srcset=".github/readme/icons/music-server-dark.svg"><img src=".github/readme/icons/music-server-light.svg" width="28" height="28" align="absmiddle" alt=""></picture> <b>Navidrome / Subsonic Music Streaming</b></summary>
 
 | Feature | Description |
 |---|---|
@@ -289,7 +302,7 @@ mpvRx pushes the mpv-android experience further with deep customization, thermal
 </details>
 
 <details close>
-<summary><b>🍿 Jellyfin Client (Expressive Cinematic UI)</b></summary>
+<summary><picture><source media="(prefers-color-scheme: dark)" srcset=".github/readme/icons/cinema-dark.svg"><img src=".github/readme/icons/cinema-light.svg" width="28" height="28" align="absmiddle" alt=""></picture> <b>Jellyfin Client (Expressive Cinematic UI)</b></summary>
 
 | Feature | Description |
 |---|---|
@@ -306,11 +319,11 @@ mpvRx pushes the mpv-android experience further with deep customization, thermal
 </details>
 
 <details close>
-<summary><b>⚡ Unified Media & Torrent Streaming</b></summary>
+<summary><picture><source media="(prefers-color-scheme: dark)" srcset=".github/readme/icons/network-dark.svg"><img src=".github/readme/icons/network-light.svg" width="28" height="28" align="absmiddle" alt=""></picture> <b>Unified Media & Torrent Streaming</b></summary>
 
 | Feature | Description |
 |---|---|
-| **Sequential Torrent Engine** | Powered by high-speed native Go bridge (`anacrolix/torrent`) with sequential piece prioritization |
+| **Torrent Streaming & Downloads** | On torrent-enabled builds, open a magnet or `.torrent` file, then play or download individual media files. Downloads run in the background, appear on the **Downloads** screen, and save to the `Torrents` subfolder of your configured download location. |
 | **Instant Streaming** | Stream magnet links, `.torrent` files, direct web streams (HLS, MP4), and YouTube URLs |
 | **Cinematic Discovery** | Hero banner carousel, Continue Watching row, and 2:3 vertical poster cards for saved media |
 | **Automated TMDB Enrichment** | Fetches posters, backdrops, storyline synopsis, release years, and media types via Wyzie/TMDB |
@@ -322,7 +335,7 @@ mpvRx pushes the mpv-android experience further with deep customization, thermal
 </details>
 
 <details close>
-<summary><b>🤖 AI Integration</b></summary>
+<summary><picture><source media="(prefers-color-scheme: dark)" srcset=".github/readme/icons/ai-dark.svg"><img src=".github/readme/icons/ai-light.svg" width="28" height="28" align="absmiddle" alt=""></picture> <b>AI Integration</b></summary>
 
 | Feature | Description |
 |---|---|
@@ -336,7 +349,7 @@ mpvRx pushes the mpv-android experience further with deep customization, thermal
 </details>
 
 <details close>
-<summary><b>📜 Scripting & Editor</b></summary>
+<summary><picture><source media="(prefers-color-scheme: dark)" srcset=".github/readme/icons/development-dark.svg"><img src=".github/readme/icons/development-light.svg" width="28" height="28" align="absmiddle" alt=""></picture> <b>Scripting & Editor</b></summary>
 
 | Feature | Description |
 |---|---|
@@ -349,11 +362,11 @@ mpvRx pushes the mpv-android experience further with deep customization, thermal
 </details>
 
 <details close>
-<summary><b>⚙️ Utilities</b></summary>
+<summary><picture><source media="(prefers-color-scheme: dark)" srcset=".github/readme/icons/controls-dark.svg"><img src=".github/readme/icons/controls-light.svg" width="28" height="28" align="absmiddle" alt=""></picture> <b>Utilities</b></summary>
 
 | Feature | Description |
 |---|---|
-| **Stats Page 6** | Live system monitor: FPS, dropped frames, codecs, network sparkline, battery |
+| **Playback Statistics** | The native Statistics overlay and gesture guide follow the app language. Page 7 shows time, network, battery, thermals, CPU, memory, and cache information. |
 | **Video Compressor** | Built-in FFmpeg-based compression with presets |
 | **12 Video Filter Presets** | Vivid, Cinematic, Dramatic, Ghibli Style, Neon Pop, Deep Black, and more |
 | **Custom Skip Segments** | Intro/outro/recap/credits/preview detection from IntroDB, TIDB v3, AniSkip v2, Anime Skip, and SkipDB. SkipDB can automatically resolve IMDb IDs from TMDB IDs when needed. Hybrid uses one validated provider result; duration-aware caches keep release versions separate. |
@@ -380,7 +393,7 @@ Local playlist discovery runs when the Playlists page is first loaded and after 
 
 ---
 
-## 🔋 Battery Optimization guide for Mpv
+## <picture><source media="(prefers-color-scheme: dark)" srcset=".github/readme/icons/battery-dark.svg"><img src=".github/readme/icons/battery-light.svg" width="32" height="32" align="top" alt=""></picture> Battery Optimization guide for Mpv
 
 First Pro Tip Keep Mpv Conf empty if you are newbie
 
@@ -392,7 +405,7 @@ First Pro Tip Keep Mpv Conf empty if you are newbie
 
 **My POV:** mpv's default config with `profile=fast` and the `gpu` backend plays video with negligible battery impact — often **less** than OEM players because mpv doesn't have a billion proprietary DRM modules, analytics SDKs, and ad frameworks burning CPU in the background. The next time your battery drops more than 20-25% watching a 2-hour movie, don't blame mpv. Blame the 14 shaders you blindly copy-pasted.
 
-_Just a Pro tip if your battery consumption stays within 200 mAh and belwo 0.9W ( See Page 6 of mpvRx - video player More Settings -> Page6) useage than ur Mpv Conf are Proper for Video watching thats what i have experimented and telling rest all i don't know About in detail technicality's if anyone wanna tell me In depth guide then keep it to yourself i dont wanna listen_
+_Just a Pro tip if your battery consumption stays within 200 mAh and belwo 0.9W ( See Page 7 of mpvRx - video player More Settings -> Page7) useage than ur Mpv Conf are Proper for Video watching thats what i have experimented and telling rest all i don't know About in detail technicality's if anyone wanna tell me In depth guide then keep it to yourself i dont wanna listen_
 
 ---
 
@@ -418,7 +431,7 @@ For help, reproducible bug reports, or feature suggestions, start with the [supp
 ### Requirements
 
 - JDK 17
-- Android SDK with modern build tools installed
+- Android SDK Platform 37.2 with current command-line and build tools
 - Git
 
 ### Debug Build
@@ -453,7 +466,7 @@ If you find mpvRx useful and would like to support its development, consider buy
 
 <div align="center">
 
-### ☕ Buy Me a Coffee
+### <picture><source media="(prefers-color-scheme: dark)" srcset=".github/readme/icons/coffee-dark.svg"><img src=".github/readme/icons/coffee-light.svg" width="28" height="28" align="absmiddle" alt=""></picture> Buy Me a Coffee
 
 <a href="https://www.buymeacoffee.com/riteshp2001">
   <img src="https://img.shields.io/badge/Buy_Me_A_Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black" alt="Buy Me a Coffee">
@@ -537,6 +550,8 @@ Thank you to everyone who helps build and improve mpvRx.
 ## License
 
 Distributed under **GNU Affero General Public License v3.0 (AGPL-3.0-or-later)**. See `LICENSE` for more information.
+
+README icons use Google's [Material Symbols Rounded](https://github.com/google/material-design-icons), recolored on expressive tonal shapes for light and dark themes. See their [Apache 2.0 license](.github/readme/LICENSE-Material-Symbols).
 
 ---
 

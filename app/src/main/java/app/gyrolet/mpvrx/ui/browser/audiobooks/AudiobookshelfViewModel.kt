@@ -11,13 +11,11 @@ package app.gyrolet.mpvrx.ui.browser.audiobooks
 
 import android.app.Application
 import android.content.Context
-import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
-import app.gyrolet.mpvrx.data.audiobookshelf.AudiobookshelfClient
 import app.gyrolet.mpvrx.data.network.ServerUrlUtils
 import app.gyrolet.mpvrx.database.dao.AudiobookDao
 import app.gyrolet.mpvrx.database.entities.AudiobookChapterEntity
@@ -59,7 +57,6 @@ class AudiobookshelfViewModel(
   application: Application,
 ) : AndroidViewModel(application), KoinComponent {
   private val repository: AudiobookshelfRepository by inject()
-  private val client: AudiobookshelfClient by inject()
   private val audiobookDao: AudiobookDao by inject()
   private val mediaServerPreferences: MediaServerPreferences by inject()
 

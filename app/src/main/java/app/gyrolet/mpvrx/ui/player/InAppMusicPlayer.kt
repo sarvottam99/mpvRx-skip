@@ -37,6 +37,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -94,6 +95,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.gyrolet.mpvrx.ui.background.BackdropGate
+import app.gyrolet.mpvrx.preferences.AudioPreferences
+import app.gyrolet.mpvrx.preferences.preference.collectAsState
 import app.gyrolet.mpvrx.ui.player.controls.AudioPlayerScreen
 import app.gyrolet.mpvrx.ui.theme.AppMotion
 import app.gyrolet.mpvrx.utils.device.DeviceFormFactor
@@ -147,6 +150,7 @@ class InAppMusicSheetState internal constructor(
 
   private val visibleState = derivedStateOf { isOpen || isDragging || expansion > 0f }
   private val settledOpenState = derivedStateOf { isOpen && !isDragging && expansion >= 1f }
+  private val fullCoverageState = derivedStateOf { expansion >= 1f }
   private val miniHiddenState = derivedStateOf { isDragging || expansion > 0f }
 
   /** The sheet is on screen. */
@@ -156,6 +160,10 @@ class InAppMusicSheetState internal constructor(
   /** The sheet rests full screen and nothing under it can be seen or reached. */
   val isSettledOpen: Boolean
     get() = settledOpenState.value
+
+  /** Holding a pointer at the full-screen boundary does not uncover the browser. */
+  internal val coversWindow: Boolean
+    get() = fullCoverageState.value
 
   /** The mini player is drawn by the sheet, riding its top edge. */
   internal val isMiniHidden: Boolean
@@ -348,12 +356,10 @@ fun Modifier.inAppMusicSheetMiniSource(state: InAppMusicSheetState?, shape: Shap
       val outline = shape.createOutline(bounds.size, direction, density)
       state.miniCornerRadius = (outline as? Outline.Rounded)?.roundRect?.topLeftCornerRadius?.x ?: 0f
     }
+    .graphicsLayer { alpha = if (state.isMiniHidden) 0f else 1f }
     .drawWithContent {
       layer.record { this@drawWithContent.drawContent() }
-      if (!state.isMiniHidden) {
-        layer.alpha = 1f
-        drawLayer(layer)
-      }
+      drawLayer(layer)
     }
     .then(InAppMusicSheetCoverElement(state))
 }
@@ -364,7 +370,7 @@ fun Modifier.coveredByInAppMusicSheet(state: InAppMusicSheetState?): Modifier =
     this
   } else {
     this
-      .graphicsLayer { alpha = if (state.isSettledOpen) 0f else 1f }
+      .graphicsLayer { alpha = if (state.coversWindow) 0f else 1f }
       .then(InAppMusicSheetCoverElement(state))
   }
 
@@ -406,7 +412,7 @@ private class InAppMusicSheetCoverNode(
 
   private fun observeCover() {
     var next = false
-    observeReads { next = state.isSettledOpen }
+    observeReads { next = state.coversWindow }
     if (next != covered) {
       covered = next
       invalidateSemantics()
@@ -442,7 +448,8 @@ internal fun Modifier.inAppMusicSheetDrag(
         val slopChange =
           awaitVerticalTouchSlopOrCancellation(down.id) { change, over ->
             val towardTarget = if (collapsing) over > 0f else over < 0f
-            if (allowBothDirections || towardTarget) {
+            val hasRoom = if (over > 0f) state.expansion > 0f else state.expansion < 1f
+            if ((allowBothDirections || towardTarget) && hasRoom) {
               change.consume()
               overSlop = over
             }
@@ -516,7 +523,7 @@ fun InAppMusicPlayerSheet(
     MediaPlaybackService.setInAppPlayerVisible(shownInApp)
     onDispose { MediaPlaybackService.setInAppPlayerVisible(false) }
   }
-  val covering = state.isSettledOpen
+  val covering = state.coversWindow
   DisposableEffect(covering) {
     if (covering) BackdropGate.covers++
     onDispose { if (covering) BackdropGate.covers-- }
@@ -538,7 +545,10 @@ fun InAppMusicPlayerSheet(
   val density = LocalDensity.current
   val slidePx = with(density) { 24.dp.toPx() }
   val miniBackground = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.96f)
-  val fullBackground = MaterialTheme.colorScheme.surface
+  // Transparent so dismissing the sheet never leaves an opaque (often pure-black in AMOLED)
+  // rectangle over the settings/browser behind it.
+  val fullBackground = Color.Transparent
+  val miniOverlayLayer = rememberGraphicsLayer()
   Box(
     modifier =
       modifier
@@ -559,7 +569,7 @@ fun InAppMusicPlayerSheet(
       modifier =
         Modifier
           .fillMaxSize()
-          .drawBehind { drawSheetSurface(state, miniBackground, fullBackground) },
+          .drawBehind { drawSheetSurface(state, miniBackground, fullBackground, miniOverlayLayer) },
     )
     Box(
       modifier =
@@ -602,6 +612,7 @@ private fun DrawScope.drawSheetSurface(
   state: InAppMusicSheetState,
   miniBackground: Color,
   fullBackground: Color,
+  miniOverlayLayer: GraphicsLayer,
 ) {
   if (!state.isVisible) return
   val fraction = state.expansion
@@ -617,8 +628,9 @@ private fun DrawScope.drawSheetSurface(
   val mini = state.miniRect()
   val layer = state.miniLayer ?: return
   if (miniAlpha <= 0f || mini.isEmpty) return
-  layer.alpha = miniAlpha
-  translate(rect.center.x - mini.width / 2f, rect.top) { drawLayer(layer) }
+  miniOverlayLayer.record(size = layer.size) { drawLayer(layer) }
+  miniOverlayLayer.alpha = miniAlpha
+  translate(rect.center.x - mini.width / 2f, rect.top) { drawLayer(miniOverlayLayer) }
 }
 
 private class SheetClipShape(
@@ -638,6 +650,22 @@ private fun InAppMusicPlayerContent(
   store: InAppMusicPlayerStore,
 ) {
   val activity = LocalActivity.current as? ComponentActivity ?: return
+  val preferences = org.koin.compose.koinInject<AudioPreferences>()
+  val audioOrientation by preferences.audioOrientation.collectAsState()
+  val browserOrientation = rememberSaveable { activity.requestedOrientation }
+  LaunchedEffect(activity, state.isVisible, audioOrientation) {
+    val target = if (state.isVisible) {
+      PlayerOrientationPolicy.forAudioPreference(audioOrientation)
+    } else browserOrientation
+    if (activity.requestedOrientation != target) activity.requestedOrientation = target
+  }
+  DisposableEffect(activity) {
+    onDispose {
+      if (!activity.isChangingConfigurations && activity.requestedOrientation != browserOrientation) {
+        activity.requestedOrientation = browserOrientation
+      }
+    }
+  }
   val viewModel = remember(store, store.generation) { store.playerViewModel() }
   val host = remember(activity, state) { InAppMusicPlayerHost(activity) { state.collapse() } }
   DisposableEffect(viewModel, host) {
@@ -707,10 +735,11 @@ private class InAppMusicPlayerHost(
   override val hostContentResolver: ContentResolver
     get() = activity.contentResolver
 
-  // The browser owns its orientation; the music player never rotates it.
   override var hostRequestedOrientation: Int
     get() = activity.requestedOrientation
-    set(value) = Unit
+    set(value) {
+      if (activity.requestedOrientation != value) activity.requestedOrientation = value
+    }
 
   override fun requestAudioFocus(): Boolean = MediaPlaybackService.takeAudioOwnershipForDetachedPlayback()
 

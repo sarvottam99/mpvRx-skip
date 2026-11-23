@@ -350,8 +350,9 @@ class JellyfinClient(
     withContext(Dispatchers.IO) {
       runCatching {
         val base = normalizeUrl(serverUrl)
+        val fetchLimit = (limit * 2).coerceAtLeast(limit)
         val endpoint =
-          "$base/Users/$userId/Items/Resume?Limit=$limit&Fields=Overview,PrimaryImageAspectRatio,UserData,SeriesName,SeriesId,SeriesPrimaryImageTag,SeasonName,IndexNumber,ParentIndexNumber,MediaSources,MediaStreams,Genres,OfficialRating,CommunityRating,CriticRating,ProductionYear,Taglines,PremiereDate,Status"
+          "$base/Users/$userId/Items/Resume?Limit=$fetchLimit&MediaTypes=Video&Fields=Overview,PrimaryImageAspectRatio,UserData,SeriesName,SeriesId,SeriesPrimaryImageTag,SeasonName,IndexNumber,ParentIndexNumber,MediaSources,MediaStreams,Genres,OfficialRating,CommunityRating,CriticRating,ProductionYear,Taglines,PremiereDate,Status,People"
         val request =
           Request
             .Builder()
@@ -459,7 +460,7 @@ class JellyfinClient(
       runCatching {
         val base = normalizeUrl(serverUrl)
         val endpoint =
-          "$base/Items/$itemId/Similar?UserId=$userId&Limit=$limit&Fields=Overview,PrimaryImageAspectRatio,UserData,SeriesName,SeasonName,IndexNumber,ParentIndexNumber,MediaSources,MediaStreams,Genres,OfficialRating,CommunityRating,CriticRating,ProductionYear,Taglines,ChildCount,PremiereDate,Status"
+          "$base/Items/$itemId/Similar?UserId=$userId&Limit=$limit&Fields=Overview,PrimaryImageAspectRatio,UserData,SeriesName,SeasonName,IndexNumber,ParentIndexNumber,MediaSources,MediaStreams,Genres,OfficialRating,CommunityRating,CriticRating,ProductionYear,Taglines,ChildCount,PremiereDate,Status,People"
         val request =
           Request
             .Builder()
@@ -525,17 +526,21 @@ class JellyfinClient(
     startIndex: Int = 0,
     limit: Int = 100,
     token: String,
+    studioIds: String? = null,
   ): Result<app.gyrolet.mpvrx.domain.jellyfin.JellyfinQueryResult> =
     withContext(Dispatchers.IO) {
       runCatching {
         val base = normalizeUrl(serverUrl)
         val urlBuilder =
           StringBuilder(
-            "$base/Users/$userId/Items?Fields=Overview,PrimaryImageAspectRatio,UserData,ChildCount,CumulativeRunTimeTicks,MediaSources,MediaStreams,ProductionYear,CommunityRating,CriticRating,Genres,OfficialRating,Taglines,SeriesName,SeriesId,SeriesPrimaryImageTag,SeasonName,IndexNumber,ParentIndexNumber,PremiereDate,Status,RemoteTrailers&StartIndex=$startIndex&Limit=$limit&SortBy=${sortBy.apiValue}&SortOrder=${sortOrder.apiValue}",
+            "$base/Users/$userId/Items?Fields=Overview,PrimaryImageAspectRatio,UserData,ChildCount,CumulativeRunTimeTicks,MediaSources,MediaStreams,ProductionYear,CommunityRating,CriticRating,Genres,OfficialRating,Taglines,SeriesName,SeriesId,SeriesPrimaryImageTag,SeasonName,IndexNumber,ParentIndexNumber,PremiereDate,Status,RemoteTrailers,People&StartIndex=$startIndex&Limit=$limit&SortBy=${sortBy.apiValue}&SortOrder=${sortOrder.apiValue}",
           )
 
         if (!parentId.isNullOrBlank()) {
           urlBuilder.append("&ParentId=$parentId")
+        }
+        if (!studioIds.isNullOrBlank()) {
+          urlBuilder.append("&StudioIds=${java.net.URLEncoder.encode(studioIds, "UTF-8")}&Recursive=true")
         }
         if (!artistIds.isNullOrBlank()) {
           urlBuilder.append("&ArtistIds=${java.net.URLEncoder.encode(artistIds, "UTF-8")}&Recursive=true")
@@ -628,19 +633,23 @@ class JellyfinClient(
     personName: String? = null,
     token: String,
     limit: Int = 100,
+    personTypes: String? = null,
   ): Result<List<JellyfinItem>> =
     withContext(Dispatchers.IO) {
       runCatching {
         val base = normalizeUrl(serverUrl)
         val urlBuilder =
           StringBuilder(
-            "$base/Users/$userId/Items?Recursive=true&IncludeItemTypes=Movie,Series&Fields=Overview,PrimaryImageAspectRatio,UserData,ChildCount,CumulativeRunTimeTicks,MediaSources,MediaStreams,ProductionYear,CommunityRating,CriticRating,Genres,OfficialRating,Taglines,SeriesName,SeriesId,SeriesPrimaryImageTag,SeasonName,IndexNumber,ParentIndexNumber,PremiereDate,Status,RemoteTrailers&SortBy=PremiereDate,ProductionYear,SortName&SortOrder=Descending&Limit=$limit",
+            "$base/Users/$userId/Items?Recursive=true&IncludeItemTypes=Movie,Series&Fields=Overview,PrimaryImageAspectRatio,UserData,ChildCount,CumulativeRunTimeTicks,MediaSources,MediaStreams,ProductionYear,CommunityRating,CriticRating,Genres,OfficialRating,Taglines,SeriesName,SeriesId,SeriesPrimaryImageTag,SeasonName,IndexNumber,ParentIndexNumber,PremiereDate,Status,RemoteTrailers,People&SortBy=PremiereDate,ProductionYear,SortName&SortOrder=Descending&Limit=$limit",
           )
         if (!personId.isNullOrBlank()) {
           urlBuilder.append("&PersonIds=${java.net.URLEncoder.encode(personId, "UTF-8")}")
         }
         if (!personName.isNullOrBlank()) {
           urlBuilder.append("&Person=${java.net.URLEncoder.encode(personName, "UTF-8")}")
+        }
+        if (!personTypes.isNullOrBlank()) {
+          urlBuilder.append("&PersonTypes=${java.net.URLEncoder.encode(personTypes, "UTF-8")}")
         }
 
         val request =
@@ -654,6 +663,37 @@ class JellyfinClient(
         httpClient.newCall(request).awaitResponse().use { response ->
           if (!response.isSuccessful) {
             throw IOException("Failed to load person media: HTTP ${response.code}")
+          }
+          val bodyStr = response.body.string()
+          val root = json.parseToJsonElement(bodyStr).jsonObject
+          val itemsArray = root["Items"]?.jsonArray ?: JsonArray(emptyList())
+          itemsArray.map { parseItem(it.jsonObject) }
+        }
+      }
+    }
+
+  suspend fun getStudios(
+    serverUrl: String,
+    userId: String,
+    token: String,
+    limit: Int = 100,
+  ): Result<List<JellyfinItem>> =
+    withContext(Dispatchers.IO) {
+      runCatching {
+        val base = normalizeUrl(serverUrl)
+        val endpoint =
+          "$base/Studios?UserId=$userId&IncludeItemTypes=Movie,Series&EnableImages=true&ImageTypeLimit=1&EnableImageTypes=Thumb,Primary&EnableTotalRecordCount=false&Limit=$limit"
+        val request =
+          Request
+            .Builder()
+            .url(endpoint)
+            .addJellyfinHeaders(token)
+            .get()
+            .build()
+
+        httpClient.newCall(request).awaitResponse().use { response ->
+          if (!response.isSuccessful) {
+            throw IOException("Failed to load studios: HTTP ${response.code}")
           }
           val bodyStr = response.body.string()
           val root = json.parseToJsonElement(bodyStr).jsonObject
@@ -950,6 +990,55 @@ class JellyfinClient(
     }.onFailure { Log.w(TAG, "Failed reporting playback stop: ${it.message}") }
   }
 
+  suspend fun syncPlaybackPosition(
+    serverUrl: String,
+    token: String,
+    itemId: String,
+    positionTicks: Long,
+  ): Result<Unit> =
+    withContext(Dispatchers.IO) {
+      runCatching {
+        val base = normalizeUrl(serverUrl)
+        val clampedTicks = positionTicks.coerceAtLeast(0L)
+        val payload =
+          JsonObject(
+            mapOf(
+              "ItemId" to kotlinx.serialization.json.JsonPrimitive(itemId),
+              "PositionTicks" to kotlinx.serialization.json.JsonPrimitive(clampedTicks),
+              "PlayMethod" to kotlinx.serialization.json.JsonPrimitive("DirectPlay"),
+            ),
+          ).toString()
+
+        val startRequest =
+          Request
+            .Builder()
+            .url("$base/Sessions/Playing")
+            .addJellyfinHeaders(token)
+            .addHeader("Content-Type", "application/json")
+            .post(payload.toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        httpClient.newCall(startRequest).awaitResponse().use { response ->
+          if (!response.isSuccessful) {
+            throw IOException("Failed to start offline sync session: HTTP ${response.code}")
+          }
+        }
+
+        val stopRequest =
+          Request
+            .Builder()
+            .url("$base/Sessions/Playing/Stopped")
+            .addJellyfinHeaders(token)
+            .addHeader("Content-Type", "application/json")
+            .post(payload.toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        httpClient.newCall(stopRequest).awaitResponse().use { response ->
+          if (!response.isSuccessful) {
+            throw IOException("Failed to commit offline playback position: HTTP ${response.code}")
+          }
+        }
+      }
+    }
+
   suspend fun markPlayed(
     serverUrl: String,
     userId: String,
@@ -1072,6 +1161,7 @@ class JellyfinClient(
 
     val imageTagsObj = obj["ImageTags"]?.jsonObject
     val primaryImageTag = imageTagsObj?.get("Primary")?.jsonPrimitive?.content
+    val thumbImageTag = imageTagsObj?.get("Thumb")?.jsonPrimitive?.content
     val logoImageTag = imageTagsObj?.get("Logo")?.jsonPrimitive?.content
     val parentLogoImageTag = obj["ParentLogoImageTag"]?.jsonPrimitive?.content
       ?: obj["SeriesLogoImageTag"]?.jsonPrimitive?.content
@@ -1095,6 +1185,10 @@ class JellyfinClient(
     var videoHdrType: String? = null
     var audioCodec: String? = null
     var audioChannels: String? = null
+    var audioCodecProfile: String? = null
+    var audioSampleRate: Int? = null
+    var audioBitDepth: Int? = null
+    var audioBitRate: Long? = null
 
     val mediaStreams = obj["MediaStreams"]?.jsonArray
     if (mediaStreams != null) {
@@ -1124,6 +1218,10 @@ class JellyfinClient(
             }
         } else if (streamType.equals("Audio", ignoreCase = true) && audioCodec == null) {
           val rawAudioCodec = stream["Codec"]?.jsonPrimitive?.content?.uppercase()
+          audioCodecProfile = stream["Profile"]?.jsonPrimitive?.content
+          audioSampleRate = stream["SampleRate"]?.jsonPrimitive?.intOrNull
+          audioBitDepth = stream["BitDepth"]?.jsonPrimitive?.intOrNull
+          audioBitRate = stream["BitRate"]?.jsonPrimitive?.longOrNull
           audioCodec =
             when (rawAudioCodec) {
               "TRUEHD" -> "TrueHD"
@@ -1198,6 +1296,7 @@ class JellyfinClient(
       genres = genresList,
       isFolder = isFolder,
       primaryImageTag = primaryImageTag,
+      thumbImageTag = thumbImageTag,
       backdropImageTag = backdropImageTags,
       logoImageTag = logoImageTag,
       parentLogoImageTag = parentLogoImageTag,
@@ -1217,6 +1316,10 @@ class JellyfinClient(
       remoteTrailerUrl = remoteTrailerUrl,
       canDelete = obj["CanDelete"]?.jsonPrimitive?.booleanOrNull ?: true,
       people = peopleList,
+      audioCodecProfile = audioCodecProfile,
+      audioSampleRate = audioSampleRate,
+      audioBitDepth = audioBitDepth,
+      audioBitRate = audioBitRate,
     )
   }
 

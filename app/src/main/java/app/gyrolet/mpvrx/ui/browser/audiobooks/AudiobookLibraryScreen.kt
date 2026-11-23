@@ -31,7 +31,6 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -48,22 +47,19 @@ import app.gyrolet.mpvrx.presentation.components.AppAlertDialog as AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import app.gyrolet.mpvrx.presentation.components.AppDropdownMenu as DropdownMenu
-import app.gyrolet.mpvrx.presentation.components.AppDropdownMenuItem as DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilledTonalIconButton
-import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButtonMenu
 import androidx.compose.material3.FloatingActionButtonMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
+import app.gyrolet.mpvrx.presentation.components.AppTextField as OutlinedTextField
 import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SheetValue
@@ -121,6 +117,7 @@ import app.gyrolet.mpvrx.presentation.components.AppPickerSheet
 import app.gyrolet.mpvrx.presentation.components.AppComboBoxChip
 import app.gyrolet.mpvrx.presentation.components.AppComboBoxOption
 import app.gyrolet.mpvrx.presentation.components.PlayerSheetSearchField
+import app.gyrolet.mpvrx.presentation.components.ResponsiveBottomSheet
 import app.gyrolet.mpvrx.ui.browser.LocalNavigationBarHeight
 import app.gyrolet.mpvrx.ui.browser.fab.FabPlacement
 import app.gyrolet.mpvrx.ui.browser.components.BrowserTopBar
@@ -184,7 +181,6 @@ fun AudiobookLibraryContent(
   var editing by remember { mutableStateOf<AudiobookEntity?>(null) }
   var opening by remember { mutableStateOf(false) }
   var playbackError by remember { mutableStateOf<String?>(null) }
-  var isLibDropdownOpen by remember { mutableStateOf(false) }
 
   val files = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { model.importFiles(it) }
   val folder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -376,29 +372,16 @@ fun AudiobookLibraryContent(
           },
           additionalActions = {
             if (isAbsSource && absState.libraries.size > 1) {
-              Box {
-                AudiobookIconButton(Icons.RoundedFilled.Folder, "Switch Library", true) { isLibDropdownOpen = true }
-                DropdownMenu(isLibDropdownOpen, onDismissRequest = { isLibDropdownOpen = false }) {
-                  absState.libraries.forEach { lib ->
-                    DropdownMenuItem(
-                      text = {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                          Text(lib.name)
-                          if (lib.id == absState.activeLibrary?.id) {
-                            Spacer(Modifier.width(8.dp))
-                            Icon(Icons.RoundedFilled.Check, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                          }
-                        }
-                      },
-                      selected = lib.id == absState.activeLibrary?.id,
-                      onClick = {
-                        absModel.selectLibrary(lib)
-                        isLibDropdownOpen = false
-                      }
-                    )
-                  }
-                }
-              }
+              AppComboBoxChip(
+                options = absState.libraries,
+                selected = absState.libraries.firstOrNull { it.id == absState.activeLibrary?.id },
+                onSelect = { absModel.selectLibrary(it) },
+                optionLabel = { it.name },
+                valueText = "",
+                contentDescription = absState.activeLibrary?.name ?: stringResource(R.string.audiobooks_title),
+                leadingIcon = { Icon(Icons.RoundedFilled.Folder, contentDescription = null) },
+                modifier = Modifier.padding(horizontal = 4.dp),
+              )
             }
           },
         )
@@ -868,12 +851,11 @@ private fun AudiobookDetailsBottomSheet(
     initialValue = SheetValue.Expanded,
     enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
   )
-  ModalBottomSheet(
+  ResponsiveBottomSheet(
     onDismissRequest = onDismiss,
     sheetState = sheetState,
     shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
     containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-    dragHandle = { BottomSheetDefaults.DragHandle() },
   ) {
     LazyColumn(
       modifier = Modifier.fillMaxWidth(),
@@ -1256,7 +1238,7 @@ private fun AudiobookOnlineSearchDialog(
           }
         } else {
           LazyColumn(
-            modifier = Modifier.fillMaxWidth().heightIn(max = 280.dp),
+            modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
             verticalArrangement = Arrangement.spacedBy(8.dp),
           ) {
             items(
@@ -1572,14 +1554,16 @@ private fun AudiobookListRow(
 
 @Composable
 private fun AudiobookSourceIcon(source: AudiobookSourceProvider) {
+  val tint = LocalContentColor.current
   when (source) {
     AudiobookSourceProvider.AUDIOBOOKSHELF ->
       androidx.compose.material3.Icon(
         painter = painterResource(R.drawable.ic_audiobookshelf),
         contentDescription = null,
         modifier = Modifier.size(20.dp),
+        tint = tint,
       )
     AudiobookSourceProvider.LOCAL ->
-      Icon(Icons.RoundedFilled.Folder, contentDescription = null, modifier = Modifier.size(20.dp))
+      Icon(Icons.RoundedFilled.Folder, contentDescription = null, modifier = Modifier.size(20.dp), tint = tint)
   }
 }

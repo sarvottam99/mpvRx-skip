@@ -25,6 +25,8 @@ import app.gyrolet.mpvrx.domain.download.DownloadLocations
 import app.gyrolet.mpvrx.domain.download.DownloadMetadata
 import app.gyrolet.mpvrx.domain.download.DownloadSources
 import app.gyrolet.mpvrx.domain.jellyfin.JellyfinAuthMode
+import app.gyrolet.mpvrx.domain.jellyfin.JellyfinDynamicSection
+import app.gyrolet.mpvrx.domain.jellyfin.JellyfinDynamicSectionType
 import app.gyrolet.mpvrx.domain.jellyfin.JellyfinItem
 import app.gyrolet.mpvrx.domain.jellyfin.JellyfinPerson
 import app.gyrolet.mpvrx.domain.jellyfin.JellyfinSearchCategory
@@ -74,6 +76,7 @@ data class JellyfinLibraryView(
   val itemTypes: String,
   val collectionType: String? = null,
   val isMusic: Boolean = false,
+  val studioId: String? = null,
 )
 
 data class JellyfinHomeSection(
@@ -84,11 +87,36 @@ data class JellyfinHomeSection(
   val isShows: Boolean = false,
 )
 
+data class JellyfinDynamicDescriptor(
+  val key: String,
+  val type: JellyfinDynamicSectionType,
+  val title: String,
+  val subtitle: String? = null,
+  val referenceItem: JellyfinItem? = null,
+  val person: JellyfinPerson? = null,
+  val genre: String? = null,
+  val isSpotlight: Boolean = false,
+  val isRanked: Boolean = false,
+) {
+  fun toPending(): JellyfinDynamicSection.Pending =
+    JellyfinDynamicSection.Pending(
+      key = key,
+      title = title,
+      subtitle = subtitle,
+      type = type,
+      isSpotlight = isSpotlight,
+      isRanked = isRanked,
+    )
+}
+
 data class JellyfinUiState(
   val servers: List<JellyfinServer> = emptyList(),
   val activeServer: JellyfinServer? = null,
   val libraries: List<JellyfinItem> = emptyList(),
   val librarySections: List<JellyfinHomeSection> = emptyList(),
+  val criticsChoice: List<JellyfinItem> = emptyList(),
+  val popularStudios: List<JellyfinItem> = emptyList(),
+  val dynamicSections: List<JellyfinDynamicSection> = emptyList(),
   val heroItems: List<JellyfinItem> = emptyList(),
   val resumeItems: List<JellyfinItem> = emptyList(),
   val latestMovies: List<JellyfinItem> = emptyList(),
@@ -160,6 +188,7 @@ class JellyfinViewModel(
   private val browserPreferences: BrowserPreferences by inject()
   private val appearancePreferences: AppearancePreferences by inject()
   private val downloadManager: AppDownloadManager by inject()
+  private val offlineSyncManager: app.gyrolet.mpvrx.domain.jellyfin.JellyfinOfflineSyncManager by inject()
 
   private var loadDashboardJob: Job? = null
   private var loadItemsJob: Job? = null
@@ -168,6 +197,13 @@ class JellyfinViewModel(
   private var seasonEpisodesJob: Job? = null
   private var personJob: Job? = null
   private var musicLoadJob: Job? = null
+  private var dynamicHydrationJob: Job? = null
+
+  // Dynamic Home Sections (AFinity-style)
+  private val dynamicDescriptors = mutableListOf<JellyfinDynamicDescriptor>()
+  private val hydratedDynamicSections = mutableMapOf<String, JellyfinDynamicSection.Loaded>()
+  private val hydratingSectionKeys = mutableSetOf<String>()
+  private val renderedDynamicItemIds = mutableSetOf<String>()
   private var loadedMusicHomeLibraryId: String? = null
 
   private val _uiState = MutableStateFlow(
@@ -180,16 +216,19 @@ class JellyfinViewModel(
   val uiState: StateFlow<JellyfinUiState> = _uiState.asStateFlow()
 
   init {
+    offlineSyncManager.ensureStarted()
     loadServers()
     viewModelScope.launch(Dispatchers.IO) {
       var lastServerPlaybackAt = 0L
       PlaybackStateEvents.changes.collectLatest { mediaIdentifier ->
-        // Every playback saves its position every few seconds. Only this server's items can move
-        // its resume rows, so local playback no longer triggers a network refresh on each save.
+        // Every playback saves its position every few seconds. Only this server's items (or
+        // downloaded Jellyfin copies) can move its rows, so unrelated local playback stays quiet.
         val now = android.os.SystemClock.elapsedRealtime()
         if (isServerItemPlaying()) lastServerPlaybackAt = now
         val serverPlaybackRecent = lastServerPlaybackAt > 0L && now - lastServerPlaybackAt < SERVER_PLAYBACK_REFRESH_WINDOW_MS
-        if (mediaIdentifier.isBlank() || serverPlaybackRecent) {
+        val isDownloadedJellyfin =
+          mediaIdentifier.isNotBlank() && offlineSyncManager.isDownloadedJellyfinIdentifier(mediaIdentifier)
+        if (mediaIdentifier.isBlank() || serverPlaybackRecent || isDownloadedJellyfin) {
           refreshPlaybackStateSilently()
         }
       }
@@ -209,22 +248,32 @@ class JellyfinViewModel(
     val server = _uiState.value.activeServer ?: return
     viewModelScope.launch(Dispatchers.IO) {
       delay(400) // Brief delay to ensure Jellyfin server has committed the stop/progress session data
+      offlineSyncManager.syncPending()
       val resumeResult = jellyfinRepository.getResumeItems(server, limit = 16).getOrNull()
       if (resumeResult != null) {
-        _uiState.update { it.copy(resumeItems = resumeResult) }
+        val overlaidResume = offlineSyncManager.applyLocalStateOverlays(server.id, resumeResult)
+        _uiState.update { it.copy(resumeItems = deduplicateContinueWatching(overlaidResume, limit = 16)) }
       }
 
       val detail = _uiState.value.detailItem
       if (detail != null) {
-        val updatedDetail = jellyfinRepository.getItem(server, detail.id).getOrNull()
+        val updatedDetail =
+          jellyfinRepository.getItem(server, detail.id).getOrNull()?.let { fetched ->
+            offlineSyncManager.applyLocalStateOverlays(server.id, listOf(fetched)).first()
+          }
         if (updatedDetail != null) {
           _uiState.update { it.copy(detailItem = updatedDetail) }
+        } else {
+          val overlaidCurrent = offlineSyncManager.applyLocalStateOverlays(server.id, listOf(detail)).first()
+          _uiState.update { it.copy(detailItem = overlaidCurrent) }
         }
         val seasonId = _uiState.value.selectedDetailSeasonId
         if (seasonId != null) {
           val episodes = jellyfinRepository.getEpisodes(server, detail.id, seasonId).getOrNull()
-          if (episodes != null) {
-            _uiState.update { it.copy(detailEpisodes = episodes) }
+          val sourceEpisodes = episodes ?: _uiState.value.detailEpisodes
+          if (sourceEpisodes.isNotEmpty()) {
+            val overlaidEpisodes = offlineSyncManager.applyLocalStateOverlays(server.id, sourceEpisodes)
+            _uiState.update { it.copy(detailEpisodes = overlaidEpisodes) }
           }
         }
       }
@@ -238,9 +287,9 @@ class JellyfinViewModel(
           sortBy = _uiState.value.sortBy,
           sortOrder = _uiState.value.sortOrder,
         ).getOrNull()
-        if (updatedItems != null && updatedItems.items.isNotEmpty()) {
-          _uiState.update { it.copy(currentItems = updatedItems.items) }
-        }
+        val sourceItems = updatedItems?.items?.takeIf { it.isNotEmpty() } ?: _uiState.value.currentItems
+        val overlaidItems = offlineSyncManager.applyLocalStateOverlays(server.id, sourceItems)
+        _uiState.update { it.copy(currentItems = overlaidItems) }
       }
     }
   }
@@ -309,22 +358,34 @@ class JellyfinViewModel(
     loadDashboardJob?.cancel()
     loadItemsJob?.cancel()
     musicLoadJob?.cancel()
+    dynamicHydrationJob?.cancel()
     loadDashboardJob =
       viewModelScope.launch {
         _uiState.update { it.copy(isLoading = true, error = null) }
+        offlineSyncManager.syncPending()
 
         val libsDeferred = async { jellyfinRepository.getLibraries(server) }
         val resumeDeferred = async { jellyfinRepository.getResumeItems(server, limit = 16) }
         val latestDeferred = async { jellyfinRepository.getLatestMedia(server, limit = 32) }
         val suggestionsDeferred = async { jellyfinRepository.getSuggestions(server, limit = 36) }
-        val topRatedDeferred =
+        val topMoviesDeferred =
           async {
             jellyfinRepository.getItems(
               server = server,
-              includeItemTypes = "Movie,Series",
+              includeItemTypes = "Movie",
               sortBy = app.gyrolet.mpvrx.domain.jellyfin.JellyfinSortBy.RATING,
               sortOrder = app.gyrolet.mpvrx.domain.jellyfin.JellyfinSortOrder.DESCENDING,
-              limit = 36,
+              limit = 25,
+            )
+          }
+        val topShowsDeferred =
+          async {
+            jellyfinRepository.getItems(
+              server = server,
+              includeItemTypes = "Series",
+              sortBy = app.gyrolet.mpvrx.domain.jellyfin.JellyfinSortBy.RATING,
+              sortOrder = app.gyrolet.mpvrx.domain.jellyfin.JellyfinSortOrder.DESCENDING,
+              limit = 25,
             )
           }
         val musicDeferred =
@@ -347,33 +408,82 @@ class JellyfinViewModel(
               limit = 15,
             )
           }
+        val recentlyPlayedDeferred =
+          async {
+            jellyfinRepository.getItems(
+              server = server,
+              includeItemTypes = "Movie,Series",
+              isPlayed = true,
+              sortBy = app.gyrolet.mpvrx.domain.jellyfin.JellyfinSortBy.DATE_PLAYED,
+              sortOrder = app.gyrolet.mpvrx.domain.jellyfin.JellyfinSortOrder.DESCENDING,
+              limit = 20,
+            )
+          }
+        val favoritesDeferred =
+          async {
+            jellyfinRepository.getItems(
+              server = server,
+              includeItemTypes = "Movie,Series",
+              isFavorite = true,
+              limit = 15,
+            )
+          }
+        val studiosDeferred =
+          async {
+            jellyfinRepository.getStudios(server, limit = 100)
+          }
 
         val libsResult = libsDeferred.await()
         val resumeResult = resumeDeferred.await()
         val latestResult = latestDeferred.await()
         val suggestionsResult = suggestionsDeferred.await()
-        val topRatedResult = topRatedDeferred.await()
+        val topMoviesResult = topMoviesDeferred.await()
+        val topShowsResult = topShowsDeferred.await()
         val musicResult = musicDeferred.await()
         val heroResult = heroDeferred.await()
+        val recentlyPlayedResult = recentlyPlayedDeferred.await()
+        val favoritesResult = favoritesDeferred.await()
+        val studiosResult = studiosDeferred.await()
 
         val libs = sortJellyfinLibraries(libsResult.getOrDefault(emptyList()))
         val resumeRaw = resumeResult.getOrDefault(emptyList())
         val latestRaw = latestResult.getOrDefault(emptyList())
         val suggestionsRaw = suggestionsResult.getOrDefault(emptyList())
-        val topRatedRaw = topRatedResult.getOrNull()?.items ?: emptyList()
+        val topMoviesRaw = topMoviesResult.getOrNull()?.items ?: emptyList()
+        val topShowsRaw = topShowsResult.getOrNull()?.items ?: emptyList()
+        val topRatedRaw = (topMoviesRaw + topShowsRaw).distinctBy { it.id }
         val musicRaw = musicResult.getOrNull()?.items ?: emptyList()
+        val recentlyPlayedRaw = recentlyPlayedResult.getOrNull()?.items ?: emptyList()
+        val favoritesRaw = favoritesResult.getOrNull()?.items ?: emptyList()
+        val rawStudios = studiosResult.getOrNull().orEmpty().filter { !it.name.isNullOrBlank() }
+        val popularStudios = rawStudios
+          .filter { studio ->
+            (studio.thumbImageTag != null || studio.primaryImageTag != null) &&
+              (studio.childCount ?: 0) >= 3
+          }
+          .ifEmpty {
+            rawStudios.filter { it.thumbImageTag != null || it.primaryImageTag != null }
+          }
+          .sortedByDescending { it.childCount ?: 0 }
+          .take(15)
 
-        // Helper filter to exclude music and pure folders from general video home sections
-        fun isVideoMedia(item: JellyfinItem): Boolean {
-          if (item.isAudio || item.type == "Folder" || item.type == "MusicAlbum" || item.type == "Audio" || item.type == "MusicArtist" || item.type == "CollectionFolder") return false
-          if (item.isFolder && !item.isSeries && !item.isSeason && item.type != "Series" && item.type != "Season") return false
-          return true
-        }
+        val criticsChoice = topRatedRaw
+          .filter { isVideoMedia(it) && (it.communityRating ?: 0.0) >= 6.5 }
+          .ifEmpty {
+            topRatedRaw.filter { isVideoMedia(it) && (it.communityRating ?: 0.0) > 0.0 }
+          }
+          .distinctBy { it.id }
+          .sortedByDescending { it.communityRating ?: 0.0 }
+          .take(10)
 
-        val resume = resumeRaw.filter { isVideoMedia(it) }
+        val resume =
+          deduplicateContinueWatching(
+            offlineSyncManager.applyLocalStateOverlays(server.id, resumeRaw.filter { isVideoMedia(it) }),
+            limit = 16,
+          )
 
-        // Fetch latest media for each non-music library concurrently
-        val videoLibs = libs.filter { !isMusicLibrary(it) }
+        // Fetch latest media for each non-music, non-book library concurrently
+        val videoLibs = libs.filter { !isMusicLibrary(it) && !isBookLibrary(it) }
         val librarySectionsDeferred = videoLibs.map { lib ->
           async {
             val isShowLib = isSeriesLibrary(lib)
@@ -478,6 +588,8 @@ class JellyfinViewModel(
           it.copy(
             libraries = libs,
             librarySections = librarySections,
+            criticsChoice = criticsChoice,
+            popularStudios = popularStudios,
             resumeItems = resume,
             latestMovies = latestMovies,
             latestShows = latestShows,
@@ -488,7 +600,429 @@ class JellyfinViewModel(
             error = if (libs.isEmpty() && latestRaw.isEmpty() && resumeRaw.isEmpty() && librarySections.isEmpty()) libsResult.exceptionOrNull()?.message else null,
           )
         }
+
+        buildAndPublishDynamicSections(
+          server = server,
+          resumeItems = resume,
+          recentlyPlayedRaw = recentlyPlayedRaw,
+          favoritesRaw = favoritesRaw,
+          latestRaw = latestRaw,
+          topRatedRaw = topRatedRaw,
+          heroItems = finalHero,
+        )
       }
+  }
+
+  private fun isVideoMedia(item: JellyfinItem): Boolean {
+    if (item.isAudio || item.type == "Folder" || item.type == "MusicAlbum" || item.type == "Audio" || item.type == "MusicArtist" || item.type == "CollectionFolder") return false
+    if (item.type == "Book" || item.type == "AudioBook" || item.collectionType?.equals("books", ignoreCase = true) == true || item.collectionType?.equals("audiobooks", ignoreCase = true) == true) return false
+    if (item.isFolder && !item.isSeries && !item.isSeason && item.type != "Series" && item.type != "Season") return false
+    return true
+  }
+
+  private fun buildAndPublishDynamicSections(
+    server: JellyfinServer,
+    resumeItems: List<JellyfinItem>,
+    recentlyPlayedRaw: List<JellyfinItem>,
+    favoritesRaw: List<JellyfinItem>,
+    latestRaw: List<JellyfinItem>,
+    topRatedRaw: List<JellyfinItem>,
+    heroItems: List<JellyfinItem>,
+  ) {
+    val recommendations = mutableListOf<JellyfinDynamicDescriptor>()
+    val spotlights = mutableListOf<JellyfinDynamicDescriptor>()
+    val curated = mutableListOf<JellyfinDynamicDescriptor>()
+
+    renderedDynamicItemIds.clear()
+    renderedDynamicItemIds.addAll(resumeItems.map { it.id })
+    renderedDynamicItemIds.addAll(heroItems.map { it.id })
+
+    // 1. "Because You Watched" - from played/resume items
+    val watchedCandidates = (recentlyPlayedRaw + resumeItems)
+      .filter { isVideoMedia(it) && !it.isFolder }
+      .distinctBy { it.id }
+      .take(2)
+
+    val usedWatchedIds = mutableSetOf<String>()
+    watchedCandidates.forEach { ref ->
+      usedWatchedIds.add(ref.id)
+      recommendations.add(
+        JellyfinDynamicDescriptor(
+          key = "byw_${ref.id}",
+          type = JellyfinDynamicSectionType.BECAUSE_YOU_WATCHED,
+          title = "Because you watched ${ref.name}",
+          subtitle = "Similar movies and series in your library",
+          referenceItem = ref,
+        )
+      )
+    }
+
+    // 2. "Because You Liked" - from favorite items
+    val favoriteCandidate = favoritesRaw
+      .filter { isVideoMedia(it) && it.id !in usedWatchedIds }
+      .randomOrNull()
+
+    if (favoriteCandidate != null) {
+      recommendations.add(
+        JellyfinDynamicDescriptor(
+          key = "byl_${favoriteCandidate.id}",
+          type = JellyfinDynamicSectionType.BECAUSE_YOU_LIKED,
+          title = "Because you liked ${favoriteCandidate.name}",
+          subtitle = "More like this from your favorites",
+          referenceItem = favoriteCandidate,
+        )
+      )
+    }
+
+    // 3. People-Centric Rows: Actors and Directors
+    val allPeopleItems = (recentlyPlayedRaw + latestRaw + topRatedRaw + resumeItems).distinctBy { it.id }
+    val actorFrequency = mutableMapOf<String, Pair<JellyfinPerson, Int>>()
+    val directorFrequency = mutableMapOf<String, Pair<JellyfinPerson, Int>>()
+
+    allPeopleItems.forEach { item ->
+      item.actors.forEach { actor ->
+        if (actor.name.isNotBlank()) {
+          val cur = actorFrequency[actor.id] ?: (actor to 0)
+          actorFrequency[actor.id] = cur.first to (cur.second + 1)
+        }
+      }
+      item.directors.forEach { director ->
+        if (director.name.isNotBlank()) {
+          val cur = directorFrequency[director.id] ?: (director to 0)
+          directorFrequency[director.id] = cur.first to (cur.second + 1)
+        }
+      }
+    }
+
+    val topActors = actorFrequency.values
+      .filter { it.second >= 2 }
+      .sortedByDescending { it.second }
+      .take(2)
+      .map { it.first }
+
+    val usedPersonIds = mutableSetOf<String>()
+    topActors.forEach { actor ->
+      usedPersonIds.add(actor.id)
+      recommendations.add(
+        JellyfinDynamicDescriptor(
+          key = "starring_${actor.id}",
+          type = JellyfinDynamicSectionType.STARRING,
+          title = "Starring ${actor.name}",
+          subtitle = "Explore their films and series in your library",
+          person = actor,
+        )
+      )
+    }
+
+    val topDirector = directorFrequency.values
+      .filter { it.second >= 2 }
+      .sortedByDescending { it.second }
+      .firstOrNull()
+      ?.first
+
+    if (topDirector != null && topDirector.id !in usedPersonIds) {
+      usedPersonIds.add(topDirector.id)
+      recommendations.add(
+        JellyfinDynamicDescriptor(
+          key = "director_${topDirector.id}",
+          type = JellyfinDynamicSectionType.DIRECTED_BY,
+          title = "Directed by ${topDirector.name}",
+          subtitle = "Masterpieces and vision from your collection",
+          person = topDirector,
+        )
+      )
+    }
+
+    // 4. Actor from watched movie
+    val primaryWatched = watchedCandidates.firstOrNull()
+    val actorFromMovie = primaryWatched?.actors
+      ?.filterNot { it.id in usedPersonIds }
+      ?.take(3)
+      ?.randomOrNull()
+
+    if (actorFromMovie != null) {
+      usedPersonIds.add(actorFromMovie.id)
+      recommendations.add(
+        JellyfinDynamicDescriptor(
+          key = "actor_from_${actorFromMovie.id}_${primaryWatched.id}",
+          type = JellyfinDynamicSectionType.ACTOR_FROM_WATCHED,
+          title = "Starring ${actorFromMovie.name} from ${primaryWatched.name}",
+          subtitle = "More featuring ${actorFromMovie.name}",
+          person = actorFromMovie,
+          referenceItem = primaryWatched,
+        )
+      )
+    }
+
+
+    // 6. "Watch Again"
+    if (recentlyPlayedRaw.size >= 4) {
+      curated.add(
+        JellyfinDynamicDescriptor(
+          key = "watch_again",
+          type = JellyfinDynamicSectionType.WATCH_AGAIN,
+          title = "Watch Again",
+          subtitle = "Rediscover your past favorites",
+        )
+      )
+    }
+
+    // 7. Genre Spotlight
+    val genres = allPeopleItems
+      .flatMap { it.genres }
+      .filter { it.isNotBlank() }
+      .distinct()
+      .shuffled()
+      .take(2)
+
+    genres.forEach { genre ->
+      spotlights.add(
+        JellyfinDynamicDescriptor(
+          key = "genre_spotlight_${genre.lowercase()}",
+          type = JellyfinDynamicSectionType.GENRE_SPOTLIGHT,
+          title = "Spotlight: $genre",
+          subtitle = "Top $genre picks in your library",
+          genre = genre,
+          isSpotlight = true,
+        )
+      )
+    }
+
+    val interleaved = interleaveDynamicDescriptors(
+      recommendations.shuffled(),
+      spotlights.shuffled(),
+      curated.shuffled(),
+    )
+
+    dynamicDescriptors.clear()
+    dynamicDescriptors.addAll(interleaved)
+    hydratedDynamicSections.clear()
+    hydratingSectionKeys.clear()
+
+    _uiState.update { it.copy(dynamicSections = interleaved.map { d -> d.toPending() }) }
+
+    interleaved.take(2).forEach { desc ->
+      hydrateDynamicSection(server, desc.key)
+    }
+  }
+
+  fun onDynamicSectionVisible(key: String) {
+    val server = _uiState.value.activeServer ?: return
+    hydrateDynamicSection(server, key)
+    val index = dynamicDescriptors.indexOfFirst { it.key == key }
+    if (index >= 0 && index + 1 < dynamicDescriptors.size) {
+      hydrateDynamicSection(server, dynamicDescriptors[index + 1].key)
+    }
+  }
+
+  private fun hydrateDynamicSection(server: JellyfinServer, key: String) {
+    if (hydratedDynamicSections.containsKey(key) || !hydratingSectionKeys.add(key)) return
+    viewModelScope.launch(Dispatchers.IO) {
+      val descriptor = dynamicDescriptors.firstOrNull { it.key == key }
+      if (descriptor == null) {
+        hydratingSectionKeys.remove(key)
+        return@launch
+      }
+
+      val rawItems: List<JellyfinItem> = when (descriptor.type) {
+        JellyfinDynamicSectionType.BECAUSE_YOU_WATCHED,
+        JellyfinDynamicSectionType.BECAUSE_YOU_LIKED -> {
+          val refId = descriptor.referenceItem?.id.orEmpty()
+          if (refId.isNotBlank()) {
+            jellyfinRepository.getSimilarItems(server, refId, limit = 16)
+              .getOrDefault(emptyList())
+              .filter { isVideoMedia(it) }
+          } else emptyList()
+        }
+        JellyfinDynamicSectionType.STARRING,
+        JellyfinDynamicSectionType.ACTOR_FROM_WATCHED -> {
+          val person = descriptor.person
+          if (person != null) {
+            jellyfinRepository.getPersonMedia(server, personId = person.id, personName = person.name, limit = 16, personTypes = "Actor")
+              .getOrDefault(emptyList())
+              .filter { isVideoMedia(it) }
+          } else emptyList()
+        }
+        JellyfinDynamicSectionType.DIRECTED_BY -> {
+          val person = descriptor.person
+          if (person != null) {
+            jellyfinRepository.getPersonMedia(server, personId = person.id, personName = person.name, limit = 16, personTypes = "Director")
+              .getOrDefault(emptyList())
+              .filter { isVideoMedia(it) }
+          } else emptyList()
+        }
+        JellyfinDynamicSectionType.CRITICS_CHOICE -> {
+          jellyfinRepository.getItems(
+            server = server,
+            includeItemTypes = "Movie,Series",
+            sortBy = JellyfinSortBy.RATING,
+            sortOrder = JellyfinSortOrder.DESCENDING,
+            limit = 16,
+          ).getOrNull()?.items.orEmpty().filter { isVideoMedia(it) }
+        }
+        JellyfinDynamicSectionType.WATCH_AGAIN -> {
+          jellyfinRepository.getItems(
+            server = server,
+            includeItemTypes = "Movie,Series",
+            isPlayed = true,
+            sortBy = JellyfinSortBy.DATE_PLAYED,
+            sortOrder = JellyfinSortOrder.DESCENDING,
+            limit = 24,
+          ).getOrNull()?.items.orEmpty()
+            .filter { isVideoMedia(it) }
+            .drop(3)
+            .take(16)
+        }
+        JellyfinDynamicSectionType.GENRE_SPOTLIGHT -> {
+          val genre = descriptor.genre
+          if (!genre.isNullOrBlank()) {
+            jellyfinRepository.getItems(
+              server = server,
+              includeItemTypes = "Movie,Series",
+              genres = genre,
+              sortBy = JellyfinSortBy.RATING,
+              sortOrder = JellyfinSortOrder.DESCENDING,
+              limit = 16,
+            ).getOrNull()?.items.orEmpty().filter { isVideoMedia(it) }
+          } else emptyList()
+        }
+        else -> emptyList()
+      }
+
+      val processed = resolveShowsAsSeries(server, rawItems)
+      val deduplicated = processed.filterNot { it.id in renderedDynamicItemIds }
+
+      if (deduplicated.size >= 2) {
+        renderedDynamicItemIds.addAll(deduplicated.map { it.id })
+        val loaded = JellyfinDynamicSection.Loaded(
+          key = descriptor.key,
+          title = descriptor.title,
+          subtitle = descriptor.subtitle,
+          type = descriptor.type,
+          items = deduplicated,
+          person = descriptor.person,
+          referenceItem = descriptor.referenceItem,
+          isSpotlight = descriptor.isSpotlight,
+          isRanked = descriptor.isRanked,
+        )
+        hydratedDynamicSections[key] = loaded
+      } else {
+        dynamicDescriptors.removeAll { it.key == key }
+      }
+
+      hydratingSectionKeys.remove(key)
+
+      val updated = dynamicDescriptors.map { desc ->
+        hydratedDynamicSections[desc.key] ?: desc.toPending()
+      }
+      _uiState.update { it.copy(dynamicSections = updated) }
+    }
+  }
+
+  private fun interleaveDynamicDescriptors(
+    recs: List<JellyfinDynamicDescriptor>,
+    spots: List<JellyfinDynamicDescriptor>,
+    cur: List<JellyfinDynamicDescriptor>,
+  ): List<JellyfinDynamicDescriptor> {
+    val result = mutableListOf<JellyfinDynamicDescriptor>()
+    val rList = recs.toMutableList()
+    val sList = spots.toMutableList()
+    val cList = cur.toMutableList()
+
+    var turn = 0
+    while (rList.isNotEmpty() || sList.isNotEmpty() || cList.isNotEmpty()) {
+      when (turn % 3) {
+        0 -> {
+          if (rList.isNotEmpty()) result.add(rList.removeAt(0))
+          else if (sList.isNotEmpty()) result.add(sList.removeAt(0))
+          else if (cList.isNotEmpty()) result.add(cList.removeAt(0))
+        }
+        1 -> {
+          if (cList.isNotEmpty()) result.add(cList.removeAt(0))
+          else if (rList.isNotEmpty()) result.add(rList.removeAt(0))
+          else if (sList.isNotEmpty()) result.add(sList.removeAt(0))
+        }
+        2 -> {
+          if (sList.isNotEmpty()) result.add(sList.removeAt(0))
+          else if (rList.isNotEmpty()) result.add(rList.removeAt(0))
+          else if (cList.isNotEmpty()) result.add(cList.removeAt(0))
+        }
+      }
+      turn++
+    }
+    return result
+  }
+
+  private fun deduplicateContinueWatching(
+    items: List<JellyfinItem>,
+    limit: Int = 16,
+  ): List<JellyfinItem> {
+    if (items.isEmpty()) return emptyList()
+
+    val eligible =
+      items.filter { item ->
+        !item.isAudio &&
+          !item.isSeason &&
+          item.type != "Season" &&
+          item.type != "Audio" &&
+          item.type != "MusicAlbum" &&
+          item.type != "MusicArtist" &&
+          item.type != "Folder" &&
+          item.type != "CollectionFolder" &&
+          (!item.isFolder || item.isSeries || item.type == "Series")
+      }
+    if (eligible.isEmpty()) return emptyList()
+
+    fun seriesGroupKey(item: JellyfinItem): String? {
+      val isShowItem =
+        item.type == "Episode" ||
+          item.isSeries ||
+          item.type == "Series" ||
+          !item.seriesId.isNullOrBlank() ||
+          !item.seriesName.isNullOrBlank()
+      if (!isShowItem) return null
+      val resolvedSeriesId =
+        (if (item.isSeries || item.type == "Series") item.id else item.seriesId)
+          ?.trim()
+          ?.takeIf { it.isNotBlank() }
+      if (resolvedSeriesId != null) return "series_id:$resolvedSeriesId"
+      val resolvedName =
+        (if (item.isSeries || item.type == "Series") item.name else (item.seriesName ?: item.name))
+          .trim()
+          .lowercase()
+      return "series_name:$resolvedName"
+    }
+
+    fun candidatePriority(item: JellyfinItem, originalIndex: Int): Comparable<*> =
+      when {
+        // Prefer an in-progress Episode over any Series/Season container or finished item
+        item.type == "Episode" && item.progressPercent > 0f && !item.isPlayed -> 0
+        item.type == "Episode" && !item.isPlayed -> 1
+        item.type == "Episode" -> 2
+        else -> 3
+      }.let { tier ->
+        // Lower tier wins; ties keep the item Jellyfin ranked most recent (lowest originalIndex)
+        tier * 10_000 + originalIndex
+      }
+
+    data class IndexedEntry(val firstIndex: Int, val bestRank: Int, val item: JellyfinItem)
+
+    val byGroupKey = LinkedHashMap<String, IndexedEntry>()
+    eligible.forEachIndexed { index, item ->
+      val key = seriesGroupKey(item) ?: "item:${item.id}"
+      val rank = candidatePriority(item, index) as Int
+      val existing = byGroupKey[key]
+      if (existing == null) {
+        byGroupKey[key] = IndexedEntry(firstIndex = index, bestRank = rank, item = item)
+      } else if (rank < existing.bestRank) {
+        byGroupKey[key] = existing.copy(bestRank = rank, item = item)
+      }
+    }
+
+    return byGroupKey.values
+      .sortedBy { it.firstIndex }
+      .map { it.item }
+      .take(limit)
   }
 
   private fun mediaDeduplicationKey(item: JellyfinItem): String {
@@ -986,10 +1520,22 @@ class JellyfinViewModel(
       "music" -> "MusicAlbum"
       "musicvideos" -> "MusicVideo"
       "boxsets" -> "BoxSet"
-      "books" -> "Book"
       "homevideos", "photos" -> "Video"
       else -> "Movie,Series"
     }
+
+  fun openStudio(studio: JellyfinItem) {
+    val active = _uiState.value.activeServer ?: return
+    openLibrary(
+      active,
+      JellyfinLibraryView(
+        id = studio.id,
+        title = studio.name,
+        itemTypes = "Movie,Series",
+        studioId = studio.id,
+      ),
+    )
+  }
 
   private fun loadLibraryItems(
     server: JellyfinServer,
@@ -1021,11 +1567,13 @@ class JellyfinViewModel(
         }
 
         val currentState = _uiState.value
+        val studioId = library.studioId
+        val parentId = if (studioId != null) null else library.id
 
         jellyfinRepository
           .getItems(
             server = server,
-            parentId = library.id,
+            parentId = parentId,
             includeItemTypes = library.itemTypes,
             sortBy = currentState.sortBy,
             sortOrder = currentState.sortOrder,
@@ -1033,6 +1581,7 @@ class JellyfinViewModel(
             genres = currentState.selectedGenreFilter,
             startIndex = startIndex,
             limit = 100,
+            studioIds = studioId,
           ).onSuccess { queryResult ->
             val combined = (currentList + queryResult.items).distinctBy { it.id }
             _uiState.update {
@@ -1353,7 +1902,11 @@ class JellyfinViewModel(
     seasonEpisodesJob =
       viewModelScope.launch {
         val result = jellyfinRepository.getEpisodes(active, series.id, seasonId)
-        val episodes = result.getOrDefault(emptyList())
+        val episodes =
+          offlineSyncManager.applyLocalStateOverlays(
+            active.id,
+            result.getOrDefault(emptyList()),
+          )
         _uiState.update {
           it.copy(
             detailEpisodes = episodes,
@@ -1594,8 +2147,8 @@ class JellyfinViewModel(
 
   private suspend fun showDownloadToast(message: String) {
     withContext(Dispatchers.Main) {
-      android.widget.Toast
-        .makeText(getApplication(), message, android.widget.Toast.LENGTH_SHORT)
+      app.gyrolet.mpvrx.ui.components.AppToast
+        .makeText(getApplication(), message, app.gyrolet.mpvrx.ui.components.AppToast.LENGTH_SHORT)
         .show()
     }
   }
@@ -2225,6 +2778,13 @@ class JellyfinViewModel(
       val type = item.type.lowercase().trim()
       val name = item.name.lowercase().trim()
       return col == "music" || type == "music" || type == "audio" || (name.contains("music") && !name.contains("video"))
+    }
+
+    fun isBookLibrary(item: JellyfinItem): Boolean {
+      val col = item.collectionType?.lowercase()?.trim() ?: ""
+      val type = item.type.lowercase().trim()
+      val name = item.name.lowercase().trim()
+      return col == "books" || col == "audiobooks" || type == "book" || type == "audiobook" || name.contains("book")
     }
 
     fun factory(application: Application): ViewModelProvider.Factory =

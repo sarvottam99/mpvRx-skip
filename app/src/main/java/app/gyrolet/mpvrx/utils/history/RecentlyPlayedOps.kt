@@ -10,11 +10,14 @@
 package app.gyrolet.mpvrx.utils.history
 
 import android.annotation.SuppressLint
+import android.content.Context
 import android.net.Uri
+import android.provider.MediaStore
 import app.gyrolet.mpvrx.database.entities.RecentlyPlayedEntity
 import app.gyrolet.mpvrx.domain.media.model.Video
 import app.gyrolet.mpvrx.domain.recentlyplayed.repository.RecentlyPlayedRepository
 import app.gyrolet.mpvrx.preferences.AdvancedPreferences
+import app.gyrolet.mpvrx.utils.media.ScopedHiddenFolderScanner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -28,6 +31,11 @@ import java.io.File
 object RecentlyPlayedOps {
   private val repository: RecentlyPlayedRepository by inject(RecentlyPlayedRepository::class.java)
   private val preferences: AdvancedPreferences by inject(AdvancedPreferences::class.java)
+  private val context: Context by inject(Context::class.java)
+
+  private val MEDIA_STORE_PREFIX = "content://${MediaStore.AUTHORITY}/"
+
+  private class MediaStoreRow(val exists: Boolean, val path: String?)
 
   suspend fun addRecentlyPlayed(
     filePath: String,
@@ -85,29 +93,19 @@ object RecentlyPlayedOps {
     repository.updateVideoMetadata(filePath, videoTitle, duration, fileSize, width, height)
   }
 
-  suspend fun getLastPlayed(): String? {
-    return withContext(Dispatchers.IO) {
-      val recent = kotlin.runCatching { repository.getRecentlyPlayed(limit = 50) }.getOrDefault(emptyList())
-      for (entity in recent) {
-        val path = entity.filePath
-        if (isNonFileUri(path)) {
-          return@withContext path
-        }
-        if (fileExists(path)) {
-          return@withContext path
-        } else {
-          kotlin.runCatching { repository.deleteByFilePath(path) }
-        }
-      }
-      null
-    }
-  }
+  suspend fun getLastPlayed(): String? = getLastPlayedEntity()?.filePath
 
   suspend fun getLastPlayedEntity(): app.gyrolet.mpvrx.database.entities.RecentlyPlayedEntity? {
     return withContext(Dispatchers.IO) {
       val recent = kotlin.runCatching { repository.getRecentlyPlayed(limit = 50) }.getOrDefault(emptyList())
       for (entity in recent) {
         val path = entity.filePath
+        val mediaStoreRow = mediaStoreRow(path)
+        if (mediaStoreRow != null) {
+          // Kept when missing: partial media access also hides videos that still exist.
+          if (mediaStoreRow.exists) return@withContext entity
+          continue
+        }
         if (isNonFileUri(path)) {
           return@withContext entity
         }
@@ -123,6 +121,77 @@ object RecentlyPlayedOps {
 
   suspend fun getRecentlyPlayed(limit: Int = 50): List<RecentlyPlayedEntity> = repository.getRecentlyPlayed(limit)
 
+  /**
+   * The most recently played of [videos]. History is walked back, so when the last played video
+   * was deleted or is not among [videos], the one played before it is chosen.
+   */
+  suspend fun lastPlayedOf(
+    videos: List<Video>,
+    limit: Int = 100,
+  ): Video? =
+    withContext(Dispatchers.IO) {
+      if (videos.isEmpty()) return@withContext null
+      lastPlayedVideo(repository.getRecentlyPlayed(limit), videos)
+    }
+
+  /**
+   * Matches history against the current listing using both URI and local-file identities.
+   * SAF can return the same document under different tree grants, so raw URI equality alone is
+   * not sufficient for Tree, Library, and hidden-folder listings.
+   */
+  fun lastPlayedVideo(
+    history: List<RecentlyPlayedEntity>,
+    videos: List<Video>,
+  ): Video? {
+    if (history.isEmpty() || videos.isEmpty()) return null
+
+    val videosByKey = HashMap<String, Video>(videos.size * 3)
+    videos.forEach { video ->
+      (mediaIdentityKeys(video.path) + mediaIdentityKeys(video.uri.toString())).forEach { key ->
+        videosByKey.putIfAbsent(key, video)
+      }
+    }
+    return history.firstNotNullOfOrNull { entity ->
+      historyIdentityKeys(entity.filePath).firstNotNullOfOrNull(videosByKey::get)
+    }
+  }
+
+  fun matchesVideoPath(
+    historyPath: String?,
+    video: Video,
+  ): Boolean {
+    if (historyPath.isNullOrBlank()) return false
+    val videoKeys = mediaIdentityKeys(video.path) + mediaIdentityKeys(video.uri.toString())
+    return mediaIdentityKeys(historyPath).any(videoKeys::contains)
+  }
+
+  private fun historyIdentityKeys(path: String): Set<String> =
+    buildSet {
+      addAll(mediaIdentityKeys(path))
+      localPathForKey(path).takeIf { it != path }?.let { addAll(mediaIdentityKeys(it)) }
+    }
+
+  private fun mediaIdentityKeys(path: String): Set<String> =
+    buildSet {
+      if (path.isBlank()) return@buildSet
+      add(path)
+      val uri = Uri.parse(path)
+      when (uri.scheme?.lowercase()) {
+        "file" -> uri.path?.let(::add)
+        "content" -> {
+          add(ScopedHiddenFolderScanner.documentKey(uri))
+          ScopedHiddenFolderScanner.localPathOf(uri)?.let(::add)
+        }
+      }
+    }
+
+  /**
+   * The Play Store build records MediaStore videos by their content:// URI, while the browsers
+   * identify videos by path. Returns the path behind such a key, otherwise the key itself.
+   * Queries MediaStore, so call it off the main thread.
+   */
+  fun localPathForKey(key: String): String = mediaStoreRow(key)?.path ?: key
+
   suspend fun getRecentlyPlayedCount(): Int = repository.getRecentlyPlayedCount()
 
   @OptIn(ExperimentalCoroutinesApi::class)
@@ -131,8 +200,11 @@ object RecentlyPlayedOps {
       .observeLastPlayedForHighlight()
       .mapLatest { entity ->
         val path = entity?.filePath
+        val mediaStoreRow = path?.let { mediaStoreRow(it) }
         if (path.isNullOrEmpty()) {
           null
+        } else if (mediaStoreRow != null) {
+          if (mediaStoreRow.exists) mediaStoreRow.path ?: path else null
         } else if (fileExists(path)) {
           path
         } else {
@@ -188,6 +260,23 @@ object RecentlyPlayedOps {
       }.onFailure { e ->
         android.util.Log.w("RecentlyPlayedOps", "Failed to update history path: ${e.message}")
       }
+  }
+
+  /** Looks up a MediaStore history key. Null when [key] is not one or the lookup fails. */
+  private fun mediaStoreRow(key: String): MediaStoreRow? {
+    if (!key.startsWith(MEDIA_STORE_PREFIX)) return null
+    return kotlin
+      .runCatching {
+        context.contentResolver
+          .query(Uri.parse(key), arrayOf(MediaStore.MediaColumns.DATA), null, null, null)
+          ?.use { cursor ->
+            if (cursor.moveToFirst()) {
+              MediaStoreRow(exists = true, path = cursor.getString(0)?.takeIf { it.startsWith("/") })
+            } else {
+              MediaStoreRow(exists = false, path = null)
+            }
+          }
+      }.getOrNull()
   }
 
   @SuppressLint("UseKtx")

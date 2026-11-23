@@ -130,7 +130,6 @@ internal fun ProfileWatchStatistics() {
       }
     }
 
-    // Bento Grid Section
     WatchTimeBentoCard(stats)
     WatchSplitBentoCard(stats)
     WeeklyActivityBentoCard(stats.days)

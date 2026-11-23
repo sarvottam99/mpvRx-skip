@@ -19,12 +19,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import app.gyrolet.mpvrx.presentation.components.AppDropdownMenu as DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import app.gyrolet.mpvrx.presentation.components.AppDropdownMenuItem as DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -54,7 +53,6 @@ import app.gyrolet.mpvrx.domain.audiobookshelf.AudiobookshelfServer
 import app.gyrolet.mpvrx.domain.jellyfin.JellyfinServer
 import app.gyrolet.mpvrx.domain.navidrome.NavidromeServer
 import app.gyrolet.mpvrx.domain.seerr.JellyseerrUser
-import app.gyrolet.mpvrx.presentation.Screen
 import app.gyrolet.mpvrx.presentation.components.RemoteImage
 import app.gyrolet.mpvrx.preferences.AppearancePreferences
 import org.koin.compose.koinInject
@@ -71,10 +69,10 @@ import app.gyrolet.mpvrx.ui.icons.Icons
 import app.gyrolet.mpvrx.ui.utils.LocalBackStack
 import app.gyrolet.mpvrx.ui.utils.popSafely
 import kotlinx.serialization.Serializable
-import me.zhanghai.compose.preference.Preference
+import app.gyrolet.mpvrx.ui.preferences.components.AppPreference as Preference
 
 @Serializable
-object MediaServersPreferencesScreen : Screen {
+object MediaServersPreferencesScreen : ScrollableSettingsScreen {
 
   @OptIn(ExperimentalMaterial3Api::class)
   @Composable
@@ -121,6 +119,7 @@ object MediaServersPreferencesScreen : Screen {
 
         LazyColumn(
           state = settingsListState,
+          contentPadding = settingsContentPadding(),
           modifier =
             Modifier
               .fillMaxSize()
@@ -224,6 +223,8 @@ object MediaServersPreferencesScreen : Screen {
                                 menuExpanded = false
                                 jellyfinViewModel.selectServer(server)
                               },
+                              index = 0,
+                              itemCount = if (isActive) 2 else 3,
                             )
                           }
                           DropdownMenuItem(
@@ -239,6 +240,8 @@ object MediaServersPreferencesScreen : Screen {
                               serverToReauth = server
                               isAddServerOpen = true
                             },
+                            index = if (isActive) 0 else 1,
+                            itemCount = if (isActive) 2 else 3,
                           )
                           DropdownMenuItem(
                             text = {
@@ -258,6 +261,8 @@ object MediaServersPreferencesScreen : Screen {
                               menuExpanded = false
                               jellyfinViewModel.deleteServer(server)
                             },
+                            index = if (isActive) 1 else 2,
+                            itemCount = if (isActive) 2 else 3,
                           )
                         }
                       }
@@ -378,6 +383,8 @@ object MediaServersPreferencesScreen : Screen {
                             menuExpanded = false
                             isSeerrConnectionDialogOpen = true
                           },
+                          index = 0,
+                          itemCount = 2,
                         )
                         DropdownMenuItem(
                           text = {
@@ -397,6 +404,8 @@ object MediaServersPreferencesScreen : Screen {
                             menuExpanded = false
                             seerrViewModel.disconnect()
                           },
+                          index = 1,
+                          itemCount = 2,
                         )
                       }
                     }
@@ -511,6 +520,8 @@ object MediaServersPreferencesScreen : Screen {
                                 menuExpanded = false
                                 navidromeViewModel.selectServer(server)
                               },
+                              index = 0,
+                              itemCount = if (isActive) 2 else 3,
                             )
                           }
                           DropdownMenuItem(
@@ -526,6 +537,8 @@ object MediaServersPreferencesScreen : Screen {
                               navidromeServerToEdit = server
                               isAddNavidromeServerOpen = true
                             },
+                            index = if (isActive) 0 else 1,
+                            itemCount = if (isActive) 2 else 3,
                           )
                           DropdownMenuItem(
                             text = {
@@ -545,6 +558,8 @@ object MediaServersPreferencesScreen : Screen {
                               menuExpanded = false
                               navidromeViewModel.deleteServer(server)
                             },
+                            index = if (isActive) 1 else 2,
+                            itemCount = if (isActive) 2 else 3,
                           )
                         }
                       }
@@ -692,6 +707,8 @@ object MediaServersPreferencesScreen : Screen {
                                 menuExpanded = false
                                 audiobookshelfViewModel.selectServer(server)
                               },
+                              index = 0,
+                              itemCount = if (isActive) 2 else 3,
                             )
                           }
                           DropdownMenuItem(
@@ -707,6 +724,8 @@ object MediaServersPreferencesScreen : Screen {
                               audiobookshelfServerToEdit = server
                               isAddAudiobookshelfServerOpen = true
                             },
+                            index = if (isActive) 0 else 1,
+                            itemCount = if (isActive) 2 else 3,
                           )
                           DropdownMenuItem(
                             text = {
@@ -726,6 +745,8 @@ object MediaServersPreferencesScreen : Screen {
                               menuExpanded = false
                               audiobookshelfViewModel.deleteServer(server)
                             },
+                            index = if (isActive) 1 else 2,
+                            itemCount = if (isActive) 2 else 3,
                           )
                         }
                       }

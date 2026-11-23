@@ -22,6 +22,7 @@ import app.gyrolet.mpvrx.domain.playbackstate.repository.PlaybackStateRepository
 import app.gyrolet.mpvrx.repository.MediaFileRepository
 import app.gyrolet.mpvrx.ui.browser.base.BaseBrowserViewModel
 import app.gyrolet.mpvrx.ui.player.PlaybackIdentity
+import app.gyrolet.mpvrx.utils.history.RecentlyPlayedOps
 import app.gyrolet.mpvrx.utils.media.MediaLibraryEvents
 import app.gyrolet.mpvrx.utils.media.ScopedHiddenFolderScanner
 import app.gyrolet.mpvrx.utils.media.VisibleDirectoryWatcher
@@ -40,7 +41,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -87,10 +90,12 @@ internal fun buildVideoWithPlaybackInfo(
   newLabelDays: Int,
   watchedThreshold: Int,
 ): VideoWithPlaybackInfo {
-  // MediaStore cannot see .nomedia files, and a SAF provider may not report their
-  // duration. The player can still supply total seconds through saved position + remaining.
+  // ZIP entries have no scanned duration; scoped providers can also omit it. Reuse the player's
+  // saved position + remaining seconds without opening or probing any media in the list.
   val recordedDuration =
-    if (app.gyrolet.mpvrx.BuildConfig.SCOPED_STORAGE_ONLY && video.uri.scheme == "content") {
+    if (ZipArchiveMedia.isPlaybackUri(video.path) ||
+      (app.gyrolet.mpvrx.BuildConfig.SCOPED_STORAGE_ONLY && video.uri.scheme == "content")
+    ) {
       playbackState?.let { (it.lastPosition.toLong() + it.timeRemaining.toLong()).takeIf { total -> total > 0L } }
     } else null
   val durationSeconds = (video.duration / 1000L).takeIf { it > 0L } ?: recordedDuration ?: 0L
@@ -153,27 +158,10 @@ class VideoListViewModel(
   val videosWereDeletedOrMoved: StateFlow<Boolean> = _videosWereDeletedOrMoved.asStateFlow()
 
   val lastPlayedInFolderPath: StateFlow<String?> =
-    recentlyPlayedRepository
-      .observeRecentlyPlayed(limit = 100)
-      .map { recentlyPlayedList ->
-        val folderPath =
-          _videos.value
-            .firstOrNull()
-            ?.path
-            ?.let { File(it).parent }
-        if (folderPath != null) {
-          recentlyPlayedList
-            .firstOrNull { entity ->
-              try {
-                File(entity.filePath).parent == folderPath
-              } catch (_: Exception) {
-                false
-              }
-            }?.filePath
-        } else {
-          null
-        }
-      }.distinctUntilChanged()
+    combine(_videos, recentlyPlayedRepository.observeRecentlyPlayed(limit = 100)) { videos, recentlyPlayedList ->
+      RecentlyPlayedOps.lastPlayedVideo(recentlyPlayedList, videos)?.path
+    }.distinctUntilChanged()
+      .flowOn(Dispatchers.IO)
       .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
   // Track previous video count to detect if folder became empty

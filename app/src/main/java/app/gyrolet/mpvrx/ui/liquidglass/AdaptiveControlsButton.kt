@@ -4,6 +4,9 @@
 
 package app.gyrolet.mpvrx.ui.liquidglass
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
@@ -17,6 +20,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.CornerSize
+import androidx.compose.foundation.shape.RoundedCornerShape
 import com.kyant.shapes.Capsule
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LocalContentColor
@@ -27,29 +32,56 @@ import androidx.compose.material3.ripple
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import app.gyrolet.mpvrx.ui.icons.AppIcon
 import app.gyrolet.mpvrx.ui.icons.AnimatedIcon
 import app.gyrolet.mpvrx.ui.player.controls.LocalPlayerButtonsClickEvent
 import app.gyrolet.mpvrx.ui.player.controls.PlayerButtonAlpha
-import app.gyrolet.mpvrx.ui.player.controls.components.LocalHidePlayerButtonsBackground
+import app.gyrolet.mpvrx.ui.player.controls.components.LocalBorderlessPlayerControls
 import app.gyrolet.mpvrx.ui.player.controls.components.LocalPlayerButtonsOpacity
 import app.gyrolet.mpvrx.ui.player.controls.components.asPlayerButtonBackground
 import app.gyrolet.mpvrx.ui.player.controls.components.playerButtonBorderColor
 import app.gyrolet.mpvrx.ui.player.controls.components.playerButtonContainerColor
 import app.gyrolet.mpvrx.ui.player.controls.components.playerButtonContentColor
+import app.gyrolet.mpvrx.ui.player.controls.components.stableNumericWidth
+import app.gyrolet.mpvrx.ui.player.controls.components.withTabularDigits
 import app.gyrolet.mpvrx.ui.player.controls.components.tvFocusHighlight
 import app.gyrolet.mpvrx.ui.theme.spacing
 import app.gyrolet.mpvrx.ui.theme.AppMotion
 import app.gyrolet.mpvrx.ui.theme.appPressFeedback
 import com.kyant.backdrop.Backdrop
+
+private data class PlayerControlCornerSize(val fraction: Float) : CornerSize {
+  override fun toPx(shapeSize: Size, density: Density): Float = shapeSize.minDimension * fraction
+}
+
+@Composable
+internal fun rememberPlayerControlShape(
+  active: Boolean?,
+  defaultShape: Shape = CircleShape,
+): Shape {
+  if (active == null) return defaultShape
+  val corner by animateFloatAsState(
+    targetValue = if (active) 0.28f else 0.5f,
+    animationSpec = if (AppMotion.playerReducedMotion()) snap() else AppMotion.Spatial.Expressive,
+    label = "playerControlActiveShape",
+  )
+  return RoundedCornerShape(PlayerControlCornerSize(corner.coerceIn(0f, 0.5f)))
+}
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -62,13 +94,19 @@ fun AdaptiveControlsButton(
   title: String? = null,
   color: Color? = null,
   surfaceColor: Color = Color.Unspecified,
-  buttonSize: Dp = 40.dp,
+  buttonSize: Dp = PlayerLiquidTokens.ButtonSize,
   useGlass: Boolean = true,
   backdrop: Backdrop? = LocalKyantPlayerBackdrop.current,
   enabled: Boolean = true,
   onLongClickLabel: String? = null,
-  hideBackground: Boolean? = null,
+  borderless: Boolean? = null,
+  active: Boolean? = null,
 ) {
+  val iconScale by animateFloatAsState(
+    targetValue = if (active == true) 1.08f else 1f,
+    animationSpec = if (AppMotion.playerReducedMotion()) snap() else AppMotion.Spatial.Expressive,
+    label = "playerControlActiveIcon",
+  )
   AdaptiveControlsContainer(
     onClick = onClick,
     modifier = modifier.widthIn(min = buttonSize),
@@ -76,29 +114,35 @@ fun AdaptiveControlsButton(
     color = color ?: Color.Unspecified,
     surfaceColor = surfaceColor,
     useGlass = useGlass,
-    hideBackground = hideBackground ?: LocalHidePlayerButtonsBackground.current,
+    borderless = borderless ?: LocalBorderlessPlayerControls.current,
     buttonSize = buttonSize,
     spacing = 4.dp,
     horizontalPadding = if (text != null) 8.dp else 0.dp,
     backdrop = backdrop,
     enabled = enabled,
     onLongClickLabel = onLongClickLabel,
+    active = active,
   ) {
     if (icon != null) {
       AnimatedIcon(
         imageVector = icon,
         contentDescription = title ?: text,
         tint = LocalContentColor.current,
-        modifier = Modifier.size(PlayerLiquidTokens.IconSize),
-        reduceMotion = AppMotion.shouldReduceMotion(),
+        modifier = Modifier.size(PlayerLiquidTokens.IconSize).graphicsLayer {
+          scaleX = iconScale
+          scaleY = iconScale
+        },
+        reduceMotion = AppMotion.playerReducedMotion(),
       )
     }
     if (text != null) {
       Text(
         text = text,
-        style = MaterialTheme.typography.labelLargeEmphasized,
+        style = if (active != null) MaterialTheme.typography.labelLargeEmphasized.withTabularDigits()
+          else MaterialTheme.typography.labelLargeEmphasized,
         color = LocalContentColor.current,
         maxLines = 1,
+        modifier = if (active != null) Modifier.stableNumericWidth(text) else Modifier,
       )
     }
   }
@@ -114,13 +158,14 @@ fun AdaptiveControlsContainer(
   surfaceColor: Color = Color.Unspecified,
   isInteractive: Boolean = true,
   useGlass: Boolean = true,
-  hideBackground: Boolean = LocalHidePlayerButtonsBackground.current,
+  borderless: Boolean = LocalBorderlessPlayerControls.current,
   buttonSize: Dp = 40.dp,
   spacing: Dp = 8.dp,
   horizontalPadding: Dp? = null,
   backdrop: Backdrop? = LocalKyantPlayerBackdrop.current,
   enabled: Boolean = true,
   onLongClickLabel: String? = null,
+  active: Boolean? = null,
   content: @Composable RowScope.() -> Unit,
 ) {
   val liquidGlassEnabled = liquidGlassActive()
@@ -129,40 +174,45 @@ fun AdaptiveControlsContainer(
   val reduceMotion = AppMotion.playerReducedMotion()
   val resolvedTint =
     color.takeUnless { it == Color.Unspecified }
-      ?: if (hideBackground) LocalContentColor.current
+      ?: if (borderless) LocalContentColor.current
       else if (liquidGlassEnabled) PlayerLiquidTokens.contentColor else playerButtonContentColor()
   val backgroundLevel = LocalPlayerButtonsOpacity.current
   val resolvedSurface =
     if (liquidGlassEnabled) {
       // Below the default level the whole glass layer fades instead (glassLayerAlpha).
       val base = surfaceColor.takeUnless { it == Color.Unspecified } ?: PlayerLiquidTokens.surfaceColor
-      base.copy(
-        alpha =
-          PlayerButtonAlpha.background(
-            base.alpha,
-            maxOf(backgroundLevel, PlayerButtonAlpha.DEFAULT_BACKGROUND_LEVEL),
-          ),
-      )
+      base.copy(alpha = PlayerButtonAlpha.glassTint(base.alpha, backgroundLevel))
     } else {
       surfaceColor.takeUnless { it == Color.Unspecified }?.asPlayerButtonBackground()
         ?: playerButtonContainerColor()
     }
   val contentTint =
     if (enabled) resolvedTint else resolvedTint.copy(alpha = resolvedTint.alpha * PlayerButtonAlpha.DISABLED_CONTENT)
-  val renderLiquidGlass = liquidGlassEnabled && useGlass && !hideBackground
-  val buttonShape = if (horizontalPadding != null && horizontalPadding > 0.dp) Capsule() else CircleShape
+  val animatedContentTint by animateColorAsState(
+    targetValue = contentTint,
+    animationSpec = if (reduceMotion) snap() else AppMotion.Effect.Color,
+    label = "playerControlContentTint",
+  )
+  val renderLiquidGlass = liquidGlassEnabled && useGlass && !borderless
+  val buttonShape = rememberPlayerControlShape(
+    active,
+    if (horizontalPadding != null && horizontalPadding > 0.dp) Capsule() else CircleShape,
+  )
   // Above the default level the glass tint thickens toward opaque; below it the whole glass fades.
-  val glassLayerAlpha =
-    (backgroundLevel / PlayerButtonAlpha.DEFAULT_BACKGROUND_LEVEL).coerceIn(0f, 1f)
+  val glassLayerAlpha = PlayerButtonAlpha.glassLayer(backgroundLevel)
   val controlModifier =
     modifier
       // LiquidButton already clips its glass to the capsule. Clipping again here, over the larger
       // minimum touch target, would cut its drop shadow into a hard-edged halo.
       .tvFocusHighlight(buttonShape, isInteractive && enabled, clipToShape = !renderLiquidGlass)
       .then(if (isInteractive) Modifier.minimumInteractiveComponentSize() else Modifier)
+      .then(
+        if (isInteractive && active != null) Modifier.semantics { selected = active }
+        else Modifier,
+      )
 
   if (renderLiquidGlass) {
-    CompositionLocalProvider(LocalContentColor provides contentTint) {
+    CompositionLocalProvider(LocalContentColor provides animatedContentTint) {
       LiquidButton(
         onClick = {
           clickEvent()
@@ -181,23 +231,24 @@ fun AdaptiveControlsContainer(
         horizontalPadding = horizontalPadding ?: 8.dp,
         backdrop = backdrop,
         backgroundAlpha = glassLayerAlpha,
+        shape = buttonShape,
         content = content,
       )
     }
   } else {
     Surface(
-      shape = CircleShape,
+      shape = buttonShape,
       color =
-        if (hideBackground || !useGlass) {
+        if (borderless || !useGlass) {
           Color.Transparent
         } else {
           resolvedSurface
         },
-      contentColor = contentTint,
+      contentColor = animatedContentTint,
       tonalElevation = 0.dp,
       shadowElevation = 0.dp,
       border =
-        if (hideBackground || !useGlass) {
+        if (borderless || !useGlass) {
           null
         } else {
           BorderStroke(1.dp, playerButtonBorderColor())
@@ -211,7 +262,7 @@ fun AdaptiveControlsContainer(
             pressedScale = 0.94f,
             reduceMotion = reduceMotion,
           )
-          .clip(CircleShape)
+          .clip(buttonShape)
           .then(
             if (isInteractive) {
               Modifier.combinedClickable(

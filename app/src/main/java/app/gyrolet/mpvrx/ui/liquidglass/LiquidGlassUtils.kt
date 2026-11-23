@@ -31,7 +31,9 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.addOutline
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalGraphicsContext
@@ -49,7 +51,6 @@ import com.kyant.backdrop.BackdropEffectScope
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.colorControls
 import com.kyant.backdrop.effects.lens
-import com.kyant.backdrop.effects.opacity
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
 import app.gyrolet.mpvrx.preferences.AppearancePreferences
@@ -79,8 +80,8 @@ internal val LocalPlayerHdrOutputEnabled = staticCompositionLocalOf { false }
 internal val LocalPlayerLiquidGlassActive = staticCompositionLocalOf<Boolean?> { null }
 
 /**
- * Whether Liquid Glass applies here. Player components read this instead of the raw preference,
- * so they fall back to their regular, non-glass form whenever the player turns glass off.
+ * Whether live Liquid Glass controls apply here. They fall back to their regular form when the
+ * renderer cannot be sampled; panel materials separately retain a translucent, non-sampling fallback.
  */
 @Composable
 fun liquidGlassActive(): Boolean {
@@ -120,7 +121,7 @@ data class LiquidGlassSettings(
     val highlightBlur: Float,
     val allowRefraction: Boolean = true,
 ) {
-    fun surfaceColor(base: Color): Color = base
+    fun surfaceColor(base: Color): Color = base.copy(alpha = (base.alpha * opacity).coerceIn(0f, 1f))
 
     fun highlight(base: Highlight): Highlight = base.copy(
         style = when (highlightStyle) {
@@ -196,7 +197,6 @@ fun BackdropEffectScope.liquidGlassEffects(
             chromaticAberration = settings.chromaticAberration,
         )
     }
-    if (settings.opacity < 1f) opacity(settings.opacity)
 }
 
 /**
@@ -238,6 +238,24 @@ fun DrawScope.drawShapeTint(shape: Shape, color: Color) {
 
 fun DrawScope.drawShapeTint(shape: Shape, brush: Brush) {
     drawOutline(shape.createOutline(size, layoutDirection, this), brush)
+}
+
+fun Modifier.connectedGlassRim(
+    shape: Shape,
+    joinedAtTop: Boolean,
+    strength: Float = 1f,
+    connectionProgress: Float = 1f,
+): Modifier = drawWithCache {
+    val edge = Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.27f), Color.White.copy(alpha = 0.02f)))
+    val strokeWidth = 0.75.dp.toPx()
+    val outline = shape.createOutline(size, layoutDirection, this)
+    val inset = strokeWidth * connectionProgress.coerceIn(0f, 1f)
+    onDrawWithContent {
+        drawContent()
+        clipRect(top = if (joinedAtTop) inset else 0f, bottom = size.height - if (joinedAtTop) 0f else inset) {
+            drawOutline(outline, brush = edge, style = Stroke(strokeWidth), alpha = strength)
+        }
+    }
 }
 
 suspend fun PointerInputScope.inspectDragGestures(

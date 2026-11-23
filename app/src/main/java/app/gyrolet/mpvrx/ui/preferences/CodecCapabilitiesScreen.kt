@@ -14,12 +14,10 @@ import android.media.MediaCodecInfo
 import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.os.Build
-import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -70,7 +68,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.gyrolet.mpvrx.R
-import app.gyrolet.mpvrx.presentation.Screen
 import app.gyrolet.mpvrx.ui.icons.AppIcon
 import app.gyrolet.mpvrx.ui.icons.Icon
 import app.gyrolet.mpvrx.ui.icons.Icons
@@ -529,7 +526,7 @@ object CodecInspector {
 }
 
 @Serializable
-object CodecCapabilitiesScreen : Screen {
+object CodecCapabilitiesScreen : ScrollableSettingsScreen {
   @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
   @Composable
   override fun Content() {
@@ -572,9 +569,7 @@ object CodecCapabilitiesScreen : Screen {
       }
     }
 
-    val copiedToastMsg = stringResource(R.string.pref_codecs_report_copied)
-
-    val copyReportToClipboard = {
+    val copyReportToClipboard: () -> Unit = {
       val sb = StringBuilder()
       sb.appendLine("=== mpvRx Hardware vs Software Codec Diagnostics ===")
       sb.appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL} (Android ${Build.VERSION.RELEASE}, API ${Build.VERSION.SDK_INT})")
@@ -605,7 +600,6 @@ object CodecCapabilitiesScreen : Screen {
       }
 
       SafeClipboard.copyPlainText(context, "Codec Report", sb.toString())
-      Toast.makeText(context, copiedToastMsg, Toast.LENGTH_SHORT).show()
     }
 
     Scaffold(
@@ -658,6 +652,7 @@ object CodecCapabilitiesScreen : Screen {
         rememberSettingsSearchList(CodecCapabilitiesScreen, MaterialTheme.colorScheme.primary)
       LazyColumn(
         state = settingsListState,
+        contentPadding = settingsContentPadding(),
         modifier = Modifier
           .fillMaxSize()
           .padding(innerPadding)

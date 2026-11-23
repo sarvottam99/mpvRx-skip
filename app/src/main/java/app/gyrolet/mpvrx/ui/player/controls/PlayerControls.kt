@@ -9,29 +9,28 @@
 
 package app.gyrolet.mpvrx.ui.player.controls
 
+import app.gyrolet.mpvrx.preferences.BrowserPreferences
+import app.gyrolet.mpvrx.utils.storage.FileTypeUtils
+
 import app.gyrolet.mpvrx.ui.player.DeclaredPlaybackMediaKind
 import app.gyrolet.mpvrx.ui.player.PlaybackSession
 import app.gyrolet.mpvrx.ui.player.declaredMediaKind
 import app.gyrolet.mpvrx.domain.torrent.TorrentStreamingState
-import app.gyrolet.mpvrx.domain.torrent.formatTorrentBytes
-import app.gyrolet.mpvrx.domain.torrent.formatTorrentSpeed
-
 import android.content.res.Configuration.ORIENTATION_PORTRAIT
 import android.database.ContentObserver
 import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
-import android.os.Debug
+import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.LinearOutSlowInEasing
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -58,13 +57,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.areNavigationBarsVisible
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -72,7 +71,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LocalRippleConfiguration
@@ -86,14 +84,12 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.collectAsState
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -107,38 +103,36 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.Shadow
-import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.constraintlayout.compose.ConstrainScope
 import androidx.constraintlayout.compose.ConstraintLayout
 import androidx.constraintlayout.compose.Dimension
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import app.gyrolet.mpvrx.R
+import app.gyrolet.mpvrx.ui.components.SwipeDismissibleToast
 import app.gyrolet.mpvrx.preferences.AdvancedPreferences
 import app.gyrolet.mpvrx.preferences.AiPreferences
 import app.gyrolet.mpvrx.preferences.AppearancePreferences
 import app.gyrolet.mpvrx.preferences.GesturePreferences
 import app.gyrolet.mpvrx.preferences.AudioPreferences
 import app.gyrolet.mpvrx.preferences.PlayerButton
+import app.gyrolet.mpvrx.preferences.PlaybackControlsPlacement
 import app.gyrolet.mpvrx.preferences.PlayerPreferences
-import app.gyrolet.mpvrx.preferences.PlaybackControlsPosition
-import app.gyrolet.mpvrx.preferences.SeekbarPlacement
 import app.gyrolet.mpvrx.preferences.allPlayerButtons
 import app.gyrolet.mpvrx.preferences.preference.collectAsState
 import app.gyrolet.mpvrx.preferences.preference.deleteAndGet
@@ -149,6 +143,7 @@ import app.gyrolet.mpvrx.ui.icons.Icons
 import app.gyrolet.mpvrx.ui.player.Decoder.Companion.getDecoderFromValue
 import app.gyrolet.mpvrx.ui.player.InAppMusicSheetState
 import app.gyrolet.mpvrx.ui.player.Panels
+import app.gyrolet.mpvrx.ui.player.PlaybackPhase
 import app.gyrolet.mpvrx.ui.player.PlayerActivity
 import app.gyrolet.mpvrx.ui.player.PlayerUpdates
 import app.gyrolet.mpvrx.ui.player.PlayerViewModel
@@ -165,12 +160,11 @@ import app.gyrolet.mpvrx.ui.player.controls.components.AnimatedPlayPauseIcon
 import app.gyrolet.mpvrx.ui.player.controls.components.BrightnessSlider
 import app.gyrolet.mpvrx.ui.player.controls.components.ControlsButton
 import app.gyrolet.mpvrx.ui.player.controls.components.LocalForceDarkPlayerButtonsBackground
-import app.gyrolet.mpvrx.ui.player.controls.components.LocalHidePlayerButtonsBackground
 import app.gyrolet.mpvrx.ui.player.controls.components.LocalPlayerButtonsOpacity
 import app.gyrolet.mpvrx.ui.player.controls.components.asPlayerButtonBackground
 import app.gyrolet.mpvrx.ui.player.controls.components.MediaScopesOverlay
-import app.gyrolet.mpvrx.ui.player.controls.components.fadingHorizontalScroll
 import app.gyrolet.mpvrx.ui.player.controls.components.MultipleSpeedPlayerUpdate
+import app.gyrolet.mpvrx.ui.player.controls.components.PlaybackFormatBadgeRow
 import app.gyrolet.mpvrx.ui.player.controls.components.ResumeAvailablePlayerUpdate
 import app.gyrolet.mpvrx.ui.player.controls.components.ResumedFromPlayerUpdate
 import app.gyrolet.mpvrx.ui.player.controls.components.SeekPlayerUpdate
@@ -184,11 +178,9 @@ import app.gyrolet.mpvrx.ui.player.controls.components.rememberTvInitialFocusReq
 import app.gyrolet.mpvrx.ui.player.controls.components.tvFocusHighlight
 import app.gyrolet.mpvrx.ui.player.controls.components.tvInitialFocus
 import app.gyrolet.mpvrx.ui.player.controls.components.sheets.toFixed
-import app.gyrolet.mpvrx.ui.theme.controlColor
 import app.gyrolet.mpvrx.utils.device.DeviceFormFactor
 import app.gyrolet.mpvrx.ui.theme.playerRippleConfiguration
 import app.gyrolet.mpvrx.ui.theme.spacing
-import dev.vivvvek.seeker.Segment
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
@@ -206,7 +198,6 @@ import app.gyrolet.mpvrx.preferences.DecoderPreferences
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import kotlin.math.abs
-import kotlin.math.roundToInt
 
 @Suppress("CompositionLocalAllowlist")
 val LocalPlayerButtonsClickEvent = staticCompositionLocalOf { {} }
@@ -235,10 +226,10 @@ internal fun AudioPlayerScreen(
   val enableLiquidGlass by appearancePreferences.liquidGlassEnabled.collectAsState()
   val playbackQueue by PlaybackSession.queue.collectAsStateWithLifecycle()
   val currentPlaybackItem = playbackQueue.currentItem
-  val chapters by viewModel.playbackChapters.collectAsState(persistentListOf())
-  val playbackSpeed by PlaybackSession.propFloat["speed"].collectAsState()
-  val configuredDecoder by PlaybackSession.propString["hwdec"].collectAsState()
-  val activeDecoder by PlaybackSession.propString["hwdec-current"].collectAsState()
+  val chapters by viewModel.playbackChapters.collectAsStateWithLifecycle(persistentListOf())
+  val playbackSpeed by PlaybackSession.propFloat["speed"].collectAsStateWithLifecycle()
+  val configuredDecoder by PlaybackSession.propString["hwdec"].collectAsStateWithLifecycle()
+  val activeDecoder by PlaybackSession.propString["hwdec-current"].collectAsStateWithLifecycle()
   val decoder = remember(activeDecoder, configuredDecoder) {
     getDecoderFromValue(activeDecoder?.takeIf { it.isNotBlank() } ?: configuredDecoder ?: "auto")
   }
@@ -266,7 +257,7 @@ internal fun AudioPlayerScreen(
   }
 
   val audioBook by app.gyrolet.mpvrx.ui.player.AudiobookPlayback.book.collectAsState()
-  val audioPositionState = viewModel.precisePosition.collectAsState()
+  val audioPositionState = viewModel.precisePosition.collectAsStateWithLifecycle()
   // Only the chapter index is needed here. Reading the position clock directly re-ran this whole
   // screen every polling tick; a derived index recomposes only when the chapter changes.
   val audioChapterIndex by remember(chapters, currentPlaybackItem, audioBook) {
@@ -280,15 +271,16 @@ internal fun AudioPlayerScreen(
       }
     }
   }
-  val rawMediaTitle by PlaybackSession.propString["media-title"].collectAsState()
+  val rawMediaTitle by PlaybackSession.propString["media-title"].collectAsStateWithLifecycle()
   val queuedTitle =
     playbackQueue.currentItem?.title?.takeIf { playbackQueue.isExplicitQueue && it.isNotBlank() }
   val currentTitleForControls by rememberUpdatedState(titleForControls)
+  val isYouTubeSource = app.gyrolet.mpvrx.utils.media.HttpUtils.isYouTubeUrl(currentPlaybackItem?.originalUri)
   val mediaTitle =
-    remember(queuedTitle, rawMediaTitle) {
-      queuedTitle
-        ?: currentTitleForControls()
-        ?: rawMediaTitle?.takeIf { it.isNotBlank() }
+    remember(queuedTitle, rawMediaTitle, currentPlaybackItem?.title, isYouTubeSource) {
+      sequenceOf(queuedTitle, currentTitleForControls(), rawMediaTitle, currentPlaybackItem?.title)
+        .filterNotNull()
+        .firstOrNull { it.isNotBlank() && (!isYouTubeSource || !app.gyrolet.mpvrx.utils.media.HttpUtils.isLikelyJunkTitle(it)) }
     }
 
   val sheetShown by viewModel.sheetShown.collectAsState()
@@ -390,12 +382,13 @@ fun PlayerControls(
   val advancedPreferences = koinInject<AdvancedPreferences>()
   val appearancePreferences = koinInject<AppearancePreferences>()
   val aiPreferences = koinInject<AiPreferences>()
+  val showMediaExtensions by koinInject<BrowserPreferences>().showExtensionField.collectAsState()
   val aiEnabled by aiPreferences.enabled.collectAsState()
   val realtimeSubsEnabled by aiPreferences.realtimeSubsEnabled.collectAsState()
-  val hideBackground by appearancePreferences.hidePlayerButtonsBackground.collectAsState()
   val liquidGlassPreference by appearancePreferences.liquidGlassEnabled.collectAsState()
   val liquidGlassInHdr by appearancePreferences.liquidGlassInHdr.collectAsState()
   val hdrOutputPreference by koinInject<DecoderPreferences>().hdrScreenOutput.collectAsState()
+  val mediaCodecEmbedPreference by koinInject<DecoderPreferences>().mediaCodecEmbed.collectAsState()
   // Glass needs the video on the Compose-recordable renderer, so this mirrors the renderer choice.
   // When HDR output keeps the video on a native surface ("Liquid glass in HDR" off, or HDR owned by
   // mpv.conf), every player control uses its regular form, exactly as with Liquid Glass off.
@@ -404,14 +397,13 @@ fun PlayerControls(
       liquidGlass = liquidGlassPreference,
       hdrOutput = hdrOutputPreference,
       liquidGlassInHdr = liquidGlassInHdr,
+      mediaCodecEmbed = mediaCodecEmbedPreference,
     )
   val forceDarkButtonBackground by appearancePreferences.forceDarkPlayerButtonsBackground.collectAsState()
-  val portraitPlaybackControlsPosition by
-    appearancePreferences.portraitPlaybackControlsPosition.collectAsState()
-  val landscapePlaybackControlsPosition by
-    appearancePreferences.landscapePlaybackControlsPosition.collectAsState()
   val portraitSeekbarPlacement by appearancePreferences.portraitSeekbarPlacement.collectAsState()
   val landscapeSeekbarPlacement by appearancePreferences.landscapeSeekbarPlacement.collectAsState()
+  val portraitPlaybackControlsPlacement by appearancePreferences.portraitPlaybackControlsPlacement.collectAsState()
+  val landscapePlaybackControlsPlacement by appearancePreferences.landscapePlaybackControlsPlacement.collectAsState()
   val playerButtonsBackgroundOpacity by appearancePreferences.playerButtonsBackgroundOpacity.collectAsState()
   val playerPreferences = koinInject<PlayerPreferences>()
   val gesturePreferences = koinInject<GesturePreferences>()
@@ -422,25 +414,22 @@ fun PlayerControls(
   val navigationBarRequested by playerPreferences.showSystemNavigationBar.collectAsState()
   val showSystemNavigationBar = navigationBarRequested || WindowInsets.areNavigationBarsVisible
   val showControlsDrawer by playerPreferences.showControlsDrawer.collectAsState()
-  var seekRippleRequest by remember { mutableStateOf<SeekRippleRequest?>(null) }
   val controlsShown by viewModel.controlsShown.collectAsState()
   val controlsInteractionEpoch by viewModel.controlsInteractionEpoch.collectAsState()
   val tvPlayFocusRequester = rememberTvInitialFocusRequester(enabled = controlsShown)
-  val overlaysFollowVideoZoom by playerPreferences.overlaysFollowVideoZoom.collectAsState()
-  val videoPanX by viewModel.videoPanX.collectAsState()
-  val videoPanY by viewModel.videoPanY.collectAsState()
   val statisticsPage by advancedPreferences.enabledStatisticsPage.collectAsState()
   val areControlsLocked by viewModel.areControlsLocked.collectAsState()
   val seekBarShown by viewModel.seekBarShown.collectAsState()
-  val paused by PlaybackSession.propBoolean["pause"].collectAsState()
+  val paused by PlaybackSession.propBoolean["pause"].collectAsStateWithLifecycle()
   val playbackSessionState by PlaybackSession.state.collectAsStateWithLifecycle()
-  val duration by PlaybackSession.propInt["duration"].collectAsState()
+  var seekRippleRequest by remember(playbackSessionState.generation) { mutableStateOf<SeekRippleRequest?>(null) }
+  val duration by PlaybackSession.propInt["duration"].collectAsStateWithLifecycle()
   val playbackQueue by PlaybackSession.queue.collectAsStateWithLifecycle()
   val preciseDuration by viewModel.preciseDuration.collectAsState()
   val scopeAudioTracks by viewModel.audioTracks.collectAsState(persistentListOf())
   val mediaScopesState by viewModel.mediaScopesUiState.collectAsState()
   val currentQueueItem = playbackSessionState.currentItem ?: playbackQueue.currentItem
-  val playbackSpeed by PlaybackSession.propFloat["speed"].collectAsState()
+  val playbackSpeed by PlaybackSession.propFloat["speed"].collectAsStateWithLifecycle()
   val seekbarDuration =
     if (preciseDuration > 0) {
       preciseDuration
@@ -454,6 +443,8 @@ fun PlayerControls(
   val doubleTapSeekAmount = seekState.amount
   val showDoubleTapOvals by playerPreferences.showDoubleTapOvals.collectAsState()
   val showSeekTime by playerPreferences.showSeekTimeWhileSeeking.collectAsState()
+  val doubleTapSeekAreaWidth by gesturePreferences.doubleTapSeekAreaWidth.collectAsState()
+  val seekAreaFraction = (doubleTapSeekAreaWidth / 100f).coerceIn(0.01f, 0.5f)
   val showSeekbarDuringHorizontalSeeking by gesturePreferences.showSeekbarDuringHorizontalSeeking.collectAsState()
   val showBufferedRange by playerPreferences.showBufferedRange.collectAsState()
   val showChapterIndicators by playerPreferences.showChapterIndicators.collectAsState()
@@ -493,15 +484,14 @@ fun PlayerControls(
     } else {
       Modifier
     }
-  var wasPlayerAlreadyPaused by remember { mutableStateOf(false) }
-  val mpvSeeking by PlaybackSession.propBoolean["seeking"].collectAsState()
+  val mpvSeeking by PlaybackSession.propBoolean["seeking"].collectAsStateWithLifecycle()
   val isPlayerSeeking = isSeeking || (mpvSeeking ?: false)
   // mpv can remain "seeking" until its cache refills. Only active scrubbing suppresses the spinner;
   // a real cache wait stays visible even when the controls have faded out.
   val showBufferingIndicator = bufferingState.visible
   var resetControlsTimestamp by remember { mutableStateOf(0L) }
-  val configuredDecoder by PlaybackSession.propString["hwdec"].collectAsState()
-  val activeDecoder by PlaybackSession.propString["hwdec-current"].collectAsState()
+  val configuredDecoder by PlaybackSession.propString["hwdec"].collectAsStateWithLifecycle()
+  val activeDecoder by PlaybackSession.propString["hwdec-current"].collectAsStateWithLifecycle()
   val decoder = remember(activeDecoder, configuredDecoder) {
     getDecoderFromValue(activeDecoder?.takeIf { it.isNotBlank() } ?: configuredDecoder ?: "auto")
   }
@@ -509,8 +499,8 @@ fun PlayerControls(
     abs((playbackSpeed ?: 1f) - 1f) > 0.001f
   }
   val playerTimeToDisappear by playerPreferences.playerTimeToDisappear.collectAsState()
-  val chapters by viewModel.playbackChapters.collectAsState(persistentListOf())
-  val chapterPositionState = viewModel.precisePosition.collectAsState()
+  val chapters by viewModel.playbackChapters.collectAsStateWithLifecycle(persistentListOf())
+  val chapterPositionState = viewModel.precisePosition.collectAsStateWithLifecycle()
   val currentChapter by remember(chapters) {
     androidx.compose.runtime.derivedStateOf { chapters.indexOfLast { it.start <= chapterPositionState.value }.takeIf { it >= 0 } }
   }
@@ -532,6 +522,8 @@ fun PlayerControls(
   val isHdrOutputEnabled by viewModel.isHdrScreenOutputEnabled.collectAsState()
   val isAmbientEnabled by viewModel.isAmbientEnabled.collectAsState()
   val isPostProcessingEnabled by viewModel.isPostProcessingEnabled.collectAsState()
+  val motionInterpolationState by viewModel.motionInterpolation.state.collectAsState()
+  val isMotionInterpolationEnabled = motionInterpolationState.config.enabled
   val backgroundPlaybackEnabled by PlaybackSession.videoBackgroundPlaybackEnabled.collectAsState(
     initial = PlaybackSession.isVideoBackgroundPlaybackEnabled(),
   )
@@ -593,14 +585,24 @@ fun PlayerControls(
     }
   val aspect by viewModel.videoAspect.collectAsState()
   val currentZoom by viewModel.videoZoom.collectAsState()
-  val rawMediaTitle by PlaybackSession.propString["media-title"].collectAsState()
+  val rawMediaTitle by PlaybackSession.propString["media-title"].collectAsStateWithLifecycle()
   val queuedTitle =
     playbackQueue.currentItem?.title?.takeIf { playbackQueue.isExplicitQueue && it.isNotBlank() }
-  val mediaTitle =
-    remember(queuedTitle, rawMediaTitle, playerActivity) {
-      queuedTitle
+  val defaultMediaTitle =
+    remember(queuedTitle, rawMediaTitle, playerActivity, showMediaExtensions) {
+      val title = queuedTitle
         ?: playerActivity.getTitleForControls().takeIf { it.isNotBlank() }
         ?: rawMediaTitle
+      title?.let { rawTitle ->
+        val extension = rawTitle.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)
+        if (!showMediaExtensions &&
+          (extension in FileTypeUtils.VIDEO_EXTENSIONS || extension in FileTypeUtils.AUDIO_EXTENSIONS)
+        ) {
+          FileTypeUtils.stripExtension(rawTitle)
+        } else {
+          rawTitle
+        }
+      }
     }
 
   val topRightControlsPref by appearancePreferences.topRightControls.collectAsState()
@@ -608,7 +610,7 @@ fun PlayerControls(
   val bottomLeftControlsPref by appearancePreferences.bottomLeftControls.collectAsState()
   val portraitBottomControlsPref by appearancePreferences.portraitBottomControls.collectAsState()
 
-  val (topRightButtons, bottomRightButtons, bottomLeftButtons) =
+  val (configuredTopRightButtons, configuredBottomRightButtons, configuredBottomLeftButtons) =
     remember(
       topRightControlsPref,
       bottomRightControlsPref,
@@ -621,10 +623,24 @@ fun PlayerControls(
       listOf(topR, bottomR, bottomL)
     }
 
-  val portraitBottomButtons =
+  val configuredPortraitBottomButtons =
     remember(portraitBottomControlsPref) {
       appearancePreferences.parseButtons(portraitBottomControlsPref, mutableSetOf())
     }
+  val hasPlaylistSupport = viewModel.hasPlaylistSupport()
+  fun visibleLayoutButtons(buttons: List<PlayerButton>, portrait: Boolean) = buttons.filter { button ->
+    when (button) {
+      PlayerButton.VIDEO_QUALITY -> showVideoQualitySelector
+      PlayerButton.CURRENT_CHAPTER -> portrait || chapters.isNotEmpty()
+      PlayerButton.PICTURE_IN_PICTURE -> !isAudioOnly
+      PlayerButton.SHUFFLE -> hasPlaylistSupport
+      else -> true
+    }
+  }
+  val topRightButtons = visibleLayoutButtons(configuredTopRightButtons, false)
+  val bottomRightButtons = visibleLayoutButtons(configuredBottomRightButtons, false)
+  val bottomLeftButtons = visibleLayoutButtons(configuredBottomLeftButtons, false)
+  val portraitBottomButtons = visibleLayoutButtons(configuredPortraitBottomButtons, true)
   val landscapeHasConfiguredQualityButton =
     remember(topRightButtons, bottomRightButtons, bottomLeftButtons) {
       PlayerButton.VIDEO_QUALITY in topRightButtons ||
@@ -632,7 +648,6 @@ fun PlayerControls(
         PlayerButton.VIDEO_QUALITY in bottomLeftButtons
     }
   val portraitHasConfiguredQualityButton = PlayerButton.VIDEO_QUALITY in portraitBottomButtons
-  val hasPlaylistSupport = viewModel.hasPlaylistSupport()
     val playerDrawerButtons =
     remember(
       showVideoQualitySelector,
@@ -652,26 +667,46 @@ fun PlayerControls(
 
   var showUnlockOnLeft by remember { mutableStateOf(true) }
   var isPlayerDrawerShown by remember { mutableStateOf(false) }
-  LaunchedEffect(showControlsDrawer) {
-    if (!showControlsDrawer && isPlayerDrawerShown) {
+  LaunchedEffect(showControlsDrawer, areControlsLocked) {
+    if (areControlsLocked || !showControlsDrawer) {
+      val wasOpen = isPlayerDrawerShown
       isPlayerDrawerShown = false
+      if (wasOpen && !areControlsLocked) viewModel.showControls()
     }
   }
   val setPlayerDrawerShown: (Boolean) -> Unit = { visible ->
-    if (showControlsDrawer) {
-      isPlayerDrawerShown = visible
-      if (visible) {
-        viewModel.hideControls()
-      } else if (viewModel.sheetShown.value == Sheets.None && viewModel.panelShown.value == Panels.None) {
+    if (visible && showControlsDrawer && !areControlsLocked) {
+      isPlayerDrawerShown = true
+      viewModel.dismissAdjustmentOverlays()
+      viewModel.hideControls()
+    } else if (!visible && isPlayerDrawerShown) {
+      isPlayerDrawerShown = false
+      if (viewModel.sheetShown.value == Sheets.None && viewModel.panelShown.value == Panels.None) {
         viewModel.showControls()
       }
     }
   }
   val isBrightnessSliderShown by viewModel.isBrightnessSliderShown.collectAsState()
   val isVolumeSliderShown by viewModel.isVolumeSliderShown.collectAsState()
-  val areSlidersShown = isBrightnessSliderShown || isVolumeSliderShown
+  val showVolumeGestureOverlay by playerPreferences.showVolumeGestureOverlay.collectAsState()
+  val showBrightnessGestureOverlay by playerPreferences.showBrightnessGestureOverlay.collectAsState()
+  val areSlidersShown =
+    (isBrightnessSliderShown && showBrightnessGestureOverlay) ||
+      (isVolumeSliderShown && showVolumeGestureOverlay)
+  val hasLoadedVideo =
+    playbackSessionState.phase == PlaybackPhase.READY || playbackSessionState.phase == PlaybackPhase.BACKGROUND
+  val configuredTitle =
+    if (hasLoadedVideo) {
+      rememberConfiguredVideoTitle(
+        playbackGeneration = playbackSessionState.generation,
+        visible = isPlayerDrawerShown || (controlsShown && (isTelevision || (!areControlsLocked && !areSlidersShown))),
+      )
+    } else {
+      null
+    }
+  val mediaTitle = configuredTitle ?: defaultMediaTitle
   val gestureSeekUpdate by viewModel.playerUpdate.collectAsState()
-  // Swipe-seek pauses playback internally; the auto-hide timer should still run through it.
+  // The auto-hide timer keeps running through a swipe-seek, even while paused.
   val isPlayingForAutoHide = paused == false || gestureSeekUpdate is PlayerUpdates.HorizontalSeek
 
   LaunchedEffect(
@@ -683,14 +718,13 @@ fun PlayerControls(
     areControlsLocked,
     isAudioOnly,
     isPlayerDrawerShown,
-    showControlsDrawer,
   ) {
     if (!isTelevision &&
       !isAudioOnly &&
       controlsShown &&
       isPlayingForAutoHide &&
       !isSeeking &&
-      !(showControlsDrawer && isPlayerDrawerShown)
+      !isPlayerDrawerShown
     ) {
       // Use 2 second delay when controls are locked, otherwise use user preference
       val delayTime = if (areControlsLocked) 2000L else playerTimeToDisappear.toLong()
@@ -705,7 +739,9 @@ fun PlayerControls(
   val transparentOverlay by animateFloatAsState(
     if (controlsShown && !areControlsLocked && !areSlidersShown) .8f else 0f,
     animationSpec =
-      if (controlsShown && !areControlsLocked && !areSlidersShown) {
+      if (reduceMotion) {
+        snap()
+      } else if (controlsShown && !areControlsLocked && !areSlidersShown) {
         playerControlsEnterAnimationSpec((100 * animSpeed).toInt().coerceAtLeast(30))
       } else {
         playerControlsExitAnimationSpec((300 * animSpeed).toInt().coerceAtLeast(50))
@@ -716,15 +752,37 @@ fun PlayerControls(
   // Vignette behind the top and bottom bars. Fades with the bars instead of sliding, so it stays
   // anchored to the frame edges whatever animation style the bars themselves use.
   val edgeVignetteAlpha by animateFloatAsState(
-    if (controlsShown && !areControlsLocked && !areSlidersShown) 1f else 0f,
+    if (controlsShown && !areControlsLocked && !areSlidersShown) {
+      if (enableLiquidGlass) 0.6f else 1f
+    } else {
+      0f
+    },
     animationSpec =
-      if (controlsShown && !areControlsLocked && !areSlidersShown) {
+      if (reduceMotion) {
+        snap()
+      } else if (controlsShown && !areControlsLocked && !areSlidersShown) {
         playerControlsEnterAnimationSpec((100 * animSpeed).toInt().coerceAtLeast(30))
       } else {
         playerControlsExitAnimationSpec((300 * animSpeed).toInt().coerceAtLeast(50))
       },
     label = "controls_edge_vignette",
   )
+
+  val glassSource = rememberVideoGlassSource(videoSurface)
+  val videoSurfaceReady = videoSurface?.surfaceReady?.collectAsState()?.value == true
+  val videoFrameReady = videoSurface?.textureFrameReadyState?.collectAsState()?.value == true
+  // Recreate the recorder when the source or color space changes so it cannot replay stale frames.
+  val videoBackdrop = key(glassSource, isHdrOutputEnabled, liquidGlassInHdr) {
+    rememberLayerBackdrop(onDraw = { with(glassSource) { drawVideo() } })
+  }
+  val playerKyantBackdrop = videoBackdrop.takeIf {
+    enableLiquidGlass &&
+      (!isHdrOutputEnabled || liquidGlassInHdr) &&
+      videoSurface?.isTextureSurface == true &&
+      videoSurfaceReady &&
+      videoFrameReady &&
+      glassSource.scene != null
+  }
 
   if (isTelevision) {
     val tvSheetShown by viewModel.sheetShown.collectAsState()
@@ -739,7 +797,7 @@ fun PlayerControls(
     val tvVolumeTimestamp by viewModel.volumeSliderTimestamp.collectAsState()
     val tvVolume by viewModel.currentVolume.collectAsState()
     val tvVolumePercent by viewModel.currentVolumePercent.collectAsState()
-    val tvMpvVolume by PlaybackSession.propInt["volume"].collectAsState()
+    val tvMpvVolume by PlaybackSession.propInt["volume"].collectAsStateWithLifecycle()
     val tvSwapVolumeAndBrightness by playerPreferences.swapVolumeAndBrightness.collectAsState()
     val tvControlsAnimStyle by playerPreferences.controlsAnimStyle.collectAsState()
     val tvVolumeBoostCap by audioPreferences.volumeBoostCap.collectAsState()
@@ -776,7 +834,6 @@ fun PlayerControls(
       LocalPlayerHdrOutputEnabled provides isHdrOutputEnabled,
       LocalPlayerLiquidGlassActive provides enableLiquidGlass,
       LocalForceDarkPlayerButtonsBackground provides forceDarkButtonBackground,
-      LocalHidePlayerButtonsBackground provides hideBackground,
     ) {
       PlayerControlsContentTheme {
         Box(
@@ -786,18 +843,24 @@ fun PlayerControls(
               .clipToBounds()
               .onSizeChanged { playerBounds = it },
         ) {
+          if (playerKyantBackdrop != null) {
+            VideoGlassBackdropSource(glassSource, playerKyantBackdrop)
+          }
           VideoOpenAnimationOverlay(
             style = videoOpenAnim,
             speedMultiplier = animSpeed,
             animationState = videoOpenAnimState,
           )
-          DoubleTapToSeekOvals(
-            amount = doubleTapSeekAmount,
-            showOvals = false,
-            showSeekIcon = true,
-            showSeekTime = true,
-            rippleRequest = seekRippleRequest,
-          )
+          key(playbackSessionState.generation) {
+            DoubleTapToSeekOvals(
+              amount = doubleTapSeekAmount,
+              showOvals = false,
+              showSeekIcon = true,
+              showSeekTime = true,
+              rippleRequest = null,
+              seekAreaFraction = seekAreaFraction,
+            )
+          }
           // Status HUD remains visible even after playback controls fade away.
           PersistentStatusHud(
             viewModel = viewModel,
@@ -813,26 +876,29 @@ fun PlayerControls(
             modifier = Modifier.fillMaxSize(),
           )
 
-          TvPlayerControls(
-            viewModel = viewModel,
-            controlsShown = controlsShown,
-            overlayOpen = tvSheetShown != Sheets.None || tvPanelShown != Panels.None,
-            paused = paused == true,
-            mediaTitle = mediaTitle,
-            chapterTitle = currentChapter?.let(chapters::getOrNull)?.name,
-            durationSeconds = seekbarDuration,
-            chapterStarts = if (showChapterIndicators) tvChapterStarts else emptyList(),
-            showBufferedRange = showBufferedRange,
-            hasSubtitles = true,
-            hasAudioTracks = tvAudioTracks.isNotEmpty(),
-            hasChapters = chapters.isNotEmpty(),
-            showQualityButton = showVideoQualitySelector,
-            playbackSpeed = playbackSpeed ?: 1f,
-            skipSegmentLabel = currentSkippableSegment?.label,
-            showBuffering = showBufferingIndicator,
-            autoHideMillis = playerTimeToDisappear.toLong(),
-            onOpenSheet = onOpenSheet,
-          )
+          CompositionLocalProvider(LocalKyantPlayerBackdrop provides playerKyantBackdrop) {
+            TvPlayerControls(
+              viewModel = viewModel,
+              controlsShown = controlsShown,
+              overlayOpen = tvSheetShown != Sheets.None || tvPanelShown != Panels.None,
+              paused = paused == true,
+              mediaTitle = mediaTitle,
+              chapterTitle = currentChapter?.let(chapters::getOrNull)?.name,
+              durationSeconds = seekbarDuration,
+              chapterStarts = if (showChapterIndicators) tvChapterStarts else emptyList(),
+              showBufferedRange = showBufferedRange,
+              hasSubtitles = true,
+              hasAudioTracks = tvAudioTracks.isNotEmpty(),
+              hasChapters = chapters.isNotEmpty(),
+              showQualityButton = showVideoQualitySelector,
+              playbackSpeed = playbackSpeed ?: 1f,
+              decoder = decoder,
+              skipSegmentLabel = currentSkippableSegment?.type?.labelRes?.let { stringResource(it) },
+              showBuffering = showBufferingIndicator,
+              autoHideMillis = playerTimeToDisappear.toLong(),
+              onOpenSheet = onOpenSheet,
+            )
+          }
 
           PlayerSheets(
             viewModel = viewModel,
@@ -909,44 +975,27 @@ fun PlayerControls(
     return
   }
 
-  GestureHandler(
-    viewModel = viewModel,
-    externalPanelShown = showControlsDrawer && isPlayerDrawerShown,
-    onDismissExternalPanel = { setPlayerDrawerShown(false) },
-    onLockedTouchSideChanged = { isLeft ->
-      showUnlockOnLeft = isLeft
-      resetControlsTimestamp = System.currentTimeMillis()
-    },
-    onSeekRipple = { seekRippleRequest = it },
-  )
-
-  DoubleTapToSeekOvals(
-    amount = doubleTapSeekAmount,
-    showOvals = showDoubleTapOvals,
-    showSeekIcon = showSeekTime,
-    showSeekTime = showSeekTime,
-    rippleRequest = seekRippleRequest,
-  )
-
-  val glassSource = rememberVideoGlassSource(videoSurface)
-  val videoSurfaceReady = videoSurface?.surfaceReady?.collectAsState()?.value == true
-  val videoFrameReady = videoSurface?.textureFrameReadyState?.collectAsState()?.value == true
-  // Recreate the recorder with the actual source scene. The old persistent recorder could
-  // keep painting a released TextureView's pixels after an HDR/native-surface handoff.
-  val videoBackdrop = key(glassSource, isHdrOutputEnabled, liquidGlassInHdr) {
-    // HDR output changes the captured colorspace even when the TextureView stays mounted.
-    // A new recorder must not replay pre-HDR pixels or filters over the new output.
-    rememberLayerBackdrop(onDraw = { with(glassSource) { drawVideo() } })
-  }
-  // Native HDR output is a separate SurfaceView: Kyaant cannot sample it from Compose.
-  // Hide the live sampler during mode changes and use the non-sampling frosted treatment.
-  val playerKyantBackdrop = videoBackdrop.takeIf {
-    enableLiquidGlass &&
-      (!isHdrOutputEnabled || liquidGlassInHdr) &&
-      videoSurface?.isTextureSurface == true &&
-      videoSurfaceReady &&
-      videoFrameReady &&
-      glassSource.scene != null
+  val renderLandscapeButton: @Composable (PlayerButton) -> Unit = { button ->
+    RenderPlayerButton(
+      button = button,
+      chapters = chapters,
+      currentChapter = currentChapter,
+      isPortrait = false,
+      isSpeedNonOne = isSpeedNonOne,
+      currentZoom = currentZoom,
+      aspect = aspect,
+      mediaTitle = mediaTitle,
+      decoder = decoder,
+      playbackSpeed = playbackSpeed ?: 1f,
+      onBackPress = onBackPress,
+      onOpenSheet = onOpenSheet,
+      onOpenPanel = onOpenPanel,
+      viewModel = viewModel,
+      activity = playerActivity,
+      buttonSize = LandscapeActionSize,
+      // Compact rendering belongs to drawer tiles; player controls retain live labels and expansion.
+      compact = false,
+    )
   }
 
   CompositionLocalProvider(
@@ -954,42 +1003,42 @@ fun PlayerControls(
     LocalPlayerHdrOutputEnabled provides isHdrOutputEnabled,
     LocalPlayerLiquidGlassActive provides enableLiquidGlass,
     LocalForceDarkPlayerButtonsBackground provides forceDarkButtonBackground,
-    LocalHidePlayerButtonsBackground provides hideBackground,
     LocalPlayerButtonsOpacity provides playerButtonsBackgroundOpacity.coerceIn(0f, 1f),
   ) {
     PlayerControlsContentTheme {
-      Box(
+      GestureHandler(
+        viewModel = viewModel,
+        externalPanelShown = isPlayerDrawerShown,
+        onDismissExternalPanel = { setPlayerDrawerShown(false) },
+        onLockedTouchSideChanged = { isLeft ->
+          showUnlockOnLeft = isLeft
+          resetControlsTimestamp = System.currentTimeMillis()
+        },
+        onSeekRipple = { seekRippleRequest = it },
         modifier =
           modifier
             .fillMaxSize()
             .clipToBounds()
             .onSizeChanged { playerBounds = it },
       ) {
+    key(playbackSessionState.generation) {
+      DoubleTapToSeekOvals(
+        amount = doubleTapSeekAmount,
+        showOvals = showDoubleTapOvals,
+        showSeekIcon = showSeekTime,
+        showSeekTime = showSeekTime,
+        rippleRequest = seekRippleRequest,
+        seekAreaFraction = seekAreaFraction,
+      )
+    }
+
     VideoOpenAnimationOverlay(
       style = videoOpenAnim,
       speedMultiplier = animSpeed,
       animationState = videoOpenAnimState,
     )
-    if (enableLiquidGlass) {
-      if (playerKyantBackdrop != null) {
-        VideoGlassBackdropSource(glassSource, videoBackdrop)
-      }
-      Box(
-        modifier =
-          Modifier
-            .fillMaxSize()
-            .background(
-              Brush.verticalGradient(
-                listOf(
-                  Color.Black,
-                  Color.Transparent,
-                  Color.Transparent,
-                  Color.Black,
-                ),
-              ),
-              alpha = transparentOverlay,
-            ),
-      )
+    if (enableLiquidGlass && playerKyantBackdrop != null) {
+      VideoGlassBackdropSource(glassSource, videoBackdrop)
     }
     if (brightness < 0) {
       Box(
@@ -1001,33 +1050,6 @@ fun PlayerControls(
             .zIndex(0f),
       )
     }
-    if (statisticsPage == 6) {
-      // Mirror the SurfaceView transform so page 6 stays on the video like mpv's own stats pages.
-      Box(
-        Modifier.fillMaxSize().graphicsLayer {
-          if (overlaysFollowVideoZoom) {
-            val zoomScale = app.gyrolet.mpvrx.ui.player.videoZoomMultiplier(currentZoom)
-            scaleX = zoomScale
-            scaleY = zoomScale
-            translationX = videoPanX
-            translationY = videoPanY
-          }
-        },
-      ) {
-        CustomStatsPageSixOverlay(
-          viewModel = viewModel,
-          modifier =
-            Modifier
-              .align(Alignment.TopStart)
-              .windowInsetsPadding(
-                WindowInsets.safeDrawing.only(
-                  WindowInsetsSides.Top + WindowInsetsSides.Horizontal,
-                ),
-              ).padding(top = 16.dp, start = 14.dp),
-        )
-      }
-    }
-
     // Keep this outside the controls' AnimatedVisibility / constraint layout.
     PersistentStatusHud(
       viewModel = viewModel,
@@ -1048,21 +1070,23 @@ fun PlayerControls(
           LocalPlayerButtonsClickEvent provides { resetControlsTimestamp = System.currentTimeMillis() },
           LocalKyantPlayerBackdrop provides playerKyantBackdrop,
           LocalForceDarkPlayerButtonsBackground provides forceDarkButtonBackground,
-          LocalHidePlayerButtonsBackground provides hideBackground,
           LocalContentColor provides MaterialTheme.colorScheme.onSurface,
         ) {
       CompositionLocalProvider(
         LocalLayoutDirection provides LayoutDirection.Ltr,
       ) {
         val density = LocalDensity.current
-        val bottomHeights = remember(isPortrait) { BottomClusterHeights() }
+        // One cache per orientation, so a rotation bounce on resume reuses real heights instead of fallbacks.
+        val portraitHeights = remember { BottomClusterHeights() }
+        val landscapeHeights = remember { BottomClusterHeights() }
+        val bottomHeights = if (isPortrait) portraitHeights else landscapeHeights
 
         ConstraintLayout(
           modifier =
             Modifier
               .fillMaxSize()
               .drawBehind {
-                if (reduceMotion && transparentOverlay > 0f) {
+                if (reduceMotion && !enableLiquidGlass && transparentOverlay > 0f) {
                   drawRect(FullScreenScrimBrush, alpha = transparentOverlay)
                 }
                 // Only while the bars are up, and only at the edges, so the frame stays clean.
@@ -1072,10 +1096,10 @@ fun PlayerControls(
               }.then(safeAreaInsetModifier)
               .then(navigationBarBottomInsetModifier),
           ) {
-          val (topLeftControls, topRightControls) = createRefs()
+          val topControls = createRef()
           val (volumeSlider, brightnessSlider) = createRefs()
           val unlockControlsButton = createRef()
-          val (bottomRightControls, bottomLeftControls) = createRefs()
+          val bottomRightControls = createRef()
           val playerPauseButton = createRef()
           val bufferingIndicator = createRef()
           val skipSegmentChip = createRef()
@@ -1084,94 +1108,100 @@ fun PlayerControls(
           val (customLeftButtonsRef, customRightButtonsRef) = createRefs()
           val customButtonsPortraitRef = createRef()
 
-          val playbackBelowSeekbar =
-            (if (isPortrait) portraitPlaybackControlsPosition else landscapePlaybackControlsPosition) ==
-              PlaybackControlsPosition.BelowSeekbar
-          val seekbarAboveButtons =
-            (if (isPortrait) portraitSeekbarPlacement else landscapeSeekbarPlacement) ==
-              SeekbarPlacement.AboveButtons
-          // Landscape puts the layout buttons beside play/pause instead of in a row of their own.
-          val buttonsBesidePlayback = playbackBelowSeekbar && !isPortrait
-          val sharedPlaybackRowCenterX = createGuidelineFromStart(0.5f)
-          val sharedRowSideInset =
-            if (buttonsBesidePlayback) {
-              val hasPlaylistControls =
-                playlistMode && (playlistItems.size > 1 || viewModel.getPlaylistTotalCount() > 1)
-              sharedPlaybackRowHalfWidth(hasPlaylistControls) + spacing.medium
-            } else {
-              0.dp
-            }
-          // Bottom-to-top bands; play/pause always sits directly under the seekbar, and beside play/pause
-          // the layout buttons share its band.
-          val bottomStack =
-            buildList {
-              when {
-                buttonsBesidePlayback -> {
-                  add(BottomSlot.Buttons)
-                  add(BottomSlot.Seekbar)
-                }
-                seekbarAboveButtons -> {
-                  add(BottomSlot.Buttons)
-                  if (playbackBelowSeekbar) add(BottomSlot.Playback)
-                  add(BottomSlot.Seekbar)
-                }
-                else -> {
-                  if (playbackBelowSeekbar) add(BottomSlot.Playback)
-                  add(BottomSlot.Seekbar)
-                  add(BottomSlot.Buttons)
-                }
-              }
-            }
+          val automaticQualityButton =
+            showVideoQualitySelector &&
+              !(if (isPortrait) portraitHasConfiguredQualityButton else landscapeHasConfiguredQualityButton)
+          val hasBottomActions =
+            automaticQualityButton ||
+              (if (isPortrait) {
+                portraitBottomButtons.isNotEmpty()
+              } else {
+                bottomLeftButtons.isNotEmpty() || bottomRightButtons.isNotEmpty()
+              })
+          val controlsWidth =
+            if (playerBounds.width > 0) with(density) { playerBounds.width.toDp() } else configuration.screenWidthDp.dp
+          val hasPlaylistControls =
+            playlistMode && (playlistItems.size > 1 || viewModel.getPlaylistTotalCount() > 1)
+          val playbackControlsPlacement =
+            if (isPortrait) portraitPlaybackControlsPlacement else landscapePlaybackControlsPlacement
+          val sharedLandscapeRow = !isPortrait && playbackControlsPlacement != PlaybackControlsPlacement.Center
+          val playbackGeometry = resolvePlaybackControlsGeometry(
+            width = controlsWidth,
+            spacing = spacing,
+            landscape = sharedLandscapeRow,
+          )
+          val playPauseSize = playbackGeometry.playPauseSize
+          val skipButtonSize = playbackGeometry.skipButtonSize
+          val playbackButtonGap = playbackGeometry.buttonGap
+          val playbackShadowRoom = if (enableLiquidGlass) PlaybackShadowRoom else 0.dp
+          val fullWidthPlaybackRow = isPortrait && hasPlaylistControls
+          val landscapePlaybackWidth =
+            if (hasPlaylistControls) playPauseSize + skipButtonSize * 2 + playbackButtonGap * 2 else playPauseSize
+          val bottomLayout =
+            resolveBottomControlsLayout(
+              seekbarPlacement = if (isPortrait) portraitSeekbarPlacement else landscapeSeekbarPlacement,
+              hasButtons = hasBottomActions,
+              playbackControlsPlacement = playbackControlsPlacement,
+              sharedLandscapeRow = sharedLandscapeRow,
+            )
+          val hasRightButtons =
+            automaticQualityButton || (if (isPortrait) portraitBottomButtons.isNotEmpty() else bottomRightButtons.isNotEmpty())
+          val separateBottomActions =
+            if (isPortrait) hasRightButtons else !sharedLandscapeRow && hasBottomActions
+          val bottomStack = bottomLayout.bottomToTop
 
           fun measured(
             px: Int,
             fallback: Dp,
           ): Dp = if (px == UNMEASURED_HEIGHT) fallback else with(density) { px.toDp() }
           val buttonsHeight =
-            if (isPortrait) {
-              measured(bottomHeights.rightButtons, BottomClusterFallbackRowHeight)
-            } else {
-              maxOf(
-                measured(bottomHeights.rightButtons, BottomClusterFallbackRowHeight),
-                measured(bottomHeights.leftButtons, BottomClusterFallbackRowHeight),
-              )
-            }
+            if (separateBottomActions) measured(bottomHeights.rightButtons, BottomClusterFallbackRowHeight) else 0.dp
 
           fun bandHeight(slot: BottomSlot): Dp =
             when (slot) {
-              BottomSlot.Buttons -> if (buttonsBesidePlayback) maxOf(buttonsHeight, SharedPlaybackRowHeight) else buttonsHeight
-              BottomSlot.Playback -> SharedPlaybackRowHeight
+              BottomSlot.Buttons -> buttonsHeight
               BottomSlot.Seekbar -> measured(bottomHeights.seekbar, BottomClusterFallbackRowHeight)
+              BottomSlot.Playback -> measured(bottomHeights.playback, playPauseSize + playbackShadowRoom * 2)
             }
 
-          // One edge margin and one gap for every combination. Bands come from remembered heights, so a
+          // Keep the seekbar close to its controls. Bands come from remembered heights, so a
           // layer leaving the layout (buffering, volume/brightness sliders, hidden controls) moves nothing.
-          val clusterEdge = if (isPortrait) spacing.large else spacing.medium
-          val clusterGap = spacing.smaller
+          fun portraitInset(slot: BottomSlot?): Dp =
+            if (isPortrait) portraitGlassShadowRoom(slot, enableLiquidGlass) else 0.dp
+
+          val clusterEdge =
+            if (isPortrait) {
+              PortraitSectionGap - portraitInset(bottomStack.firstOrNull { bandHeight(it) > 0.dp })
+            } else {
+              spacing.medium
+            }
+          val clusterGap = if (isPortrait) PortraitSectionGap else spacing.extraSmall
+          val customButtonsGap = spacing.smaller * 2
           val bandCenters = HashMap<BottomSlot, Dp>()
           var nextBandBottom = clusterEdge
           var bottomClusterTop = clusterEdge
+          var previousVisibleSlot: BottomSlot? = null
           for (slot in bottomStack) {
             val height = bandHeight(slot)
+            if (height > 0.dp && isPortrait && previousVisibleSlot != null) {
+              nextBandBottom -= portraitInset(previousVisibleSlot) + portraitInset(slot)
+            }
             bandCenters[slot] = nextBandBottom + height / 2
             if (height > 0.dp) {
               bottomClusterTop = nextBandBottom + height
               nextBandBottom = bottomClusterTop + clusterGap
+              previousVisibleSlot = slot
             }
           }
           val buttonsBandCenter = createGuidelineFromBottom(bandCenters[BottomSlot.Buttons] ?: clusterEdge)
           val seekbarBandCenter = createGuidelineFromBottom(bandCenters[BottomSlot.Seekbar] ?: clusterEdge)
-          val playbackBandCenter =
-            createGuidelineFromBottom(
-              bandCenters[if (buttonsBesidePlayback) BottomSlot.Buttons else BottomSlot.Playback] ?: clusterEdge,
-            )
-
+          val playbackBandCenter = createGuidelineFromBottom(bandCenters[BottomSlot.Playback] ?: clusterEdge)
           fun ConstrainScope.linkInBottomStack(slot: BottomSlot) {
             val center =
               when (slot) {
                 BottomSlot.Buttons -> buttonsBandCenter
-                BottomSlot.Playback -> playbackBandCenter
                 BottomSlot.Seekbar -> seekbarBandCenter
+                BottomSlot.Playback -> playbackBandCenter
               }
             top.linkTo(center)
             bottom.linkTo(center)
@@ -1179,11 +1209,9 @@ fun PlayerControls(
 
           val volume by viewModel.currentVolume.collectAsState()
           val volumePercent by viewModel.currentVolumePercent.collectAsState()
-          val mpvVolume by PlaybackSession.propInt["volume"].collectAsState()
+          val mpvVolume by PlaybackSession.propInt["volume"].collectAsStateWithLifecycle()
           val swapVolumeAndBrightness by playerPreferences.swapVolumeAndBrightness.collectAsState()
           // Overlay visibility — Group 1
-          val showVolumeGestureOverlay by playerPreferences.showVolumeGestureOverlay.collectAsState()
-          val showBrightnessGestureOverlay by playerPreferences.showBrightnessGestureOverlay.collectAsState()
           val controlsAnimStyle by playerPreferences.controlsAnimStyle.collectAsState()
           val enterMs = (100 * animSpeed).toInt().coerceAtLeast(30)
           val exitMs = (300 * animSpeed).toInt().coerceAtLeast(50)
@@ -1250,7 +1278,10 @@ fun PlayerControls(
                 exitMs,
               ) { if (swapVolumeAndBrightness) -it else it },
             modifier =
-              Modifier.constrainAs(brightnessSlider) {
+              Modifier.clickable {
+                viewModel.dismissAdjustmentOverlays()
+                viewModel.showControls()
+              }.constrainAs(brightnessSlider) {
                 if (swapVolumeAndBrightness) {
                   start.linkTo(parent.start, if (isPortrait) spacing.large else spacing.extraLarge)
                 } else {
@@ -1276,7 +1307,10 @@ fun PlayerControls(
                 exitMs,
               ) { if (swapVolumeAndBrightness) it else -it },
             modifier =
-              Modifier.constrainAs(volumeSlider) {
+              Modifier.clickable {
+                viewModel.dismissAdjustmentOverlays()
+                viewModel.showControls()
+              }.constrainAs(volumeSlider) {
                 if (swapVolumeAndBrightness) {
                   end.linkTo(parent.end, if (isPortrait) spacing.large else spacing.extraLarge)
                 } else {
@@ -1352,7 +1386,48 @@ fun PlayerControls(
           val currentAspectRatio by viewModel.currentAspectRatio.collectAsState()
           val videoZoom by viewModel.videoZoom.collectAsState()
 
-          LaunchedEffect(currentPlayerUpdate, aspectRatio, videoZoom) {
+          val areButtonsVisible = controlsShown && !areControlsLocked && !areSlidersShown
+          val seekbarVisible = (controlsShown || if (isHorizontalSeekActive) showSeekbarDuringHorizontalSeeking else seekBarShown) &&
+            !areControlsLocked && !areSlidersShown
+          val leftCustomButtons = remember(customButtons) { customButtons.filter { it.isLeft } }
+          val rightCustomButtons = remember(customButtons) { customButtons.filterNot { it.isLeft } }
+          val showLandscapeLeftCustomButtons = areButtonsVisible && !isPortrait && leftCustomButtons.isNotEmpty()
+          val showLandscapeRightCustomButtons = areButtonsVisible && !isPortrait && rightCustomButtons.isNotEmpty()
+          val showPortraitCustomButtons = areButtonsVisible && isPortrait && customButtons.isNotEmpty()
+          // Custom rows carry transparent padding for liquid-glass shadows; offset it so the visible
+          // pills have twice the old 8dp clearance, independently of the tighter seekbar gaps.
+          val customRowBottomOffset = bottomClusterTop + customButtonsGap - CustomButtonsRowInsetVertical
+          val customRowEdgeMargin = spacing.large - CustomButtonsRowInsetHorizontal
+          val hasCustomRowInOrientation =
+            if (isPortrait) customButtons.isNotEmpty() else (leftCustomButtons.isNotEmpty() || rightCustomButtons.isNotEmpty())
+          val customRowRestingHeight =
+            (maxOf(
+              if (!isPortrait && leftCustomButtons.isNotEmpty()) {
+                measured(bottomHeights.leftCustomRow, CustomButtonsRowFallbackHeight)
+              } else {
+                0.dp
+              },
+              if ((!isPortrait && rightCustomButtons.isNotEmpty()) || (isPortrait && customButtons.isNotEmpty())) {
+                measured(bottomHeights.rightCustomRow, CustomButtonsRowFallbackHeight)
+              } else {
+                0.dp
+              },
+            ) - CustomButtonsRowInsetVertical * 2).coerceAtLeast(0.dp)
+          // Keep the skip marker anchored at its resting clearance above the bottom controls
+          // cluster whether controls are visible or hidden (#986).
+          val skipChipBottomOffset =
+            bottomClusterTop +
+              if (hasCustomRowInOrientation) customButtonsGap + customRowRestingHeight + spacing.smaller else spacing.smaller
+
+          val skipChipVisible =
+            currentSkippableSegment != null &&
+              !areSlidersShown &&
+              ((controlsShown && !areControlsLocked) || showSkipChipAuto)
+
+
+          var updateInteracting by remember(currentPlayerUpdate) { mutableStateOf(false) }
+          LaunchedEffect(currentPlayerUpdate, aspectRatio, videoZoom, updateInteracting) {
+            if (updateInteracting) return@LaunchedEffect
             if (currentPlayerUpdate is PlayerUpdates.MultipleSpeed ||
               currentPlayerUpdate is PlayerUpdates.DynamicSpeedControl ||
               currentPlayerUpdate is PlayerUpdates.None
@@ -1388,183 +1463,176 @@ fun PlayerControls(
                 ).constrainAs(playerUpdates) {
                   linkTo(parent.start, parent.end)
                   if (isPortrait && controlsShown && !areControlsLocked) {
-                    top.linkTo(topLeftControls.bottom, spacing.medium)
+                    top.linkTo(topControls.bottom, spacing.medium)
                   } else {
                     top.linkTo(parent.top, if (isPortrait) 104.dp else 64.dp)
                   }
                 },
           ) {
-            when (currentPlayerUpdate) {
-              is PlayerUpdates.MultipleSpeed ->
-                MultipleSpeedPlayerUpdate(
-                  currentSpeed = holdForMultipleSpeed.coerceIn(0.5f, 4f),
-                )
-              is PlayerUpdates.DynamicSpeedControl -> {
-                val speedUpdate = currentPlayerUpdate as PlayerUpdates.DynamicSpeedControl
-                MultipleSpeedPlayerUpdate(currentSpeed = speedUpdate.speed)
-              }
-              is PlayerUpdates.AspectRatio -> {
-                val customRatiosSet by playerPreferences.customAspectRatios.collectAsState()
-                val displayText =
-                  if (currentAspectRatio > 0) {
-                    // Custom aspect ratio - try to find its label first
-                    val customLabel =
-                      customRatiosSet.firstNotNullOfOrNull { str ->
-                        val parts = str.split("|")
-                        if (parts.size == 2) {
-                          val savedRatio = parts[1].toDoubleOrNull()
-                          if (savedRatio != null && kotlin.math.abs(savedRatio - currentAspectRatio) < 0.01) {
-                            parts[0] // Return the label
-                          } else {
-                            null
+            // A new DynamicSpeedControl value must update the existing AnimatedContent.
+            // Re-keying the toast for each speed would recreate it, dropping the
+            // number's fade/scale/slide transition on every speed adjustment.
+            key(
+              when (currentPlayerUpdate) {
+                PlayerUpdates.MultipleSpeed, is PlayerUpdates.DynamicSpeedControl -> PlayerUpdates.MultipleSpeed
+                else -> currentPlayerUpdate
+              },
+            ) {
+              SwipeDismissibleToast(
+                onDismiss = { if (viewModel.playerUpdate.value == currentPlayerUpdate) viewModel.playerUpdate.value = PlayerUpdates.None },
+                onInteracting = { updateInteracting = it },
+              ) {
+                when (currentPlayerUpdate) {
+                  is PlayerUpdates.MultipleSpeed ->
+                    MultipleSpeedPlayerUpdate(
+                      currentSpeed = holdForMultipleSpeed.coerceIn(0.5f, 4f),
+                    )
+                  is PlayerUpdates.DynamicSpeedControl -> {
+                    val speedUpdate = currentPlayerUpdate as PlayerUpdates.DynamicSpeedControl
+                    MultipleSpeedPlayerUpdate(currentSpeed = speedUpdate.speed)
+                  }
+                  is PlayerUpdates.AspectRatio -> {
+                    val customRatiosSet by playerPreferences.customAspectRatios.collectAsState()
+                    val displayText =
+                      if (currentAspectRatio > 0) {
+                        // Custom aspect ratio - try to find its label first
+                        val customLabel =
+                          customRatiosSet.firstNotNullOfOrNull { str ->
+                            val parts = str.split("|")
+                            if (parts.size == 2) {
+                              val savedRatio = parts[1].toDoubleOrNull()
+                              if (savedRatio != null && kotlin.math.abs(savedRatio - currentAspectRatio) < 0.01) {
+                                parts[0] // Return the label
+                              } else {
+                                null
+                              }
+                            } else {
+                              null
+                            }
                           }
-                        } else {
-                          null
+
+                        customLabel ?: run {
+                          // No custom label found, use preset names or format as ratio
+                          val ratio = currentAspectRatio
+                          when {
+                            kotlin.math.abs(ratio - 16.0 / 9.0) < 0.01 -> "16:9"
+                            kotlin.math.abs(ratio - 4.0 / 3.0) < 0.01 -> "4:3"
+                            kotlin.math.abs(ratio - 16.0 / 10.0) < 0.01 -> "16:10"
+                            kotlin.math.abs(ratio - 21.0 / 9.0) < 0.01 -> "21:9"
+                            kotlin.math.abs(ratio - 32.0 / 9.0) < 0.01 -> "32:9"
+                            kotlin.math.abs(ratio - 1.0) < 0.01 -> "1:1"
+                            kotlin.math.abs(ratio - 2.35) < 0.01 -> "2.35:1"
+                            kotlin.math.abs(ratio - 2.39) < 0.01 -> "2.39:1"
+                            else -> String.format("%.2f:1", ratio)
+                          }
+                        }
+                      } else {
+                        // Standard mode (Fit/Crop/Stretch)
+                        stringResource(aspectRatio.titleRes)
+                      }
+                    TextPlayerUpdate(displayText)
+                  }
+                  is PlayerUpdates.ShowText ->
+                    TextPlayerUpdate((currentPlayerUpdate as PlayerUpdates.ShowText).value)
+
+                  is PlayerUpdates.ProviderStatusText ->
+                    TextPlayerUpdate((currentPlayerUpdate as PlayerUpdates.ProviderStatusText).value)
+
+                  is PlayerUpdates.VideoZoom -> {
+                    val zoomPercentage = (videoZoom * 100).toInt()
+                    TextPlayerUpdate(String.format("Zoom: %d%%", zoomPercentage))
+                  }
+
+                  is PlayerUpdates.SubtitleZoom -> {
+                    val zoomUpdate = currentPlayerUpdate as PlayerUpdates.SubtitleZoom
+                    val label = stringResource(
+                      if (zoomUpdate.secondary) R.string.player_sheets_secondary_sub_scale else R.string.player_sheets_sub_primary_scale,
+                    )
+                    TextPlayerUpdate(String.format("%s: %.2fx", label, zoomUpdate.scale))
+                  }
+
+                  is PlayerUpdates.HorizontalSeek -> {
+                    val seekUpdate = currentPlayerUpdate as PlayerUpdates.HorizontalSeek
+                    SeekPlayerUpdate(
+                      currentTime = seekUpdate.currentTime,
+                      seekDelta = "[${seekUpdate.seekDelta}]",
+                    )
+                  }
+
+                  is PlayerUpdates.RepeatMode -> {
+                    val mode = (currentPlayerUpdate as PlayerUpdates.RepeatMode).mode
+                    val text =
+                      when (mode) {
+                        app.gyrolet.mpvrx.ui.player.RepeatMode.OFF -> "Repeat: Off"
+                        app.gyrolet.mpvrx.ui.player.RepeatMode.ONE -> "Repeat: Current file"
+                        app.gyrolet.mpvrx.ui.player.RepeatMode.ALL -> {
+                          if (playlistMode && playlistItems.isNotEmpty()) {
+                            "Repeat: All playlist"
+                          } else {
+                            "Repeat: Current file"
+                          }
                         }
                       }
-
-                    customLabel ?: run {
-                      // No custom label found, use preset names or format as ratio
-                      val ratio = currentAspectRatio
-                      when {
-                        kotlin.math.abs(ratio - 16.0 / 9.0) < 0.01 -> "16:9"
-                        kotlin.math.abs(ratio - 4.0 / 3.0) < 0.01 -> "4:3"
-                        kotlin.math.abs(ratio - 16.0 / 10.0) < 0.01 -> "16:10"
-                        kotlin.math.abs(ratio - 21.0 / 9.0) < 0.01 -> "21:9"
-                        kotlin.math.abs(ratio - 32.0 / 9.0) < 0.01 -> "32:9"
-                        kotlin.math.abs(ratio - 1.0) < 0.01 -> "1:1"
-                        kotlin.math.abs(ratio - 2.35) < 0.01 -> "2.35:1"
-                        kotlin.math.abs(ratio - 2.39) < 0.01 -> "2.39:1"
-                        else -> String.format("%.2f:1", ratio)
-                      }
-                    }
-                  } else {
-                    // Standard mode (Fit/Crop/Stretch)
-                    stringResource(aspectRatio.titleRes)
+                    TextPlayerUpdate(text)
                   }
-                TextPlayerUpdate(displayText)
-              }
-              is PlayerUpdates.ShowText ->
-                TextPlayerUpdate((currentPlayerUpdate as PlayerUpdates.ShowText).value)
 
-              is PlayerUpdates.ProviderStatusText ->
-                TextPlayerUpdate((currentPlayerUpdate as PlayerUpdates.ProviderStatusText).value)
-
-              is PlayerUpdates.VideoZoom -> {
-                val zoomPercentage = (videoZoom * 100).toInt()
-                TextPlayerUpdate(String.format("Zoom: %d%%", zoomPercentage))
-              }
-
-              is PlayerUpdates.SubtitleZoom -> {
-                val zoomUpdate = currentPlayerUpdate as PlayerUpdates.SubtitleZoom
-                val label = stringResource(
-                  if (zoomUpdate.secondary) R.string.player_sheets_secondary_sub_scale else R.string.player_sheets_sub_primary_scale,
-                )
-                TextPlayerUpdate(String.format("%s: %.2fx", label, zoomUpdate.scale))
-              }
-
-              is PlayerUpdates.HorizontalSeek -> {
-                val seekUpdate = currentPlayerUpdate as PlayerUpdates.HorizontalSeek
-                SeekPlayerUpdate(
-                  currentTime = seekUpdate.currentTime,
-                  seekDelta = "[${seekUpdate.seekDelta}]",
-                )
-              }
-
-              is PlayerUpdates.RepeatMode -> {
-                val mode = (currentPlayerUpdate as PlayerUpdates.RepeatMode).mode
-                val text =
-                  when (mode) {
-                    app.gyrolet.mpvrx.ui.player.RepeatMode.OFF -> "Repeat: Off"
-                    app.gyrolet.mpvrx.ui.player.RepeatMode.ONE -> "Repeat: Current file"
-                    app.gyrolet.mpvrx.ui.player.RepeatMode.ALL -> {
-                      if (playlistMode && playlistItems.isNotEmpty()) {
-                        "Repeat: All playlist"
+                  is PlayerUpdates.Shuffle -> {
+                    val enabled = (currentPlayerUpdate as PlayerUpdates.Shuffle).enabled
+                    val text =
+                      if (enabled) {
+                        if (playlistMode && playlistItems.isNotEmpty()) {
+                          "Shuffle: On"
+                        } else {
+                          "Shuffle: Not available"
+                        }
                       } else {
-                        "Repeat: Current file"
+                        "Shuffle: Off"
                       }
-                    }
+                    TextPlayerUpdate(text)
                   }
-                TextPlayerUpdate(text)
-              }
 
-              is PlayerUpdates.Shuffle -> {
-                val enabled = (currentPlayerUpdate as PlayerUpdates.Shuffle).enabled
-                val text =
-                  if (enabled) {
-                    if (playlistMode && playlistItems.isNotEmpty()) {
-                      "Shuffle: On"
-                    } else {
-                      "Shuffle: Not available"
-                    }
-                  } else {
-                    "Shuffle: Off"
+                  is PlayerUpdates.ResumedFrom -> {
+                    val resumedUpdate = currentPlayerUpdate as PlayerUpdates.ResumedFrom
+                    ResumedFromPlayerUpdate(
+                      position = resumedUpdate.position,
+                      onRestart = {
+                        viewModel.playerUpdate.value = PlayerUpdates.None
+                        viewModel.restartFromBeginning()
+                      },
+                    )
                   }
-                TextPlayerUpdate(text)
-              }
 
-is PlayerUpdates.ResumedFrom -> {
-  val resumedUpdate = currentPlayerUpdate as PlayerUpdates.ResumedFrom
-  ResumedFromPlayerUpdate(
-    position = resumedUpdate.position,
-    onRestart = {
-      viewModel.playerUpdate.value = PlayerUpdates.None
-      viewModel.restartFromBeginning()
-    },
-  )
-}
-
-is PlayerUpdates.ResumeAvailable -> {
-  val resumeUpdate = currentPlayerUpdate as PlayerUpdates.ResumeAvailable
-  ResumeAvailablePlayerUpdate(
-    position = resumeUpdate.position,
-    onResume = {
-      viewModel.playerUpdate.value = PlayerUpdates.None
-      viewModel.seekTo(resumeUpdate.position)
-    },
-  )
-}
-
-is PlayerUpdates.StartedAfresh -> {
-  TextPlayerUpdate(stringResource(R.string.player_started_afresh_pill))
-}
-
-is PlayerUpdates.FrameInfo -> {
-                val frameInfo = (currentPlayerUpdate as PlayerUpdates.FrameInfo)
-                val text =
-                  if (frameInfo.totalFrames > 0) {
-                    "Frame: ${frameInfo.currentFrame}/${frameInfo.totalFrames}"
-                  } else {
-                    "Frame: ${frameInfo.currentFrame}"
+                  is PlayerUpdates.ResumeAvailable -> {
+                    val resumeUpdate = currentPlayerUpdate as PlayerUpdates.ResumeAvailable
+                    ResumeAvailablePlayerUpdate(
+                      position = resumeUpdate.position,
+                      onResume = {
+                        viewModel.playerUpdate.value = PlayerUpdates.None
+                        viewModel.seekTo(resumeUpdate.position)
+                      },
+                    )
                   }
-                TextPlayerUpdate(text)
-              }
 
-              else -> {}
+                  is PlayerUpdates.StartedAfresh -> {
+                    TextPlayerUpdate(stringResource(R.string.player_started_afresh_pill))
+                  }
+
+                  is PlayerUpdates.FrameInfo -> {
+                    val frameInfo = (currentPlayerUpdate as PlayerUpdates.FrameInfo)
+                    val text =
+                      if (frameInfo.totalFrames > 0) {
+                        "Frame: ${frameInfo.currentFrame}/${frameInfo.totalFrames}"
+                      } else {
+                        "Frame: ${frameInfo.currentFrame}"
+                      }
+                    TextPlayerUpdate(text)
+                  }
+
+                  else -> {}
+                }
+              }
             }
           }
-
-          val areButtonsVisible = controlsShown && !areControlsLocked && !areSlidersShown
-          val leftCustomButtons = remember(customButtons) { customButtons.filter { it.isLeft } }
-          val rightCustomButtons = remember(customButtons) { customButtons.filterNot { it.isLeft } }
-          val showLandscapeLeftCustomButtons = areButtonsVisible && !isPortrait && leftCustomButtons.isNotEmpty()
-          val showLandscapeRightCustomButtons = areButtonsVisible && !isPortrait && rightCustomButtons.isNotEmpty()
-          val showPortraitCustomButtons = areButtonsVisible && isPortrait && customButtons.isNotEmpty()
-          // Custom rows carry transparent padding for liquid-glass shadows; offset it so the visible
-          // pills sit one cluster gap above the controls and line up with the layout buttons.
-          val customRowBottomOffset = bottomClusterTop + clusterGap - CustomButtonsRowInsetVertical
-          val customRowEdgeMargin = spacing.large - CustomButtonsRowInsetHorizontal
-          val customRowAboveSkipChip = showLandscapeRightCustomButtons || showPortraitCustomButtons
-          val customRowVisibleHeight =
-            (measured(bottomHeights.rightCustomRow, CustomButtonsRowFallbackHeight) - CustomButtonsRowInsetVertical * 2)
-              .coerceAtLeast(0.dp)
-          val skipChipBottomTarget =
-            bottomClusterTop + clusterGap + if (customRowAboveSkipChip) customRowVisibleHeight + clusterGap else 0.dp
-          val skipChipBottomOffset by animateDpAsState(
-            targetValue = skipChipBottomTarget,
-            animationSpec = spring(),
-            label = "skip_chip_bottom_offset",
-          )
 
           AnimatedVisibility(
             visible = showLandscapeLeftCustomButtons,
@@ -1576,7 +1644,7 @@ is PlayerUpdates.FrameInfo -> {
                 bottom.linkTo(parent.bottom, customRowBottomOffset)
                 width = Dimension.preferredWrapContent
                 height = Dimension.wrapContent
-              }.onSizeChanged { bottomHeights.leftCustomRow = it.height },
+              }.onSizeChanged { if (it.height > 0) bottomHeights.leftCustomRow = it.height },
           ) {
             Row(
               horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1616,7 +1684,7 @@ is PlayerUpdates.FrameInfo -> {
                   bottom.linkTo(parent.bottom, customRowBottomOffset)
                   width = Dimension.preferredWrapContent
                   height = Dimension.wrapContent
-                }.onSizeChanged { bottomHeights.rightCustomRow = it.height },
+                }.onSizeChanged { if (it.height > 0) bottomHeights.rightCustomRow = it.height },
           ) {
             Row(
               horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1657,7 +1725,7 @@ is PlayerUpdates.FrameInfo -> {
                   bottom.linkTo(parent.bottom, customRowBottomOffset)
                   width = Dimension.fillToConstraints
                   height = Dimension.wrapContent
-                }.onSizeChanged { bottomHeights.rightCustomRow = it.height },
+                }.onSizeChanged { if (it.height > 0) bottomHeights.rightCustomRow = it.height },
           ) {
             Row(
               horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1717,20 +1785,17 @@ is PlayerUpdates.FrameInfo -> {
                   }
                 },
           ) {
-            PlayerButtonTheme(hideBackground) {
+            PlayerButtonTheme {
               ControlsButton(
-                icon = Icons.RoundedFilled.LockOpen,
+                icon = Icons.RoundedFilled.Lock,
                 onClick = viewModel::unlockControls,
                 title = stringResource(R.string.ui_unlock_controls),
-                modifier = Modifier.size(45.dp),
+                color = MaterialTheme.colorScheme.primary,
+                active = true,
+                modifier = Modifier.size(48.dp),
               )
             }
           }
-
-          val skipChipVisible =
-            currentSkippableSegment != null &&
-              !areSlidersShown &&
-              ((controlsShown && !areControlsLocked) || showSkipChipAuto)
 
           AnimatedVisibility(
             visible = skipChipVisible,
@@ -1740,8 +1805,10 @@ is PlayerUpdates.FrameInfo -> {
               navigationEndPaddingModifier
                 .constrainAs(skipSegmentChip) {
                   end.linkTo(parent.end, spacing.large)
-                  bottom.linkTo(parent.bottom, skipChipBottomOffset)
-                },
+                  bottom.linkTo(parent.bottom)
+                }
+                // ConstraintLayout can miss state reads in constrainAs, so the animated lift is placement-only.
+                .offset { IntOffset(0, -skipChipBottomOffset.roundToPx()) },
           ) {
             val segment = currentSkippableSegment ?: return@AnimatedVisibility
             val segmentColor = segment.type.accentColor
@@ -1769,7 +1836,7 @@ is PlayerUpdates.FrameInfo -> {
                 height = 40.dp,
               ) {
                 Text(
-                  text = segment.label,
+                  text = stringResource(segment.type.labelRes),
                   style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
                   color = segmentColor.copy(alpha = 1f),
                 )
@@ -1788,7 +1855,7 @@ is PlayerUpdates.FrameInfo -> {
                     },
               ) {
                 Text(
-                  text = segment.label,
+                  text = stringResource(segment.type.labelRes),
                   style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
                   color = segmentColor.copy(alpha = 1f),
                   modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -1893,33 +1960,14 @@ is PlayerUpdates.FrameInfo -> {
             }
           }
 
-          AnimatedVisibility(
-            visible = controlsShown && !areControlsLocked && !areSlidersShown && !showBufferingIndicator,
-            enter = buildControlsEnterV(controlsAnimStyle, reduceMotion, enterMs) { 0 },
-            exit = buildControlsExitV(controlsAnimStyle, reduceMotion, exitMs) { 0 },
-            modifier =
-              Modifier.constrainAs(playerPauseButton) {
-                start.linkTo(parent.absoluteLeft)
-                end.linkTo(parent.absoluteRight)
-                if (playbackBelowSeekbar) {
-                  linkInBottomStack(BottomSlot.Playback)
-                } else {
-                  top.linkTo(parent.top)
-                  bottom.linkTo(parent.bottom)
-                }
-              },
-          ) {
-            val interaction = remember { MutableInteractionSource() }
-            val buttonShadow = PlaySkipButtonShadowBrush
-            // The shadow stands in for the button background, so it follows the background opacity.
-            val buttonShadowAlpha = PlayerButtonAlpha.background(1f, LocalPlayerButtonsOpacity.current)
-
-            val hasPlaylistControls =
-              playlistMode && (playlistItems.size > 1 || viewModel.getPlaylistTotalCount() > 1)
-
-            if (hasPlaylistControls) {
+          val playbackControls: @Composable () -> Unit = {
+            if (sharedLandscapeRow && showBufferingIndicator) {
+              Box(Modifier.width(landscapePlaybackWidth).height(playPauseSize))
+            } else if (hasPlaylistControls) {
               androidx.compose.foundation.layout.Row(
-                horizontalArrangement = Arrangement.spacedBy(24.dp),
+                modifier = if (fullWidthPlaybackRow) Modifier.fillMaxWidth() else Modifier,
+                horizontalArrangement =
+                  Arrangement.spacedBy(playbackButtonGap, Alignment.CenterHorizontally),
                 verticalAlignment = Alignment.CenterVertically,
               ) {
                 AdaptiveControlsContainer(
@@ -1931,24 +1979,16 @@ is PlayerUpdates.FrameInfo -> {
                   },
                   modifier =
                     Modifier
-                      .size(56.dp)
-                      .tvFocusHighlight(CircleShape, enabled = viewModel.hasPrevious())
-                      .then(
-                        if (hideBackground && !enableLiquidGlass) {
-                          Modifier.background(brush = buttonShadow, shape = CircleShape, alpha = buttonShadowAlpha)
-                        } else {
-                          Modifier
-                        },
-                      ),
+                      .size(skipButtonSize)
+                      .tvFocusHighlight(CircleShape, enabled = viewModel.hasPrevious()),
                   color =
                     if (viewModel.hasPrevious()) {
-                      if (hideBackground) controlColor else playerButtonContentColor()
+                      playerButtonContentColor()
                     } else {
-                      (if (hideBackground) controlColor else playerButtonContentColor()).copy(alpha = 0.38f)
+                      playerButtonContentColor().copy(alpha = 0.38f)
                     },
                   isInteractive = viewModel.hasPrevious(),
-                  hideBackground = hideBackground,
-                  buttonSize = 56.dp,
+                  buttonSize = skipButtonSize,
                   horizontalPadding = 0.dp,
                 ) {
                   Icon(
@@ -1972,19 +2012,11 @@ is PlayerUpdates.FrameInfo -> {
                   },
                   modifier =
                     Modifier
-                      .size(64.dp)
+                      .size(playPauseSize)
                       .tvInitialFocus(tvPlayFocusRequester)
-                      .tvFocusHighlight(CircleShape)
-                      .then(
-                        if (hideBackground && !enableLiquidGlass) {
-                          Modifier.background(brush = buttonShadow, shape = CircleShape, alpha = buttonShadowAlpha)
-                        } else {
-                          Modifier
-                        },
-                      ),
-                  color = if (hideBackground) controlColor else playerButtonContentColor(),
-                  hideBackground = hideBackground,
-                  buttonSize = 64.dp,
+                      .tvFocusHighlight(CircleShape),
+                  color = playerButtonContentColor(),
+                  buttonSize = playPauseSize,
                   horizontalPadding = 0.dp,
                 ) {
                   AnimatedPlayPauseIcon(
@@ -1992,7 +2024,7 @@ is PlayerUpdates.FrameInfo -> {
                     modifier =
                       Modifier
                         .fillMaxSize()
-                        .padding(MaterialTheme.spacing.medium),
+                        .padding(if (isPortrait) MaterialTheme.spacing.medium else 12.dp),
                     tint = LocalContentColor.current,
                   )
                 }
@@ -2006,24 +2038,16 @@ is PlayerUpdates.FrameInfo -> {
                   },
                   modifier =
                     Modifier
-                      .size(56.dp)
-                      .tvFocusHighlight(CircleShape, enabled = viewModel.hasNext())
-                      .then(
-                        if (hideBackground && !enableLiquidGlass) {
-                          Modifier.background(brush = buttonShadow, shape = CircleShape, alpha = buttonShadowAlpha)
-                        } else {
-                          Modifier
-                        },
-                      ),
+                      .size(skipButtonSize)
+                      .tvFocusHighlight(CircleShape, enabled = viewModel.hasNext()),
                   color =
                     if (viewModel.hasNext()) {
-                      if (hideBackground) controlColor else playerButtonContentColor()
+                      playerButtonContentColor()
                     } else {
-                      (if (hideBackground) controlColor else playerButtonContentColor()).copy(alpha = 0.38f)
+                      playerButtonContentColor().copy(alpha = 0.38f)
                     },
                   isInteractive = viewModel.hasNext(),
-                  hideBackground = hideBackground,
-                  buttonSize = 56.dp,
+                  buttonSize = skipButtonSize,
                   horizontalPadding = 0.dp,
                 ) {
                   Icon(
@@ -2048,19 +2072,11 @@ is PlayerUpdates.FrameInfo -> {
                 },
                 modifier =
                   Modifier
-                    .size(64.dp)
+                    .size(playPauseSize)
                     .tvInitialFocus(tvPlayFocusRequester)
-                    .tvFocusHighlight(CircleShape)
-                    .then(
-                      if (hideBackground && !enableLiquidGlass) {
-                        Modifier.background(brush = buttonShadow, shape = CircleShape, alpha = buttonShadowAlpha)
-                      } else {
-                        Modifier
-                      },
-                    ),
-                color = if (hideBackground) controlColor else playerButtonContentColor(),
-                hideBackground = hideBackground,
-                buttonSize = 64.dp,
+                    .tvFocusHighlight(CircleShape),
+                color = playerButtonContentColor(),
+                buttonSize = playPauseSize,
                 horizontalPadding = 0.dp,
               ) {
                 AnimatedPlayPauseIcon(
@@ -2068,7 +2084,7 @@ is PlayerUpdates.FrameInfo -> {
                   modifier =
                     Modifier
                       .fillMaxSize()
-                      .padding(MaterialTheme.spacing.medium),
+                      .padding(if (isPortrait) MaterialTheme.spacing.medium else 12.dp),
                   tint = LocalContentColor.current,
                 )
               }
@@ -2076,14 +2092,44 @@ is PlayerUpdates.FrameInfo -> {
           }
 
           AnimatedVisibility(
+            visible = controlsShown && !areControlsLocked && !areSlidersShown && (sharedLandscapeRow || !showBufferingIndicator),
+            enter = buildControlsEnterV(controlsAnimStyle, reduceMotion, enterMs) { 0 },
+            exit = buildControlsExitV(controlsAnimStyle, reduceMotion, exitMs) { 0 },
+            modifier =
+              navigationHorizontalPaddingModifier.constrainAs(playerPauseButton) {
+                val horizontalMargin = if (isPortrait) spacing.large else spacing.medium
+                start.linkTo(parent.start, horizontalMargin)
+                end.linkTo(parent.end, horizontalMargin)
+                if (playbackControlsPlacement == PlaybackControlsPlacement.Center) {
+                  top.linkTo(parent.top)
+                  bottom.linkTo(parent.bottom)
+                } else {
+                  linkInBottomStack(BottomSlot.Playback)
+                }
+                if (sharedLandscapeRow || fullWidthPlaybackRow) width = Dimension.fillToConstraints
+              },
+          ) {
+            Box(Modifier.onSizeChanged { if (it.height > 0) bottomHeights.playback = it.height }
+              .padding(vertical = playbackShadowRoom)) {
+              if (!sharedLandscapeRow) {
+                playbackControls()
+              } else {
+                PlayerButtonTheme {
+                  LandscapeControlsRow(
+                    leftButtons = bottomLeftButtons,
+                    rightButtons = if (automaticQualityButton) bottomRightButtons + PlayerButton.VIDEO_QUALITY else bottomRightButtons,
+                    playbackWidth = landscapePlaybackWidth,
+                    renderButton = renderLandscapeButton,
+                    playbackControls = playbackControls,
+                  )
+                }
+              }
+            }
+          }
+
+          AnimatedVisibility(
             visible =
-              // Keep the seekbar visible with normal player controls. Only the hidden-controls
-              // horizontal seek gesture is governed by the user preference. The volume and
-              // brightness levels show on a clear frame, like Android TV's volume indicator.
-              (controlsShown ||
-                if (isHorizontalSeekActive) showSeekbarDuringHorizontalSeeking else seekBarShown) &&
-                !areControlsLocked &&
-                !areSlidersShown,
+              seekbarVisible,
             enter = buildControlsEnterV(controlsAnimStyle, reduceMotion, enterMs) { it },
             exit = buildControlsExitV(controlsAnimStyle, reduceMotion, exitMs) { it },
             modifier =
@@ -2102,12 +2148,12 @@ is PlayerUpdates.FrameInfo -> {
                   linkInBottomStack(BottomSlot.Seekbar)
                   start.linkTo(parent.start, spacing.large)
                   end.linkTo(parent.end, spacing.large)
-                }.onSizeChanged { bottomHeights.seekbar = it.height },
+                },
           ) {
             val position by PlaybackSession.propInt["time-pos"].collectAsStateWithLifecycle()
             val precisePosition by viewModel.precisePosition.collectAsStateWithLifecycle()
             val invertDuration by playerPreferences.invertDuration.collectAsState()
-            val remaining  by PlaybackSession.propFloat["playtime-remaining"].collectAsState()
+            val remaining  by PlaybackSession.propFloat["playtime-remaining"].collectAsStateWithLifecycle()
             val seekbarStyle by appearancePreferences.seekbarStyle.collectAsState()
             val useWavySeekbar by playerPreferences.useWavySeekbar.collectAsState()
             val displayedSeekbarPosition = precisePosition
@@ -2142,34 +2188,23 @@ is PlayerUpdates.FrameInfo -> {
               (remaining ?: 0f).takeIf { it > 0f }
                 ?: (seekbarDuration - displayedSeekbarPosition).coerceAtLeast(0f)
 
+            val isLiveMedia by viewModel.isLiveMedia.collectAsState()
             SeekbarWithTimers(
+              isLive = isLiveMedia,
               position = displayedSeekbarPosition,
               committedPosition = precisePosition,
               externalScrubbing = isHorizontalSeekActive,
               duration = seekbarDuration,
               remaining = effectiveRemaining,
               onValueChange = {
-                if (!isSeeking) {
-                  // First drag frame - pause playback
-                  wasPlayerAlreadyPaused = paused ?: false
-                  if (!wasPlayerAlreadyPaused) {
-                    viewModel.pause()
-                  }
-                }
                 isSeeking = true
                 resetControlsTimestamp = System.currentTimeMillis()
-                // Live preview only during scrub; the final seek is emitted once on release.
-                viewModel.seekPreviewTo(it)
+                viewModel.scrubTo(it)
               },
               onValueChangeFinished = { targetPosition ->
                 isSeeking = false
                 resetControlsTimestamp = System.currentTimeMillis()
-                // Finalize the release position with the normal seek mode.
-                viewModel.seekTo(targetPosition.toInt())
-                // Unpause if it wasn't paused before seeking
-                if (!wasPlayerAlreadyPaused) {
-                  viewModel.unpause()
-                }
+                viewModel.seekFromScrub(targetPosition)
                 viewModel.showControls()
               },
               timersInverted = Pair(false, invertDuration),
@@ -2188,13 +2223,11 @@ is PlayerUpdates.FrameInfo -> {
               loopEnd = abLoopB?.toFloat(),
               bufferDuration = stableDemuxerCacheTime.takeIf { showBufferedRange && it > 0f },
               isPortrait = isPortrait,
+              modifier = Modifier.onSizeChanged { if (it.height > 0) bottomHeights.seekbar = it.height },
             )
           }
 
-          AnimatedVisibility(
-            visible = controlsShown && !areControlsLocked && !areSlidersShown,
-            enter = buildControlsEnterH(controlsAnimStyle, reduceMotion, enterMs) { -it },
-            exit = buildControlsExitH(controlsAnimStyle, reduceMotion, exitMs) { -it },
+          Box(
             modifier =
               Modifier
                 .then(
@@ -2213,99 +2246,86 @@ is PlayerUpdates.FrameInfo -> {
                   } else {
                     Modifier
                   },
-                ).constrainAs(topLeftControls) {
+                ).constrainAs(topControls) {
                   top.linkTo(parent.top, if (isPortrait) spacing.extraLarge else spacing.small)
                   start.linkTo(parent.start, spacing.large)
-                  if (isPortrait) {
-                    width = Dimension.fillToConstraints
-                    end.linkTo(parent.end, spacing.large)
-                  } else {
-                    width = Dimension.fillToConstraints
-                    end.linkTo(topRightControls.start, spacing.extraSmall)
-                  }
+                  end.linkTo(parent.end, spacing.large)
+                  width = Dimension.fillToConstraints
                 },
           ) {
-            val showAiIndicators = aiEnabled
-            val showRealtimeSubs = aiEnabled && realtimeSubsEnabled
-            if (isPortrait) {
-              TopPlayerControlsPortrait(
-                mediaTitle = mediaTitle,
-                hideBackground = hideBackground,
-                onBackPress = onBackPress,
-                onOpenSheet = onOpenSheet,
-                viewModel = viewModel,
-                isTranslatingSub = showAiIndicators && isTranslatingSub,
-                isRealtimeSubsActive = showRealtimeSubs && isRealtimeSubsActive,
-                realtimeSubsLanguage = realtimeSubsLanguage,
-                realtimeSubsStatus = realtimeSubsStatus,
-                translationStatus = translationStatus,
-                translatingTrackName = translatingTrackName,
-              )
-            } else {
-              TopLeftPlayerControlsLandscape(
-                mediaTitle = mediaTitle,
-                hideBackground = hideBackground,
-                onBackPress = onBackPress,
-                onOpenSheet = onOpenSheet,
-                viewModel = viewModel,
-                isTranslatingSub = showAiIndicators && isTranslatingSub,
-                isRealtimeSubsActive = showRealtimeSubs && isRealtimeSubsActive,
-                realtimeSubsLanguage = realtimeSubsLanguage,
-                realtimeSubsStatus = realtimeSubsStatus,
-                translationStatus = translationStatus,
-                translatingTrackName = translatingTrackName,
-              )
+            val titleControls: @Composable () -> Unit = {
+              AnimatedVisibility(
+                visible = controlsShown && !areControlsLocked && !areSlidersShown,
+                enter = buildControlsEnterH(controlsAnimStyle, reduceMotion, enterMs) { -it },
+                exit = buildControlsExitH(controlsAnimStyle, reduceMotion, exitMs) { -it },
+              ) {
+                val showAiIndicators = aiEnabled
+                val showRealtimeSubs = aiEnabled && realtimeSubsEnabled
+                if (isPortrait) {
+                  TopPlayerControlsPortrait(
+                    mediaTitle = mediaTitle,
+                    onBackPress = onBackPress,
+                    onOpenSheet = onOpenSheet,
+                    viewModel = viewModel,
+                    isTranslatingSub = showAiIndicators && isTranslatingSub,
+                    isRealtimeSubsActive = showRealtimeSubs && isRealtimeSubsActive,
+                    realtimeSubsLanguage = realtimeSubsLanguage,
+                    realtimeSubsStatus = realtimeSubsStatus,
+                    translationStatus = translationStatus,
+                    translatingTrackName = translatingTrackName,
+                  )
+                } else {
+                  TopLeftPlayerControlsLandscape(
+                    mediaTitle = mediaTitle,
+                    onBackPress = onBackPress,
+                    onOpenSheet = onOpenSheet,
+                    viewModel = viewModel,
+                    isTranslatingSub = showAiIndicators && isTranslatingSub,
+                    isRealtimeSubsActive = showRealtimeSubs && isRealtimeSubsActive,
+                    realtimeSubsLanguage = realtimeSubsLanguage,
+                    realtimeSubsStatus = realtimeSubsStatus,
+                    translationStatus = translationStatus,
+                    translatingTrackName = translatingTrackName,
+                  )
+                }
+              }
+            }
+            Column {
+              if (isPortrait) {
+                titleControls()
+              } else {
+                LandscapePlayerHeader(
+                  title = titleControls,
+                  actions = {
+                    AnimatedVisibility(
+                      visible = controlsShown && !areControlsLocked && !areSlidersShown,
+                      enter = buildControlsEnterH(controlsAnimStyle, reduceMotion, enterMs) { it },
+                      exit = buildControlsExitH(controlsAnimStyle, reduceMotion, exitMs) { it },
+                    ) {
+                      PlayerButtonTheme {
+                        LandscapeActionGroup(
+                          buttons = topRightButtons,
+                          endAligned = true,
+                          fillWidth = false,
+                          renderButton = renderLandscapeButton,
+                        )
+                      }
+                    }
+                  },
+                )
+              }
+              AnimatedVisibility(
+                visible = controlsShown && !areControlsLocked && !areSlidersShown,
+                enter = buildControlsEnterH(controlsAnimStyle, reduceMotion, enterMs) { -it },
+                exit = buildControlsExitH(controlsAnimStyle, reduceMotion, exitMs) { -it },
+              ) {
+                PlaybackFormatBadgeRow(Modifier.padding(top = 5.dp))
+              }
             }
           }
 
           AnimatedVisibility(
-            visible = controlsShown && !areControlsLocked && !isPortrait && !areSlidersShown,
-            enter = buildControlsEnterH(controlsAnimStyle, reduceMotion, enterMs) { it },
-            exit = buildControlsExitH(controlsAnimStyle, reduceMotion, exitMs) { it },
-            modifier =
-              Modifier
-                .then(
-                  if (showSystemStatusBar) {
-                    Modifier.windowInsetsPadding(WindowInsets.statusBars)
-                  } else {
-                    Modifier
-                  },
-                ).then(
-                  if (showSystemNavigationBar && !safeAreaWindow) {
-                    val navBarPadding = WindowInsets.navigationBars.asPaddingValues()
-                    Modifier.padding(
-                      start = navBarPadding.calculateLeftPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
-                      end = navBarPadding.calculateRightPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
-                    )
-                  } else {
-                    Modifier
-                  },
-                ).constrainAs(topRightControls) {
-                  top.linkTo(parent.top, spacing.small)
-                  end.linkTo(parent.end, spacing.large)
-                },
-          ) {
-            TopRightPlayerControlsLandscape(
-              buttons = topRightButtons,
-              chapters = chapters,
-              currentChapter = currentChapter,
-              isSpeedNonOne = isSpeedNonOne,
-              currentZoom = currentZoom,
-              aspect = aspect,
-              mediaTitle = mediaTitle,
-              hideBackground = hideBackground,
-              decoder = decoder,
-              playbackSpeed = playbackSpeed ?: 1f,
-              onBackPress = onBackPress,
-              onOpenSheet = onOpenSheet,
-              onOpenPanel = onOpenPanel,
-              viewModel = viewModel,
-              activity = playerActivity,
-            )
-          }
-
-          AnimatedVisibility(
-            visible = controlsShown && !areControlsLocked && !areSlidersShown,
+            visible = separateBottomActions && controlsShown && !areControlsLocked && !areSlidersShown,
             enter = buildControlsEnterH(controlsAnimStyle, reduceMotion, enterMs) { it },
             exit = buildControlsExitH(controlsAnimStyle, reduceMotion, exitMs) { it },
             modifier =
@@ -2322,30 +2342,22 @@ is PlayerUpdates.FrameInfo -> {
                   },
                 ).constrainAs(bottomRightControls) {
                   linkInBottomStack(BottomSlot.Buttons)
-                  if (isPortrait) {
-                    start.linkTo(parent.start, spacing.large)
-                    end.linkTo(parent.end, spacing.large)
-                    width = Dimension.fillToConstraints
-                  } else {
-                    end.linkTo(parent.end, spacing.large)
-                    if (buttonsBesidePlayback) {
-                      start.linkTo(sharedPlaybackRowCenterX, sharedRowSideInset)
-                      width = Dimension.fillToConstraints
-                    }
-                  }
-                }.onSizeChanged { bottomHeights.rightButtons = it.height },
+                  val horizontalMargin = if (isPortrait) spacing.large else spacing.medium
+                  end.linkTo(parent.end, horizontalMargin)
+                  start.linkTo(parent.start, horizontalMargin)
+                  width = Dimension.fillToConstraints
+                },
           ) {
             if (isPortrait) {
               BottomPlayerControlsPortrait(
                 buttons = portraitBottomButtons,
-                showVideoQualitySelector = showVideoQualitySelector && !portraitHasConfiguredQualityButton,
+                showVideoQualitySelector = automaticQualityButton,
                 chapters = chapters,
                 currentChapter = currentChapter,
                 isSpeedNonOne = isSpeedNonOne,
                 currentZoom = currentZoom,
                 aspect = aspect,
                 mediaTitle = mediaTitle,
-                hideBackground = hideBackground,
                 decoder = decoder,
                 playbackSpeed = playbackSpeed ?: 1f,
                 onBackPress = onBackPress,
@@ -2353,94 +2365,22 @@ is PlayerUpdates.FrameInfo -> {
                 onOpenPanel = onOpenPanel,
                 viewModel = viewModel,
                 activity = playerActivity,
+                alignToEnd = false,
+                horizontalArrangement = Arrangement.spacedBy(spacing.small, Alignment.CenterHorizontally),
+                modifier = Modifier.onSizeChanged { if (it.height > 0) bottomHeights.rightButtons = it.height },
               )
             } else {
-              val rowScrollState = rememberScrollState()
-              BottomRightPlayerControlsLandscape(
-                buttons = bottomRightButtons,
-                showVideoQualitySelector = showVideoQualitySelector && !landscapeHasConfiguredQualityButton,
-                chapters = chapters,
-                currentChapter = currentChapter,
-                isSpeedNonOne = isSpeedNonOne,
-                currentZoom = currentZoom,
-                aspect = aspect,
-                mediaTitle = mediaTitle,
-                hideBackground = hideBackground,
-                decoder = decoder,
-                playbackSpeed = playbackSpeed ?: 1f,
-                onBackPress = onBackPress,
-                onOpenSheet = onOpenSheet,
-                onOpenPanel = onOpenPanel,
-                viewModel = viewModel,
-                activity = playerActivity,
-                // Beside play/pause the group keeps its buttons at the screen edge and scrolls toward the centre.
-                modifier =
-                  if (buttonsBesidePlayback) {
-                    Modifier.fillMaxWidth().fadingHorizontalScroll(rowScrollState, reverseScrolling = true)
-                  } else {
-                    Modifier
-                  },
-                horizontalArrangement =
-                  if (buttonsBesidePlayback) {
-                    Arrangement.spacedBy(spacing.extraSmall, Alignment.End)
-                  } else {
-                    Arrangement.spacedBy(spacing.extraSmall)
-                  },
-              )
+              PlayerButtonTheme {
+                LandscapeControlsRow(
+                  leftButtons = bottomLeftButtons,
+                  rightButtons = if (automaticQualityButton) bottomRightButtons + PlayerButton.VIDEO_QUALITY else bottomRightButtons,
+                  playbackWidth = 0.dp,
+                  modifier = Modifier.onSizeChanged { if (it.height > 0) bottomHeights.rightButtons = it.height },
+                  renderButton = renderLandscapeButton,
+                  playbackControls = {},
+                )
+              }
             }
-          }
-
-          AnimatedVisibility(
-            visible = controlsShown && !areControlsLocked && !isPortrait && !areSlidersShown,
-            enter = buildControlsEnterH(controlsAnimStyle, reduceMotion, enterMs) { -it },
-            exit = buildControlsExitH(controlsAnimStyle, reduceMotion, exitMs) { -it },
-            modifier =
-              Modifier
-                .then(
-                  if (showSystemNavigationBar && !safeAreaWindow) {
-                    val navBarPadding = WindowInsets.navigationBars.asPaddingValues()
-                    Modifier.padding(
-                      start = navBarPadding.calculateLeftPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
-                      end = navBarPadding.calculateRightPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
-                    )
-                  } else {
-                    Modifier
-                  },
-                ).constrainAs(bottomLeftControls) {
-                  linkInBottomStack(BottomSlot.Buttons)
-                  start.linkTo(parent.start, spacing.large)
-                  width = Dimension.fillToConstraints
-                  if (buttonsBesidePlayback) {
-                    end.linkTo(sharedPlaybackRowCenterX, sharedRowSideInset)
-                  } else {
-                    end.linkTo(bottomRightControls.start, spacing.small)
-                  }
-                }.onSizeChanged { bottomHeights.leftButtons = it.height },
-          ) {
-            val rowScrollState = rememberScrollState()
-            BottomLeftPlayerControlsLandscape(
-              buttons = bottomLeftButtons,
-              chapters = chapters,
-              currentChapter = currentChapter,
-              isSpeedNonOne = isSpeedNonOne,
-              currentZoom = currentZoom,
-              aspect = aspect,
-              mediaTitle = mediaTitle,
-              hideBackground = hideBackground,
-              decoder = decoder,
-              playbackSpeed = playbackSpeed ?: 1f,
-              onBackPress = onBackPress,
-              onOpenSheet = onOpenSheet,
-              onOpenPanel = onOpenPanel,
-              viewModel = viewModel,
-              activity = playerActivity,
-              modifier =
-                if (buttonsBesidePlayback) {
-                  Modifier.fillMaxWidth().fadingHorizontalScroll(rowScrollState)
-                } else {
-                  Modifier
-                },
-            )
           }
         }
       }
@@ -2491,6 +2431,9 @@ is PlayerUpdates.FrameInfo -> {
     )
 
     val panel by viewModel.panelShown.collectAsState()
+    LaunchedEffect(sheetShown, panel) {
+      if (sheetShown != Sheets.None || panel != Panels.None) isPlayerDrawerShown = false
+    }
     PlayerPanels(
       panelShown = panel,
       viewModel = viewModel,
@@ -2498,7 +2441,7 @@ is PlayerUpdates.FrameInfo -> {
     )
 
 
-val activePlayerDrawerButtons =
+    val activePlayerDrawerButtons =
       remember(
         isSpeedNonOne,
         currentZoom,
@@ -2510,6 +2453,7 @@ val activePlayerDrawerButtons =
         isHdrOutputEnabled,
         isAmbientEnabled,
         isPostProcessingEnabled,
+        isMotionInterpolationEnabled,
         backgroundPlaybackEnabled,
         statisticsPage,
         mediaScopesState.overlayVisible,
@@ -2525,14 +2469,15 @@ val activePlayerDrawerButtons =
           if (isHdrOutputEnabled) add(PlayerButton.HDR_MODE)
           if (isAmbientEnabled) add(PlayerButton.AMBIENT_MODE)
           if (isPostProcessingEnabled) add(PlayerButton.POST_PROCESSING)
+          if (isMotionInterpolationEnabled) add(PlayerButton.MOTION_INTERPOLATION)
           if (backgroundPlaybackEnabled) add(PlayerButton.BACKGROUND_PLAYBACK)
-          if (statisticsPage == 6) add(PlayerButton.TIME_NETWORK)
+          if (statisticsPage == 7) add(PlayerButton.TIME_NETWORK)
           if (mediaScopesState.overlayVisible) add(PlayerButton.SCOPES)
         }
       }
 
     if (showControlsDrawer) {
-      PlayerButtonTheme(hideBackground = false) {
+      PlayerButtonTheme {
         PlayerControlDrawer(
           buttons = playerDrawerButtons,
           activeButtons = activePlayerDrawerButtons,
@@ -2544,6 +2489,7 @@ val activePlayerDrawerButtons =
               panel == Panels.None,
           panelVisible = isPlayerDrawerShown,
           onPanelVisibilityChanged = setPlayerDrawerShown,
+          safeAreaWindow = safeAreaWindow,
           renderButton = { button ->
             RenderPlayerButton(
               button = button,
@@ -2554,7 +2500,7 @@ val activePlayerDrawerButtons =
               currentZoom = currentZoom,
               aspect = aspect,
               mediaTitle = mediaTitle,
-              hideBackground = true,
+              borderless = true,
               decoder = decoder,
               playbackSpeed = playbackSpeed ?: 1f,
               onBackPress = onBackPress,
@@ -2568,495 +2514,46 @@ val activePlayerDrawerButtons =
           },
         )
       }
-        }
+    }
       }
     }
-  }
-}
-
-private const val MEMORY_STATS_SAMPLE_INTERVAL_MS = 5_000L
-
-private data class ProcessMemorySnapshot(
-  val totalPssBytes: Long,
-  val javaHeapUsedBytes: Long,
-  val javaHeapMaxBytes: Long,
-  val nativeHeapBytes: Long,
-)
-
-private fun readProcessMemorySnapshot(): ProcessMemorySnapshot {
-  val runtime = Runtime.getRuntime()
-  val memoryInfo = Debug.MemoryInfo()
-  Debug.getMemoryInfo(memoryInfo)
-  return ProcessMemorySnapshot(
-    totalPssBytes = memoryInfo.totalPss.toLong() * 1024L,
-    javaHeapUsedBytes = runtime.totalMemory() - runtime.freeMemory(),
-    javaHeapMaxBytes = runtime.maxMemory(),
-    nativeHeapBytes = Debug.getNativeHeapAllocatedSize(),
-  )
-}
-
-private data class CustomStatsSnapshot(
-  val fileName: String,
-  val renderContext: String,
-  val video: String,
-  val audio: String,
-  val cpuPercent: Float,
-  val processMemoryText: String,
-  val playbackCacheText: String,
-  val batteryPercentText: String,
-  val batteryRateText: String,
-  val batteryWattsText: String,
-  val batteryTempText: String,
-  val hdrActive: String,
-  val sessionPlayTimeText: String,
-  val decoderEfficiencyText: String,
-  val thermalStateText: String,
-  val peakTempText: String,
-  val tempRiseText: String,
-)
-
-@Composable
-private fun CustomStatsPageSixOverlay(
-  viewModel: PlayerViewModel,
-  modifier: Modifier = Modifier,
-) {
-  val context = LocalContext.current.applicationContext
-  val torrentState by viewModel.torrentState.collectAsState()
-  val isHdrOutputEnabled by viewModel.isHdrScreenOutputEnabled.collectAsState()
-  val hdrScreenMode by viewModel.hdrScreenMode.collectAsState()
-  val hdrOutputText =
-    stringResource(
-      R.string.hdr_mode_output_diagnostic,
-      stringResource(hdrScreenMode.shortTitleRes),
-    )
-  val processMemoryFormat = stringResource(R.string.diagnostics_process_memory_value)
-  val playbackCacheFormat = stringResource(R.string.diagnostics_playback_cache_value)
-  val stats by produceState(
-    initialValue =
-      CustomStatsSnapshot(
-        fileName = "--",
-        renderContext = "--",
-        video = "--",
-        audio = "--",
-        cpuPercent = 0f,
-        processMemoryText = "--",
-        playbackCacheText = "--",
-        batteryPercentText = "--%",
-        batteryRateText = "Unknown",
-        batteryWattsText = "-- W",
-        batteryTempText = "--°C",
-        hdrActive = "--",
-        sessionPlayTimeText = "00:00:00",
-        decoderEfficiencyText = "Unknown",
-        thermalStateText = "Normal",
-        peakTempText = "--°C",
-        tempRiseText = "+0.0°C",
-      ),
-    isHdrOutputEnabled,
-    hdrOutputText,
-    processMemoryFormat,
-    playbackCacheFormat,
-  ) {
-    var lastCpuMs = runCatching { android.os.Process.getElapsedCpuTime() }.getOrDefault(0L)
-    var lastTimeMs = android.os.SystemClock.elapsedRealtime()
-    var lastMemorySampleMs = lastTimeMs
-    var memorySnapshot = withContext(Dispatchers.Default) { readProcessMemorySnapshot() }
-
-    var startBatteryTemp: Float? = null
-    var peakBatteryTemp = 0.0f
-    var totalActivePlayTimeMs = 0L
-    val processorCount = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
-    var smoothedCpuPercent = 0f
-    var cpuSampleCount = 0
-
-    while (true) {
-      val fileName = runCatching { PlaybackSession.getPropertyString("media-title") ?: "--" }.getOrDefault("--")
-      val currentVideoOutput =
-        runCatching {
-          PlaybackSession.getPropertyString("current-vo")
-            ?: PlaybackSession.getPropertyString("vo")
-            ?: "--"
-        }.getOrDefault("--")
-      val videoCodec = runCatching { PlaybackSession.getPropertyString("current-tracks/video/codec") ?: "--" }.getOrDefault("--")
-      val audioCodec = runCatching { PlaybackSession.getPropertyString("current-tracks/audio/codec") ?: "--" }.getOrDefault("--")
-
-      val currentCpuMs = runCatching { android.os.Process.getElapsedCpuTime() }.getOrDefault(lastCpuMs)
-      val currentTimeMs = android.os.SystemClock.elapsedRealtime()
-      val cpuDelta = (currentCpuMs - lastCpuMs).coerceAtLeast(0L)
-      val timeDelta = (currentTimeMs - lastTimeMs).coerceAtLeast(1L)
-      if (currentTimeMs - lastMemorySampleMs >= MEMORY_STATS_SAMPLE_INTERVAL_MS) {
-        memorySnapshot =
-          runCatching {
-            withContext(Dispatchers.Default) { readProcessMemorySnapshot() }
-          }.getOrDefault(memorySnapshot)
-        lastMemorySampleMs = currentTimeMs
-      }
-      val rawCpuPercent =
-        if (cpuSampleCount > 0) {
-          ((cpuDelta.toFloat() / timeDelta.toFloat()) * 100f / processorCount)
-            .coerceIn(0f, 100f)
-        } else {
-          0f
-        }
-
-      when (cpuSampleCount) {
-        0 -> Unit
-        1 -> smoothedCpuPercent = rawCpuPercent
-        else -> smoothedCpuPercent = smoothedCpuPercent * 0.65f + rawCpuPercent * 0.35f
-      }
-      cpuSampleCount++
-
-      val processMemoryText =
-        String.format(
-          processMemoryFormat,
-          formatTorrentBytes(memorySnapshot.totalPssBytes),
-          formatTorrentBytes(memorySnapshot.javaHeapUsedBytes),
-          formatTorrentBytes(memorySnapshot.javaHeapMaxBytes),
-          formatTorrentBytes(memorySnapshot.nativeHeapBytes),
-        )
-      val cacheDurationSeconds =
-        runCatching { PlaybackSession.getPropertyDouble("demuxer-cache-duration") }
-          .getOrNull()
-          ?.takeIf { it.isFinite() && it >= 0.0 }
-          ?: 0.0
-      val packetCacheBytes =
-        runCatching { PlaybackSession.getPropertyDouble("demuxer-cache-state/fw-bytes") }
-          .getOrNull()
-          ?.takeIf { it.isFinite() && it >= 0.0 }
-          ?.toLong()
-          ?: 0L
-      val fileCacheBytes =
-        runCatching { PlaybackSession.getPropertyDouble("demuxer-cache-state/file-cache-bytes") }
-          .getOrNull()
-          ?.takeIf { it.isFinite() && it >= 0.0 }
-          ?.toLong()
-          ?: 0L
-      val playbackCacheText =
-        String.format(
-          playbackCacheFormat,
-          cacheDurationSeconds,
-          formatTorrentBytes(packetCacheBytes),
-          formatTorrentBytes(fileCacheBytes),
-        )
-
-      val battery = readBatterySnapshot(context)
-      val isPaused = runCatching { PlaybackSession.getPropertyBoolean("pause") }.getOrDefault(false) == true
-
-      if (!isPaused) {
-        totalActivePlayTimeMs += timeDelta
-      }
-      val playSecs = totalActivePlayTimeMs / 1000L
-      val sessionPlayTimeText = String.format("%02d:%02d:%02d", playSecs / 3600, (playSecs % 3600) / 60, playSecs % 60)
-
-      val currentTempText = battery.tempText.replace("°C", "").trim()
-      val currentTemp = currentTempText.toFloatOrNull() ?: 0f
-
-      if (startBatteryTemp == null && currentTemp > 0f) {
-        startBatteryTemp = currentTemp
-      }
-      if (currentTemp > peakBatteryTemp) {
-        peakBatteryTemp = currentTemp
-      }
-
-      val peakTempText = if (peakBatteryTemp > 0f) String.format("%.1f°C", peakBatteryTemp) else "--°C"
-      val tempRiseText =
-        if (startBatteryTemp != null) {
-          val rise = currentTemp - startBatteryTemp
-          String.format("%+.1f°C", rise)
-        } else {
-          "+0.0°C"
-        }
-
-      val powerManager = context.getSystemService(android.content.Context.POWER_SERVICE) as? android.os.PowerManager
-      val thermalStatus =
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-          powerManager?.currentThermalStatus ?: 0
-        } else {
-          0
-        }
-      val thermalStateText =
-        when (thermalStatus) {
-          0 -> "Normal"
-          1 -> "Light Throttling"
-          2 -> "Moderate Throttling"
-          3 -> "Severe Throttling"
-          4 -> "Critical Throttling"
-          5 -> "Emergency!"
-          6 -> "Overheating Shutdown!"
-          else -> "Normal"
-        }
-
-      val currentHwdec = runCatching { PlaybackSession.getPropertyString("hwdec-current") ?: "no" }.getOrDefault("no")
-      val gpuApi = runCatching { PlaybackSession.getPropertyString("gpu-api") ?: "--" }.getOrDefault("--")
-      val gpuContext = runCatching { PlaybackSession.getPropertyString("gpu-context") ?: "--" }.getOrDefault("--")
-      val renderContext = "$currentVideoOutput | $gpuApi | $gpuContext"
-      val decoderEfficiencyText =
-        when {
-          currentHwdec == "no" || currentHwdec.isBlank() -> "Low (Software Decoding, CPU-heavy)"
-          currentHwdec.contains("copy") -> "Moderate (Hardware-copy, GPU texture overhead)"
-          else -> "High (Hardware Direct, $gpuApi backend)"
-        }
-
-      value =
-        CustomStatsSnapshot(
-          fileName = fileName,
-          renderContext = renderContext,
-          video = videoCodec,
-          audio = audioCodec,
-          cpuPercent = smoothedCpuPercent,
-          processMemoryText = processMemoryText,
-          playbackCacheText = playbackCacheText,
-          batteryPercentText = battery.percentageText,
-          batteryRateText = battery.rateText,
-          batteryWattsText = battery.wattsText,
-          batteryTempText = battery.tempText,
-          hdrActive =
-            runCatching {
-              val sourceGamma = PlaybackSession.getPropertyString("video-params/gamma").orEmpty()
-              val sourcePrimaries = PlaybackSession.getPropertyString("video-params/primaries").orEmpty()
-              val sourcePeak = PlaybackSession.getPropertyDouble("video-params/sig-peak") ?: 0.0
-
-              val isHdrSource =
-                sourceGamma == "pq" ||
-                  sourceGamma == "hlg" ||
-                  (sourcePrimaries == "bt.2020" && sourcePeak > 1.0)
-
-              val sourceLabel = if (isHdrSource) "HDR Source" else "SDR Source"
-              val outputLabel =
-                if (isHdrOutputEnabled) {
-                  hdrOutputText
-                } else {
-                  "SDR Output"
-                }
-
-              "$sourceLabel | $outputLabel"
-            }.getOrDefault("Unknown"),
-          sessionPlayTimeText = sessionPlayTimeText,
-          decoderEfficiencyText = decoderEfficiencyText,
-          thermalStateText = thermalStateText,
-          peakTempText = peakTempText,
-          tempRiseText = tempRiseText,
-        )
-
-      lastCpuMs = currentCpuMs
-      lastTimeMs = currentTimeMs
-
-      delay(if (isPaused) 2000L else 1000L)
-    }
-  }
-
-  Column(
-    modifier =
-      modifier
-        .widthIn(max = 520.dp)
-        .alpha(0.88f),
-    verticalArrangement = Arrangement.spacedBy(1.dp),
-  ) {
-    val baseStyle =
-      MaterialTheme.typography.bodySmall.copy(
-        color = Color.White,
-        fontSize = 8.sp,
-        lineHeight = 10.sp,
-        shadow =
-          Shadow(
-            color = Color.Black,
-            offset =
-              androidx.compose.ui.geometry
-                .Offset(1.2f, 1.2f),
-            blurRadius = 3f,
-          ),
-      )
-    val headerStyle =
-      baseStyle.copy(
-        fontWeight = FontWeight.Bold,
-        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
-        fontSize = 8.5.sp,
-      )
-    val labelStyle = baseStyle.copy(fontWeight = FontWeight.Bold)
-    val valueStyle = baseStyle
-
-    OutlinedText(stringResource(R.string.diagnostics_playback_decoder_header), style = headerStyle)
-    OutlinedLabeled("File", stats.fileName, labelStyle, valueStyle)
-    OutlinedLabeled(
-      "Decoder & VO",
-      "${stats.renderContext} | ${stats.video} | Eff: ${stats.decoderEfficiencyText}",
-      labelStyle,
-      valueStyle,
-    )
-    OutlinedLabeled("Audio", "${stats.audio} | HDR: ${stats.hdrActive}", labelStyle, valueStyle)
-
-    when (val currentTorrentState = torrentState) {
-      is TorrentStreamingState.Connecting -> {
-        Spacer(modifier = Modifier.height(2.dp))
-        OutlinedText(stringResource(R.string.diagnostics_torrent_header), style = headerStyle)
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-          Box(modifier = Modifier.weight(1f)) {
-            OutlinedLabeled(
-              stringResource(R.string.diagnostics_torrent_peer_status),
-              stringResource(
-                R.string.diagnostics_torrent_peers_value,
-                currentTorrentState.peers,
-                currentTorrentState.seeds,
-              ),
-              labelStyle,
-              valueStyle,
-            )
-          }
-          Box(modifier = Modifier.weight(1f)) {
-            OutlinedLabeled(
-              stringResource(R.string.diagnostics_torrent_transfer),
-              stringResource(
-                R.string.diagnostics_torrent_transfer_value,
-                formatTorrentSpeed(currentTorrentState.downloadSpeed),
-                formatTorrentSpeed(currentTorrentState.uploadSpeed),
-              ),
-              labelStyle,
-              valueStyle,
-            )
-          }
-        }
-      }
-      is TorrentStreamingState.Streaming -> {
-        val fileSize = currentTorrentState.fileSize.coerceAtLeast(0L)
-        val downloadedBytes = currentTorrentState.downloadedBytes.coerceAtLeast(0L).coerceAtMost(fileSize)
-        val bufferProgress =
-          currentTorrentState.bufferProgress
-            .takeIf { it.isFinite() }
-            ?.coerceIn(0f, 1f)
-            ?: 0f
-        Spacer(modifier = Modifier.height(2.dp))
-        OutlinedText(stringResource(R.string.diagnostics_torrent_header), style = headerStyle)
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-          Box(modifier = Modifier.weight(1f)) {
-            OutlinedLabeled(
-              stringResource(R.string.diagnostics_torrent_peer_status),
-              stringResource(
-                R.string.diagnostics_torrent_peers_value,
-                currentTorrentState.peers,
-                currentTorrentState.seeds,
-              ),
-              labelStyle,
-              valueStyle,
-            )
-          }
-          Box(modifier = Modifier.weight(1f)) {
-            OutlinedLabeled(
-              stringResource(R.string.diagnostics_torrent_loaded),
-              stringResource(
-                R.string.diagnostics_torrent_loaded_value,
-                formatTorrentBytes(downloadedBytes),
-                formatTorrentBytes(fileSize),
-                (bufferProgress * 100f).roundToInt(),
-              ),
-              labelStyle,
-              valueStyle,
-            )
-          }
-        }
-        OutlinedLabeled(
-          stringResource(R.string.diagnostics_torrent_transfer),
-          stringResource(
-            R.string.diagnostics_torrent_transfer_value,
-            formatTorrentSpeed(currentTorrentState.downloadSpeed),
-            formatTorrentSpeed(currentTorrentState.uploadSpeed),
-          ),
-          labelStyle,
-          valueStyle,
-        )
-        LinearProgressIndicator(
-          progress = { bufferProgress },
-          modifier =
-            Modifier
-              .fillMaxWidth()
-              .height(3.dp)
-              .padding(vertical = 0.5.dp),
-        )
-      }
-      is TorrentStreamingState.Error,
-      TorrentStreamingState.Idle,
-      -> Unit
-    }
-
-    Spacer(modifier = Modifier.height(2.dp))
-    OutlinedText(stringResource(R.string.diagnostics_power_thermals_header), style = headerStyle)
-    OutlinedLabeled(
-      "Battery",
-      "${stats.batteryPercentText} | ${stats.batteryWattsText} | Rate: ${stats.batteryRateText}",
-      labelStyle,
-      valueStyle,
-    )
-    OutlinedLabeled(
-      "Temp",
-      "${stats.batteryTempText} (Peak: ${stats.peakTempText} | Rise: ${stats.tempRiseText})",
-      labelStyle,
-      valueStyle,
-    )
-    OutlinedLabeled("Thermal", stats.thermalStateText, labelStyle, valueStyle)
-
-    Spacer(modifier = Modifier.height(2.dp))
-    OutlinedText(stringResource(R.string.diagnostics_session_header), style = headerStyle)
-    OutlinedLabeled("Active", stats.sessionPlayTimeText, labelStyle, valueStyle)
-
-    LinearProgressIndicator(
-      progress = { stats.cpuPercent / 100f },
-      modifier =
-        Modifier
-          .fillMaxWidth()
-          .height(3.dp)
-          .padding(vertical = 0.5.dp),
-    )
-    OutlinedLabeled(stringResource(R.string.diagnostics_app_cpu), "${stats.cpuPercent.toInt()}%", labelStyle, valueStyle)
-
-    Spacer(modifier = Modifier.height(2.dp))
-    OutlinedText(stringResource(R.string.diagnostics_memory_cache_header), style = headerStyle)
-    OutlinedLabeled(
-      stringResource(R.string.diagnostics_process_memory),
-      stats.processMemoryText,
-      labelStyle,
-      valueStyle,
-    )
-    OutlinedLabeled(
-      stringResource(R.string.diagnostics_playback_cache),
-      stats.playbackCacheText,
-      labelStyle,
-      valueStyle,
-    )
   }
 }
 
 @Composable
-private fun OutlinedText(
-  text: String,
-  style: androidx.compose.ui.text.TextStyle,
-) {
-  Box {
-    Text(
-      text = text,
-      style =
-        style.copy(
-          color = Color.Black,
-          shadow = null,
-          drawStyle =
-            Stroke(
-              width = with(LocalDensity.current) { 1.2.dp.toPx() },
-              join = StrokeJoin.Round,
-            ),
-        ),
-    )
-    Text(
-      text = text,
-      style = style,
-    )
-  }
-}
+private fun rememberConfiguredVideoTitle(
+  playbackGeneration: Long,
+  visible: Boolean,
+): String? {
+  val format by PlaybackSession.propString["options/title"].collectAsStateWithLifecycle()
+  val defaultFormat by PlaybackSession.propString["option-info/title/default-value"].collectAsStateWithLifecycle()
+  // The built-in mpv format should not replace mpvRx's normal filename and queue titles.
+  val customFormat = format?.takeUnless { it == defaultFormat } ?: return null
+  if ('$' !in customFormat) return customFormat
 
-private enum class BottomSlot { Buttons, Playback, Seekbar }
+  val lifecycleOwner = LocalLifecycleOwner.current
+  var expandedTitle by remember(playbackGeneration, customFormat) { mutableStateOf<String?>(null) }
+  LaunchedEffect(lifecycleOwner, playbackGeneration, customFormat, visible) {
+    if (!visible) return@LaunchedEffect
+    lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+      // Templates can reference live playback properties; refresh only while the controls are visible.
+      while (PlaybackSession.state.value.generation == playbackGeneration) {
+        val title =
+          withContext(Dispatchers.IO) {
+            PlaybackSession.commandNode("expand-text", customFormat)?.asString()
+          }
+        if (PlaybackSession.state.value.generation != playbackGeneration) break
+        expandedTitle = title
+        if (title == null) {
+          Log.w("PlayerControls", "mpv could not expand the configured video title")
+          break
+        }
+        delay(1_000)
+      }
+    }
+  }
+  return expandedTitle
+}
 
 private const val UNMEASURED_HEIGHT = -1
 
@@ -3064,8 +2561,8 @@ private const val UNMEASURED_HEIGHT = -1
 @Stable
 private class BottomClusterHeights {
   var rightButtons by mutableIntStateOf(UNMEASURED_HEIGHT)
-  var leftButtons by mutableIntStateOf(UNMEASURED_HEIGHT)
   var seekbar by mutableIntStateOf(UNMEASURED_HEIGHT)
+  var playback by mutableIntStateOf(UNMEASURED_HEIGHT)
   var leftCustomRow by mutableIntStateOf(UNMEASURED_HEIGHT)
   var rightCustomRow by mutableIntStateOf(UNMEASURED_HEIGHT)
 }
@@ -3075,13 +2572,6 @@ private val BottomClusterFallbackRowHeight = 48.dp
 private val CustomButtonsRowInsetHorizontal = 8.dp
 private val CustomButtonsRowInsetVertical = 8.dp
 private val CustomButtonsRowFallbackHeight = 36.dp + CustomButtonsRowInsetVertical * 2
-
-// Tallest control in the shared landscape playback row: the 64dp play/pause button.
-private val SharedPlaybackRowHeight = 64.dp
-
-// Half the play/pause row: 64dp play/pause, plus 56dp previous/next spaced 24dp in a playlist.
-private fun sharedPlaybackRowHalfWidth(hasPlaylistControls: Boolean): Dp =
-  if (hasPlaylistControls) (64.dp + (56.dp + 24.dp) * 2) / 2 else 64.dp / 2
 
 private val FullScreenScrimBrush =
   Brush.verticalGradient(
@@ -3108,50 +2598,6 @@ private val ControlsEdgeVignetteBrush =
     1.00f to Color.Black.copy(alpha = 0.58f),
   )
 
-private val PlaySkipButtonShadowBrush =
-  Brush.radialGradient(
-    0.0f to Color.Black.copy(alpha = 0.3f),
-    0.7f to Color.Transparent,
-    1.0f to Color.Transparent,
-  )
-
-@Composable
-private fun OutlinedLabeled(
-  label: String,
-  value: String,
-  labelStyle: androidx.compose.ui.text.TextStyle,
-  valueStyle: androidx.compose.ui.text.TextStyle,
-) {
-  val annotated =
-    buildAnnotatedString {
-      withStyle(SpanStyle(fontWeight = labelStyle.fontWeight)) {
-        append("$label: ")
-      }
-      withStyle(SpanStyle(fontWeight = valueStyle.fontWeight)) {
-        append(value)
-      }
-    }
-  Box {
-    Text(
-      text = annotated,
-      style =
-        labelStyle.copy(
-          color = Color.Black,
-          shadow = null,
-          drawStyle =
-            Stroke(
-              width = with(LocalDensity.current) { 1.2.dp.toPx() },
-              join = StrokeJoin.Round,
-            ),
-        ),
-    )
-    Text(
-      text = annotated,
-      style = labelStyle,
-    )
-  }
-}
-
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun CustomControlButton(
@@ -3177,11 +2623,13 @@ private fun CustomControlButton(
     }
   } else {
     val buttonInteractionSource = remember { MutableInteractionSource() }
+    val hideBackground = LocalPlayerButtonsOpacity.current <= 0f
     Surface(
       shape = CircleShape,
       color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.85f).asPlayerButtonBackground(),
-      contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-      border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.1f).asPlayerButtonBackground()),
+      contentColor = if (hideBackground) playerButtonContentColor() else MaterialTheme.colorScheme.onSecondaryContainer,
+      border = if (hideBackground) null else
+        BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.1f).asPlayerButtonBackground()),
       modifier =
         Modifier
           .clip(CircleShape)

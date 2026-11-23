@@ -43,7 +43,7 @@ object AudiobookCoverFetcher {
   private val json = Json { ignoreUnknownKeys = true }
 
   private fun getClient(): OkHttpClient {
-    return runCatching { GlobalContext.get().get<OkHttpClient>() }.getOrNull() ?: OkHttpClient()
+    return runCatching { GlobalContext.get().get<OkHttpClient>() }.getOrNull() ?: OkHttpClient.Builder().build()
   }
 
   suspend fun search(

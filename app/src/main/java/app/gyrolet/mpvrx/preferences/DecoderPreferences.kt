@@ -10,6 +10,8 @@
 package app.gyrolet.mpvrx.preferences
 
 import app.gyrolet.mpvrx.domain.anime4k.Anime4KManager
+import app.gyrolet.mpvrx.domain.motion.MotionInterpolation
+import app.gyrolet.mpvrx.domain.motion.MotionTargetMode
 import app.gyrolet.mpvrx.preferences.preference.PreferenceStore
 import app.gyrolet.mpvrx.preferences.preference.getEnum
 import app.gyrolet.mpvrx.ui.player.Debanding
@@ -20,11 +22,21 @@ class DecoderPreferences(
 ) {
   val profile = preferenceStore.getString("mpv_profile", "fast")
   val tryHWDecoding = preferenceStore.getBoolean("try_hw_dec", true)
+
+  /** vo=mediacodec_embed: MediaCodec draws every video straight to the screen, without mpv's renderer. */
+  val mediaCodecEmbed = preferenceStore.getBoolean("mediacodec_embed", false)
   val gpuNext = preferenceStore.getBoolean("gpu_next")
   val useVulkan = preferenceStore.getBoolean("use_vulkan", false)
   val hdrScreenOutput = preferenceStore.getBoolean("hdr_screen_output", false)
   val hdrScreenMode = preferenceStore.getEnum("hdr_screen_mode", HdrScreenMode.OFF)
   val lastHdrMode = preferenceStore.getEnum("hdr_last_selected_mode", HdrScreenMode.BT_2020)
+
+  /** FongMi build: let MediaCodec render Dolby Vision directly, with subtitles on an overlay. */
+  val dolbyVisionDirect = preferenceStore.getBoolean("dolby_vision_direct", false)
+  val doviProfile7 = preferenceStore.getEnum("dovi_profile7", DolbyVisionProfile7.Automatic)
+
+  /** FongMi build: how hardware-decoded frames are imported into Vulkan. */
+  val vulkanFrameImport = preferenceStore.getEnum("vulkan_frame_import", VulkanFrameImport.Auto)
 
   /** Boost SDR content into the HDR range when using the Linear HDR pipeline. */
   val boostSdrToHdr = preferenceStore.getBoolean("boost_sdr_to_hdr", true)
@@ -60,4 +72,10 @@ class DecoderPreferences(
   val anime4kDarken = preferenceStore.getBoolean("anime4k_darken", false)
   val anime4kThin = preferenceStore.getBoolean("anime4k_thin", false)
   val anime4kDeblur = preferenceStore.getBoolean("anime4k_deblur", false)
+
+  // GPU motion interpolation (FongMi's mpv motion core, FongMi build only)
+  val motionInterpolationEnabled = preferenceStore.getBoolean("motion_interpolation_enabled", false)
+  val motionInterpolationMode = preferenceStore.getEnum("motion_interpolation_mode", MotionTargetMode.AUTO)
+  val motionInterpolationTargetFps =
+    preferenceStore.getInt("motion_interpolation_target_fps", MotionInterpolation.DEFAULT_TARGET_FPS)
 }

@@ -40,6 +40,13 @@ internal object PlayerOrientationPolicy {
     lastVideoAspect?.takeIf { mediaId != null && it.first == mediaId }?.second
 
   /**
+   * Orientation picked with the rotation button. It outranks the video preference for later videos
+   * and re-entry until the next media launch, without changing the preference itself.
+   */
+  @Volatile
+  var manualOrientation: Int? = null
+
+  /**
    * Maps a user preference to an orientation, or null when the preference needs video geometry that
    * mpv has not reported yet.
    *
@@ -63,7 +70,8 @@ internal object PlayerOrientationPolicy {
 
   fun forAudioPreference(preference: AudioPlayerOrientation): Int =
     when (preference) {
-      AudioPlayerOrientation.Auto -> ActivityInfo.SCREEN_ORIENTATION_SENSOR
+      AudioPlayerOrientation.Auto -> ActivityInfo.SCREEN_ORIENTATION_USER
+      AudioPlayerOrientation.Free -> ActivityInfo.SCREEN_ORIENTATION_FULL_USER
       AudioPlayerOrientation.Portrait -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
       AudioPlayerOrientation.Landscape -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
     }

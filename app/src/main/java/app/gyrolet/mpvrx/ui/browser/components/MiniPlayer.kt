@@ -28,7 +28,6 @@ import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.snap
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -93,6 +92,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
@@ -110,6 +111,7 @@ import app.gyrolet.mpvrx.presentation.components.LiquidGlassSurface
 import app.gyrolet.mpvrx.preferences.PlayerPreferences
 import app.gyrolet.mpvrx.preferences.preference.collectAsState
 import app.gyrolet.mpvrx.ui.browser.NavigationBarState
+import app.gyrolet.mpvrx.ui.browser.rememberMiniPlayerShape
 import app.gyrolet.mpvrx.ui.icons.Icon
 import app.gyrolet.mpvrx.ui.icons.AnimatedIcon
 import app.gyrolet.mpvrx.ui.icons.Icons
@@ -117,6 +119,7 @@ import app.gyrolet.mpvrx.ui.player.DeclaredPlaybackMediaKind
 import app.gyrolet.mpvrx.ui.player.LocalInAppMusicSheet
 import app.gyrolet.mpvrx.ui.player.MediaPlaybackService
 import app.gyrolet.mpvrx.ui.player.PlaybackPhase
+import app.gyrolet.mpvrx.ui.player.PlaybackQueueReducer
 import app.gyrolet.mpvrx.ui.player.PlaybackSession
 import app.gyrolet.mpvrx.ui.player.PlayerActivity
 import app.gyrolet.mpvrx.ui.player.PlayerSheetDestination
@@ -127,10 +130,10 @@ import app.gyrolet.mpvrx.ui.player.inAppMusicSheetDrag
 import app.gyrolet.mpvrx.ui.player.playerSheetAnchor
 import app.gyrolet.mpvrx.ui.player.swipeUpToFullPlayer
 import app.gyrolet.mpvrx.ui.player.toObject
+import app.gyrolet.mpvrx.ui.player.controls.components.AbLoopIcon
 import app.gyrolet.mpvrx.ui.player.controls.components.tvFocusHighlight
 import app.gyrolet.mpvrx.utils.device.DeviceFormFactor
 import app.gyrolet.mpvrx.ui.theme.AppMotion
-import app.gyrolet.mpvrx.ui.theme.AppShapeScale
 import app.gyrolet.mpvrx.ui.utils.LocalBackStack
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -208,7 +211,7 @@ fun MiniPlayer(modifier: Modifier = Modifier) {
     if (hasActiveMedia) delay(DISMISS_RESTORE_TIMEOUT_MS)
     if (dismissedMediaId == dismissed) dismissedMediaId = null
   }
-  val isMediaActive = hasActiveMedia && dismissedMediaId != currentItem?.stableId
+  val isMediaActive = hasActiveMedia && dismissedMediaId != currentItem.stableId
   LaunchedEffect(isMediaActive) { if (isMediaActive) exitAfterToss = false }
   val dismissPlayer: () -> Unit = remember(context) {
     {
@@ -229,9 +232,13 @@ fun MiniPlayer(modifier: Modifier = Modifier) {
   val isMiniPlayerVisible = visibilityState.currentState || visibilityState.targetState
   SideEffect {
     NavigationBarState.isMiniPlayerVisible = isMiniPlayerVisible
+    NavigationBarState.miniPlayerConnectionEnabled = visibilityState.targetState
   }
   DisposableEffect(Unit) {
-    onDispose { NavigationBarState.isMiniPlayerVisible = false }
+    onDispose {
+      NavigationBarState.isMiniPlayerVisible = false
+      NavigationBarState.miniPlayerConnectionEnabled = false
+    }
   }
 
   val reduceMotion = AppMotion.shouldReduceMotion()
@@ -240,7 +247,7 @@ fun MiniPlayer(modifier: Modifier = Modifier) {
     enter = if (collapseHoldId != null || sheetMotion != null) {
       EnterTransition.None
     } else if (reduceMotion) {
-      fadeIn(animationSpec = tween(120))
+      EnterTransition.None
     } else {
       slideInVertically(
         animationSpec = tween(320, easing = FastOutSlowInEasing),
@@ -249,7 +256,7 @@ fun MiniPlayer(modifier: Modifier = Modifier) {
     },
     exit = when {
       expansionHoldId != null || sheetMotion != null || exitAfterToss -> ExitTransition.None
-      reduceMotion -> fadeOut(animationSpec = tween(120))
+      reduceMotion -> ExitTransition.None
       else ->
         slideOutVertically(
           animationSpec = tween(260, easing = FastOutLinearInEasing),
@@ -294,6 +301,8 @@ private fun MiniPlayerContent(
 ) {
   val sessionState by PlaybackSession.state.collectAsStateWithLifecycle()
   val queueState by PlaybackSession.queue.collectAsStateWithLifecycle()
+  val previousAvailable = PlaybackQueueReducer.hasPrevious(queueState)
+  val nextAvailable = PlaybackQueueReducer.hasNext(queueState)
   val currentItem = sessionState.currentItem
   val paused by PlaybackSession.propBoolean["pause"].collectAsStateWithLifecycle()
   val rawMediaTitle by PlaybackSession.propString["media-title"].collectAsStateWithLifecycle()
@@ -303,6 +312,10 @@ private fun MiniPlayerContent(
   val videoWidth by PlaybackSession.propLong["video-params/w"].collectAsStateWithLifecycle()
   val videoHeight by PlaybackSession.propLong["video-params/h"].collectAsStateWithLifecycle()
   val videoRotate by PlaybackSession.propInt["video-params/rotate"].collectAsStateWithLifecycle()
+  val loopA by PlaybackSession.propDouble["ab-loop-a"].collectAsStateWithLifecycle()
+  val loopB by PlaybackSession.propDouble["ab-loop-b"].collectAsStateWithLifecycle()
+  val isLoopASet = loopA?.let { it.isFinite() && it >= 0.0 } == true
+  val isLoopBSet = loopB?.let { it.isFinite() && it >= 0.0 } == true
 
   val isPlaying = paused == false
   val activeBook by app.gyrolet.mpvrx.ui.player.AudiobookPlayback.book.collectAsStateWithLifecycle()
@@ -319,10 +332,11 @@ private fun MiniPlayerContent(
   }
   fun progressFraction(): Float = if (totalDurSec > 0f) (totalPosSec() / totalDurSec).coerceIn(0f, 1f) else 0f
 
+  val isYouTubeSource = app.gyrolet.mpvrx.utils.media.HttpUtils.isYouTubeUrl(currentItem?.originalUri)
   val title =
     audiobook?.book?.title
       ?: queueState.currentItem?.title?.takeIf { queueState.isExplicitQueue && it.isNotBlank() }
-      ?: rawMediaTitle?.takeIf { it.isNotBlank() }
+      ?: rawMediaTitle?.takeIf { it.isNotBlank() && (!isYouTubeSource || !app.gyrolet.mpvrx.utils.media.HttpUtils.isLikelyJunkTitle(it)) }
       ?: currentItem?.title?.takeIf { it.isNotBlank() }
       ?: "Media Track"
 
@@ -420,7 +434,7 @@ private fun MiniPlayerContent(
     }
   }
 
-  val miniPlayerShape = AppShapeScale.largeIncreased
+  val miniPlayerShape = rememberMiniPlayerShape()
 
   /**
    * Throws the card off the screen edge in [direction], keeping the release velocity and tilt.
@@ -521,7 +535,7 @@ private fun MiniPlayerContent(
         when {
           // A remote cannot drag; the title and the buttons cover expanding and dismissing.
           isTelevision -> Modifier
-          useInAppSheet && musicSheet != null ->
+          useInAppSheet ->
             // The live sheet follows the finger from the first pixel; touching down starts warming it.
             Modifier.inAppMusicSheetDrag(
               state = musicSheet,
@@ -578,6 +592,7 @@ private fun MiniPlayerContent(
     style = LiquidGlassStyle.MiniPlayer,
     glassColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.30f),
     fallbackColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.96f),
+    connectionProgress = NavigationBarState.dockProgress,
   ) {
     val progressColor = MaterialTheme.colorScheme.primary
 
@@ -692,6 +707,7 @@ private fun MiniPlayerContent(
       Row(
         modifier = Modifier
           .fillMaxWidth()
+          .height(64.dp)
           .drawBehind {
             val progressFraction = progressFraction()
             if (progressFraction > 0f) {
@@ -715,13 +731,13 @@ private fun MiniPlayerContent(
               )
             }
           }
-          .padding(horizontal = 12.dp, vertical = 8.dp),
+          .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
       ) {
         // Music Cover Art
         Box(
           modifier = Modifier
-            .size(48.dp)
+            .size(40.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant),
           contentAlignment = Alignment.Center,
@@ -751,7 +767,7 @@ private fun MiniPlayerContent(
           }
         }
 
-        Spacer(modifier = Modifier.width(12.dp))
+        Spacer(modifier = Modifier.width(8.dp))
 
         // Title & Track Status
         Column(
@@ -778,27 +794,62 @@ private fun MiniPlayerContent(
             }
             else -> stringResource(if (isPlaying) R.string.notification_playing else R.string.downloads_paused)
           }
-          Text(
-            text = statusText,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+          Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+          ) {
+            if (isLoopASet || isLoopBSet) {
+              val loopDescription = stringResource(R.string.btn_label_ab_loop)
+              AbLoopIcon(
+                modifier = Modifier.size(20.dp).semantics { contentDescription = loopDescription },
+                tint = MaterialTheme.colorScheme.primary,
+                isASet = isLoopASet,
+                isBSet = isLoopBSet,
+              )
+            }
+            Text(
+              text = statusText,
+              style = MaterialTheme.typography.labelSmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              maxLines = 1,
+              overflow = TextOverflow.Ellipsis,
+              modifier = Modifier.weight(1f),
+            )
+          }
+        }
+
+        Spacer(modifier = Modifier.width(4.dp))
+
+        IconButton(
+          onClick = {
+            actionHaptics.tick()
+            context.startService(
+              Intent(context, MediaPlaybackService::class.java).setAction(
+                MediaPlaybackService.ACTION_NOTIFICATION_PREVIOUS,
+              ),
+            )
+          },
+          enabled = previousAvailable && !tossed,
+          modifier = Modifier.size(48.dp),
+        ) {
+          Icon(
+            imageVector = Icons.RoundedFilled.SkipPrevious,
+            contentDescription = stringResource(R.string.pref_gesture_media_previous),
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (previousAvailable) 1f else 0.38f),
+            modifier = Modifier.size(24.dp),
           )
         }
 
-        Spacer(modifier = Modifier.width(8.dp))
-
-        // Play / Pause Action Button
         IconButton(
           onClick = {
             actionHaptics.selection(true)
-             context.startService(
+            context.startService(
               Intent(context, MediaPlaybackService::class.java).setAction(
                 MediaPlaybackService.ACTION_NOTIFICATION_PLAY_PAUSE,
               ),
             )
           },
+          enabled = !tossed,
           modifier = Modifier.size(48.dp),
         ) {
           AnimatedIcon(
@@ -810,22 +861,22 @@ private fun MiniPlayerContent(
           )
         }
 
-        // Next Track Action Button
         IconButton(
           onClick = {
             actionHaptics.tick()
-             context.startService(
+            context.startService(
               Intent(context, MediaPlaybackService::class.java).setAction(
                 MediaPlaybackService.ACTION_NOTIFICATION_NEXT,
               ),
             )
           },
+          enabled = nextAvailable && !tossed,
           modifier = Modifier.size(48.dp),
         ) {
           Icon(
             imageVector = Icons.RoundedFilled.SkipNext,
             contentDescription = stringResource(R.string.pref_gesture_media_next),
-            tint = MaterialTheme.colorScheme.onSurface,
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (nextAvailable) 1f else 0.38f),
             modifier = Modifier.size(24.dp),
           )
         }
@@ -883,7 +934,7 @@ private class MiniPlayerSurfaceView(context: Context) : SurfaceView(context), Su
         if (playbackActive && MediaPlaybackService.isForegroundActive() && PlaybackSession.isRendererReadyFor(this)) {
           hideSubtitles()
           if (PlaybackSession.getPropertyBoolean("pause") == true) {
-            PlaybackSession.command("seek", "0", "relative+exact")
+            PlaybackSession.redrawVideoFrame()
           }
         }
       },

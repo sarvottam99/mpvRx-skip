@@ -16,6 +16,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
@@ -49,7 +51,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
+import app.gyrolet.mpvrx.presentation.components.AppTextField as OutlinedTextField
 import androidx.compose.material3.Scaffold
 import app.gyrolet.mpvrx.ui.components.AppSlider as Slider
 import androidx.compose.material3.Text
@@ -72,6 +74,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -83,7 +86,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import app.gyrolet.mpvrx.R
 import app.gyrolet.mpvrx.preferences.AppearancePreferences
-import app.gyrolet.mpvrx.presentation.Screen
 import app.gyrolet.mpvrx.presentation.components.AppAlertDialog
 import app.gyrolet.mpvrx.presentation.components.AppDialogTextButton
 import app.gyrolet.mpvrx.ui.icons.AppIcon
@@ -117,7 +119,7 @@ import org.koin.compose.koinInject
 @Serializable
 data class WallpaperEditorScreen(
   val sourceUri: String = "",
-) : Screen {
+) : ScrollableSettingsScreen {
   @OptIn(ExperimentalMaterial3Api::class)
   @Composable
   override fun Content() {
@@ -179,6 +181,13 @@ data class WallpaperEditorScreen(
       }.value
     // Ignore a bitmap that belongs to the previously selected source while the new one is loading.
     val bitmap = loadedWallpaper?.takeIf { it.first == selectedSource }?.second
+    // Cached thumbnail (owned by WallpaperThumbnailCache, never recycled here) shown while the full bitmap loads.
+    val placeholderBitmap = remember(selectedSource) { WallpaperThumbnailCache.peekBitmap(selectedSource) }
+    val fullPreviewAlpha by animateFloatAsState(
+      targetValue = if (bitmap != null) 1f else 0f,
+      animationSpec = tween(durationMillis = 180),
+      label = "wallpaperPreviewFull",
+    )
     val isNoneSelected = selectedSource.isBlank()
     val isCustomSelected = selectedSource.isNotBlank() && !WallpaperPreset.isPresetUri(selectedSource)
     val customPicker =
@@ -247,6 +256,8 @@ data class WallpaperEditorScreen(
                       return@launch
                     }
                     val savedUri = saveWallpaperCopy(context, selectedSource)
+                    // Decode the Appearance card's thumbnail now so it is already there when we go Back.
+                    withContext(Dispatchers.IO) { WallpaperThumbnailCache.load(context, savedUri) }
                     preferences.customWallpaperZoom.set(zoom)
                     preferences.customWallpaperOffsetX.set(offsetX)
                     preferences.customWallpaperOffsetY.set(offsetY)
@@ -270,11 +281,11 @@ data class WallpaperEditorScreen(
                         preferences.customWallpaperUseColors.set(true)
                       } else {
                         preferences.customWallpaperUseColors.set(false)
-                        android.widget.Toast
+                        app.gyrolet.mpvrx.ui.components.AppToast
                           .makeText(
                             context,
                             R.string.pref_appearance_custom_wallpaper_colors_failed,
-                            android.widget.Toast.LENGTH_LONG,
+                            app.gyrolet.mpvrx.ui.components.AppToast.LENGTH_LONG,
                           )
                           .show()
                       }
@@ -289,8 +300,8 @@ data class WallpaperEditorScreen(
                   } catch (error: CancellationException) {
                     throw error
                   } catch (_: Exception) {
-                    android.widget.Toast
-                      .makeText(context, R.string.wallpaper_save_failed, android.widget.Toast.LENGTH_LONG)
+                    app.gyrolet.mpvrx.ui.components.AppToast
+                      .makeText(context, R.string.wallpaper_save_failed, app.gyrolet.mpvrx.ui.components.AppToast.LENGTH_LONG)
                       .show()
                   } finally {
                     isSaving = false
@@ -306,7 +317,7 @@ data class WallpaperEditorScreen(
     ) { padding ->
       LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding).tvFocusGroup(),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = settingsContentPadding(PaddingValues(16.dp)),
         verticalArrangement = Arrangement.spacedBy(12.dp),
       ) {
         item {
@@ -407,6 +418,20 @@ data class WallpaperEditorScreen(
                     }
                   },
             ) {
+              // The full wallpaper takes a moment to decode on every entry, so paint the cached
+              // thumbnail straight away and fade the full-resolution image in over it.
+              placeholderBitmap?.let { thumb ->
+                WallpaperImage(
+                  bitmap = thumb,
+                  zoom = zoom,
+                  offsetX = offsetX,
+                  offsetY = offsetY,
+                  scaleMode = scaleMode,
+                  blurRadius = blur,
+                  imageAlpha = alpha,
+                  modifier = Modifier.fillMaxSize(),
+                )
+              }
               bitmap?.let { loaded ->
                 WallpaperImage(
                   bitmap = loaded,
@@ -416,7 +441,7 @@ data class WallpaperEditorScreen(
                   scaleMode = scaleMode,
                   blurRadius = blur,
                   imageAlpha = alpha,
-                  modifier = Modifier.fillMaxSize(),
+                  modifier = Modifier.fillMaxSize().graphicsLayer { this.alpha = fullPreviewAlpha },
                 )
               }
               if (isNoneSelected) {

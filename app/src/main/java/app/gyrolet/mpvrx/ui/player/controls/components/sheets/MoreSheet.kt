@@ -14,6 +14,7 @@ import app.gyrolet.mpvrx.ui.player.PlaybackSession
 import android.content.res.Configuration
 import android.text.format.DateUtils
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -31,6 +32,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -47,6 +49,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.gyrolet.mpvrx.presentation.components.AppAlertDialog
 import androidx.compose.ui.window.DialogProperties
@@ -70,6 +73,7 @@ fun MoreSheet(
   onEnterFiltersPanel: () -> Unit,
   onEnterLuaScriptsPanel: () -> Unit,
   onEnterEqualizerSheet: (() -> Unit)? = null,
+  onEnterSettingsPanel: (() -> Unit)? = null,
   anime4KUiState: Anime4KUiState,
   onAnime4KModeSelected: (Anime4KManager.Mode) -> Unit,
   filtersEnabled: Boolean = true,
@@ -104,8 +108,15 @@ fun MoreSheet(
         Text(
           text = stringResource(R.string.player_sheets_more_title),
           style = MaterialTheme.typography.titleLarge,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+          modifier = Modifier.widthIn(max = 140.dp).padding(end = 8.dp),
         )
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+          modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState(), reverseScrolling = true),
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.End,
+        ) {
           var isSleepTimerDialogShown by remember { mutableStateOf(false) }
           TextButton(onClick = { isSleepTimerDialogShown = true }) {
             Row(
@@ -204,6 +215,20 @@ fun MoreSheet(
               }
             }
           }
+          if (onEnterSettingsPanel != null) {
+            TextButton(onClick = onEnterSettingsPanel) {
+              Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.extraSmall),
+              ) {
+                Icon(
+                  imageVector = Icons.RoundedFilled.Settings,
+                  contentDescription = stringResource(R.string.player_settings_open),
+                )
+                if (showActionLabels) Text(stringResource(R.string.ui_settings))
+              }
+            }
+          }
         }
       }
       Text(
@@ -214,62 +239,28 @@ fun MoreSheet(
       LazyRow(
         horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.smaller),
       ) {
-        items(8, key = { it }) { page ->
+        items(9, key = { it }) { page ->
           FilterChip(
             label = {
               Text(
-                if (page == 7) {
-                  "Console"
-                } else {
-                  stringResource(
-                    if (page == 0) {
-                      R.string.player_sheets_tracks_off
-                    } else {
-                      R.string.player_sheets_stats_page_chip
-                    },
-                    page,
-                  )
+                when (page) {
+                  0 -> stringResource(R.string.player_sheets_tracks_off)
+                  8 -> stringResource(R.string.player_sheets_stats_page_console)
+                  else -> stringResource(R.string.player_sheets_stats_page_chip, page)
                 },
               )
             },
-            onClick = {
-              val isConsoleOpen = PlaybackSession.getPropertyBoolean("user-data/mpv/console/open") == true
-
-              // If we are choosing any page OTHER than Console, close the console if it's currently open
-              if (page != 7 && isConsoleOpen) {
-                PlaybackSession.command("script-message-to", "console", "disable")
-              }
-
-              when (page) {
-                0 -> {
-                  if (statisticsPage in 1..5) PlaybackSession.command("script-binding", "stats/display-stats-toggle")
-                }
-                6 -> {
-                  if (statisticsPage in 1..5) PlaybackSession.command("script-binding", "stats/display-stats-toggle")
-                }
-                7 -> {
-                  if (statisticsPage in 1..5) PlaybackSession.command("script-binding", "stats/display-stats-toggle")
-                  // Enable console only if it is not already open
-                  if (!isConsoleOpen) {
-                    PlaybackSession.command("script-binding", "console/enable")
-                  }
-                }
-                else -> {
-                  if (statisticsPage == 0 || statisticsPage == 6 || statisticsPage == 7) {
-                    PlaybackSession.command("script-binding", "stats/display-stats-toggle")
-                  }
-                  PlaybackSession.command("script-binding", "stats/display-page-$page")
-                }
-              }
-              advancedPreferences.enabledStatisticsPage.set(page)
-            },
             selected = statisticsPage == page,
-            leadingIcon = null,
-            colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
-                  containerColor = playerSheetSelectionColor(false),
-                  selectedContainerColor = playerSheetSelectionColor(true),
-                  selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                ),
+            onClick = {
+              // One coordinator owns the chips, the preference and mpv's stats.lua state; it
+              // closes the console itself and keeps the overlay from being blind-toggled.
+              PlaybackSession.setStatisticsPage(page)
+            },
+            colors = FilterChipDefaults.filterChipColors(
+              containerColor = playerSheetSelectionColor(false),
+              selectedContainerColor = playerSheetSelectionColor(true),
+              selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            ),
           )
         }
       }
@@ -302,12 +293,11 @@ fun MoreSheet(
               label = { Text(stringResource(mode.titleRes)) },
               selected = anime4KUiState.selectedMode == mode.name,
               enabled = anime4KEnabled && (anime4KUiState.allowHighRes || mode == Anime4KManager.Mode.OFF),
-              leadingIcon = null,
-              colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
-                  containerColor = playerSheetSelectionColor(false),
-                  selectedContainerColor = playerSheetSelectionColor(true),
-                  selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                ),
+              colors = FilterChipDefaults.filterChipColors(
+                containerColor = playerSheetSelectionColor(false),
+                selectedContainerColor = playerSheetSelectionColor(true),
+                selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer,
+              ),
               onClick = { onAnime4KModeSelected(mode) },
             )
           }
@@ -387,7 +377,7 @@ fun TimePickerDialog(
                 },
                 label = { Text(stringResource(R.string.generic_minutes_short, minutes)) },
                 leadingIcon = null,
-                colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+                colors = FilterChipDefaults.filterChipColors(
                   containerColor = playerSheetSelectionColor(false),
                   selectedContainerColor = playerSheetSelectionColor(true),
                   selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer,

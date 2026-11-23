@@ -29,7 +29,7 @@
   <string name="pref_liquid_glass_in_hdr_title">HDR モードでのリキッドガラス</string>
   <string name="pref_liquid_glass_in_hdr_summary">HDR 出力がオンのときもプレーヤーコントロールのライブガラスを維持します。HDR 動画は SDR のように表示されます</string>
   <string name="pref_liquid_glass_in_hdr_warning_title">HDR モードでリキッドガラスを使用しますか？</string>
-  <string name="pref_liquid_glass_in_hdr_warning_message">リキッドガラスには TextureView による動画描画が必要です。Android はこの方法で描画される HDR 動画を SDR に変換するため、HDR 出力の明るさとコントラストが失われ、再生時のバッテリー消費が増える場合があります。本来の HDR に戻すには、いつでもこの設定をオフにしてください。</string>
+  <string name="pref_liquid_glass_in_hdr_warning_message">Liquid GlassはTextureViewでHDRをSDRに変換し、電池消費が増える場合があります。本来のHDRにはオフにしてください。</string>
   <string name="pref_liquid_glass_in_hdr_warning_confirm">有効にする</string>
   <string name="pref_appearance_system_font_title">システムフォントを使用</string>
   <string name="pref_appearance_system_font_summary">Google Sansの代わりにAndroidのシステム書体をmpvRx全体で使用します</string>
@@ -54,12 +54,8 @@
   <string name="pref_appearance_ui_scale_restart_title">再起動が必要です</string>
   <string name="pref_appearance_ui_scale_restart_message">新しいアプリUIの拡大率%1$d%%を適用するには、mpvRxを再起動してください。</string>
   <string name="pref_appearance_ui_scale_restart_now">今すぐ再起動</string>
-  <string name="pref_appearance_unlimited_name_lines_title">名前をすべて表示</string>
-  <string name="pref_appearance_unlimited_name_lines_summary">フォルダー名と動画名を省略せずにすべて表示します</string>
-  <string name="pref_appearance_hide_player_buttons_background_title">プレーヤーボタンの背景を非表示</string>
   <string name="pref_appearance_force_dark_player_buttons_background_title">プレーヤーボタンの背景を常に暗くする</string>
   <string name="pref_appearance_force_dark_player_buttons_background_summary">ライト、ダーク、自動の各テーマでプレーヤー操作ボタンの背景を暗く保ちます</string>
-  <string name="pref_appearance_hide_player_buttons_background_summary">プレーヤーのすべての操作ボタンの背景を非表示にします</string>
   <string name="pref_appearance_category_file_browser">ファイルブラウザー</string>
   <string name="pref_appearance_category_thumbnails">サムネイル</string>
   <string name="pref_appearance_category_navigation">ナビゲーション</string>
@@ -70,17 +66,17 @@
   <string name="pref_appearance_show_video_thumbnails_title">動画のサムネイルを表示</string>
   <string name="pref_appearance_show_video_thumbnails_summary">動画リストとフォルダーに生成したサムネイルを表示します</string>
   <string name="pref_appearance_thumbnail_generation_title">サムネイル生成方法</string>
-  <string name="pref_appearance_thumbnail_generation_summary">埋め込みアートワークや特定位置のフレームなど、サムネイルの生成方法を選択します</string>
+  <string name="pref_appearance_thumbnail_generation_summary">埋め込み画像または動画のフレームを選びます。</string>
   <string name="pref_appearance_thumbnail_generation_change_title">サムネイル生成方法を変更しますか？</string>
-  <string name="pref_appearance_thumbnail_generation_change_summary">キャッシュされたサムネイルが消去されます。閲覧時に、選択した方法で新しいサムネイルが生成されます。</string>
+  <string name="pref_appearance_thumbnail_generation_change_summary">サムネイルキャッシュを消去し、閲覧時に再生成しますか？</string>
   <string name="pref_appearance_thumbnail_quality_title">サムネイルの品質</string>
-  <string name="pref_appearance_thumbnail_quality_summary">サムネイルの最大解像度：%1$d px。高品質にするとストレージ使用量が増え、生成に時間がかかる場合があります。</string>
+  <string name="pref_appearance_thumbnail_quality_summary">サムネイル上限：%1$d px。大きいほど保存容量と処理量が増えます。</string>
   <string name="pref_appearance_thumbnail_position_title">サムネイルのフレーム位置</string>
   <string name="pref_appearance_thumbnail_position_summary">動画の%1$d%%の位置のフレームを取得します</string>
   <string name="pref_appearance_thumbnail_parallelism_title">サムネイル処理コア数</string>
   <string name="pref_appearance_thumbnail_parallelism_auto">自動（%2$d中%1$d）</string>
   <string name="pref_appearance_thumbnail_parallelism_value">%2$d中%1$d</string>
-  <string name="pref_appearance_thumbnail_parallelism_dialog_summary">同時に作成するサムネイルの数です。多いほど速くなりますが、メモリとバッテリーの消費が増え、スクロールがカクつくことがあります。自動ではこの端末に安全な値を選びます。</string>
+  <string name="pref_appearance_thumbnail_parallelism_dialog_summary">並列数を増やすと高速になりますが、メモリ・電池消費やカクつきが増える場合があります。自動を推奨。</string>
   <string name="pref_appearance_thumbnail_parallelism_warning">この端末の推奨値（%1$d）を超えています。リストが重い場合やアプリがバックグラウンドで終了する場合は下げてください。</string>
   <string name="pref_appearance_show_network_thumbnails_title">ネットワークのサムネイルを表示（試験的）</string>
   <string name="pref_appearance_show_network_thumbnails_summary">ネットワークストリームのサムネイルを生成します（モバイルネットワークでのデータ使用量が増える場合があります）</string>
@@ -147,11 +143,11 @@
   <string name="pref_enable_video_mini_player_title">動画ミニプレーヤーを有効化</string>
   <string name="pref_enable_video_mini_player_summary">戻るボタンを押したときに動画再生をフローティングミニプレーヤーに最小化</string>
   <string name="pref_video_mini_player_dependency_title">動画のバックグラウンド再生を有効にしますか？</string>
-  <string name="pref_video_mini_player_dependency_message">動画ミニプレーヤーは、フルプレーヤーを離れた後も動画を再生し続けるために、動画プレーヤーのバックグラウンド再生が必要です。</string>
+  <string name="pref_video_mini_player_dependency_message">動画プレーヤーのバックグラウンド再生が必要です。</string>
   <string name="pref_video_mini_player_dependency_confirm">有効にして続行</string>
   <string name="pref_player_keep_screen_on_when_paused_title">一時停止中も画面をオンにする</string>
   <string name="pref_player_external_display_projection_title">外部ディスプレイへの投影</string>
-  <string name="pref_player_external_display_projection_summary">HDMI、USB-C、またはワイヤレスディスプレイ接続時に動画をそちらで再生し、スマートフォンの画面を消灯できるようにする</string>
+  <string name="pref_player_external_display_projection_summary">スマートフォン画面を消し、HDMI・USB-C・無線ディスプレイで再生します。</string>
   <string name="pref_player_keep_screen_on_when_paused_summary">動画の一時停止中も画面を点灯したままにします</string>
   <string name="pref_player_keep_screen_on_when_paused_summary_disabled">動画の一時停止中に画面をオフにできます</string>
   <string name="pref_player_autoplay_after_screen_unlock_title">画面ロック解除後に自動再生</string>
@@ -162,7 +158,7 @@
   <string name="pref_player_show_chapter_indicators_title">シークバーにチャプター表示を追加</string>
   <string name="pref_player_show_chapter_indicators_summary">シークバー上でチャプターを視覚的に区切ります。</string>
   <!-- Gesture Preferences Hardcoded -->
-  <string name="pref_double_tap_seek_area_width_title">ダブルタップシーク領域の幅</string>
+  <string name="pref_double_tap_seek_area_width_title">タップジェスチャー領域の幅</string>
   <!-- Advanced Preferences Hardcoded -->
   <string name="pref_export_settings_title">設定をエクスポート</string>
   <string name="pref_export_settings_summary">設定をXMLファイルにエクスポートします</string>
@@ -177,6 +173,8 @@
   <string name="pref_clear_thumbnail_cache_title">サムネイルキャッシュを消去</string>
   <string name="pref_clear_thumbnail_cache_summary">キャッシュされた動画サムネイルをすべて削除します</string>
   <string name="pref_layout_title">プレーヤーのレイアウト</string>
+  <string name="pref_layout_media_format_badges_title">メディア形式バッジ</string>
+  <string name="pref_layout_media_format_badges_summary">動画のタイトルの下に解像度、コーデック、HDR、音声情報を表示します。</string>
   <string name="pref_layout_summary">プレーヤーボタンの配置をカスタマイズします</string>
   <string name="pref_layout_reset_default">デフォルトに戻す</string>
   <string name="pref_layout_top_right_controls">右上のコントロール</string>
@@ -196,7 +194,7 @@
   <string name="pref_player_orientation_reverse_landscape">逆横向き</string>
   <string name="pref_player_orientation_sensor_landscape">センサー横向き</string>
   <string name="pref_player_save_position_on_quit">終了時に位置を保存</string>
-  <string name="pref_player_double_tap_seek_duration">ダブルタップシーク時間</string>
+  <string name="pref_player_double_tap_seek_duration">タップシーク時間</string>
   <string name="pref_player_custom_skip_duration_title">カスタムスキップ時間</string>
   <string name="pref_player_custom_skip_duration_summary">カスタムスキップボタンで進める時間</string>
   <string name="pref_player_seeking_title">シーク</string>
@@ -206,8 +204,6 @@
   <string name="pref_player_gestures_volume">音量ジェスチャー</string>
   <string name="pref_player_gestures_pinch_to_zoom">ピンチでズーム</string>
   <string name="pref_player_gestures_pinch_to_zoom_subtitles">ピンチで字幕を拡大</string>
-  <string name="pref_player_gestures_two_finger_speed_swipe">2本指スワイプで速度変更</string>
-  <string name="pref_player_gestures_two_finger_speed_swipe_summary">2本指で上下にスワイプすると、再生速度を0.25xずつ0.5xから4xの範囲で変更します</string>
   <string name="pref_subtitles_secondary_pinch_zoom">ピンチで第2字幕も拡大</string>
   <string name="pref_subtitles_secondary_pinch_zoom_summary">プライマリ字幕をピンチするとセカンダリ字幕も拡大されます</string>
   <string name="pref_player_gestures_swipe_subtitles_to_seek_dialog">字幕をスワイプしてシーク画面を開く</string>
@@ -222,36 +218,34 @@
   <string name="pref_player_controls_show_loading_circle">読み込み中の円を表示</string>
   <string name="pref_player_display_show_status_bar">操作中にシステムステータスバーを表示</string>
   <string name="pref_gesture">ジェスチャー</string>
-  <string name="pref_gesture_summary">ダブルタップ、メディア操作</string>
-  <string name="pref_gesture_double_tap_title">ダブルタップ</string>
+  <string name="pref_gesture_summary">シングル/ダブルタップ、メディア操作</string>
+  <string name="pref_gesture_double_tap_title">タップジェスチャー</string>
   <string name="pref_gesture_double_tap_none">なし</string>
   <string name="pref_gesture_double_tap_seek">シーク</string>
   <string name="pref_gesture_double_tap_play">再生/一時停止</string>
   <string name="pref_gesture_double_tap_custom">カスタム</string>
   <string name="pref_gesture_double_tap_left_title">ダブルタップ（左）</string>
+  <string name="pref_gesture_single_tap_left_title">シングルタップ（左）</string>
   <string name="pref_gesture_double_tap_center_title">ダブルタップ（中央）</string>
   <string name="pref_gesture_single_tap_center_title">シングルタップ（中央）</string>
   <string name="pref_gesture_double_tap_right_title">ダブルタップ（右）</string>
-  <string name="pref_gesture_use_single_tap_for_center_title">中央ジェスチャーにシングルタップを使用</string>
-  <string name="pref_gesture_use_single_tap_for_center_summary">中央のジェスチャー（再生/一時停止など）にダブルタップではなくシングルタップを使用します。</string>
+  <string name="pref_gesture_single_tap_right_title">シングルタップ（右）</string>
+  <string name="pref_gesture_use_single_tap_for_left_title">左側をシングルタップ</string>
+  <string name="pref_gesture_use_single_tap_for_center_title">中央をシングルタップ</string>
+  <string name="pref_gesture_use_single_tap_for_right_title">右側をシングルタップ</string>
+  <string name="pref_gesture_use_single_tap_for_left_summary">2回の代わりに1回タップして、左側の操作を実行します。</string>
+  <string name="pref_gesture_use_single_tap_for_center_summary" formatted="false">中央ゾーン（幅・高さ30%）をシングルタップ。その他は操作ボタンの表示を切り替えます。</string>
+  <string name="pref_gesture_use_single_tap_for_right_summary">2回の代わりに1回タップして、右側の操作を実行します。</string>
   <string name="pref_gesture_center_vertical_subtitle_position_title">ドラッグで字幕を移動</string>
-  <string name="pref_gesture_center_vertical_subtitle_position_summary">中央を長押しして上下にドラッグすると主字幕を移動できます。字幕を直接長押しすると、そのトラックを個別に移動できます。通常のスワイプでは引き続きプレイリストが開きます。</string>
-  <string name="pref_gesture_double_tap_custom_info">input.confで次のキーコードを使用して、これらのジェスチャーにカスタム操作を割り当てられます：
-
-左：MBTN_LEFT_DBL
-中央：MBTN_MID_DBL
-右：MBTN_RIGHT_DBL</string>
+  <string name="pref_gesture_center_vertical_subtitle_position_summary">字幕を長押しして移動。中央の長押しは主字幕を操作します。有効ならピンチでサイズ変更。</string>
+  <string name="pref_gesture_double_tap_custom_info">input.confのキー：\n左：MBTN_LEFT_DBL\n中央：MBTN_MID_DBL\n右：MBTN_RIGHT_DBL</string>
   <string name="pref_gesture_media_title">メディア操作</string>
   <string name="pref_gesture_media_previous">前へ</string>
   <string name="pref_gesture_media_play">再生/一時停止</string>
   <string name="pref_gesture_media_next">次へ</string>
-  <string name="pref_gesture_media_custom_info">input.confで次のキーコードを使用して、メディア操作にカスタム操作を割り当てられます：
-
-前へ：PREV
-再生/一時停止：PLAYPAUSE
-次へ：NEXT</string>
+  <string name="pref_gesture_media_custom_info">input.confのキー：\n前へ：PREV\n再生/一時停止：PLAYPAUSE\n次へ：NEXT</string>
   <string name="pref_gesture_tap_thumbnail_to_select_title">サムネイルをタップして選択</string>
-  <string name="pref_gesture_tap_thumbnail_to_select_summary">有効にすると、サムネイルのタップで選択モードになります。無効にすると、タップで動画を再生します。</string>
+  <string name="pref_gesture_tap_thumbnail_to_select_summary">サムネイルをタップすると再生ではなく選択します。</string>
   <string name="pref_decoder">デコーダー</string>
   <string name="pref_decoder_summary">ハードウェアデコード、ピクセル形式、バンディング除去</string>
   <string name="pref_decoder_profile_title">MPVプロファイル</string>
@@ -264,14 +258,14 @@
   <string name="pref_decoder_gpu_next_enable_anyway">それでも有効にする</string>
   <string name="pref_decoder_debanding_title">バンディング除去</string>
   <string name="pref_decoder_vulkan_summary">対応端末でVulkanレンダリングを有効にします（性能が向上する場合があります）</string>
-  <string name="pref_decoder_vulkan_not_supported">非対応（Vulkan 1.3搭載のAndroid 13以降が必要）</string>
+  <string name="pref_decoder_vulkan_not_supported">非対応（Vulkan %2$s搭載のAndroid %1$d以降が必要）</string>
   <string name="pref_decoder_vulkan_excluded_supported_device">OpenGLのみ（Vulkanには標準ビルドが必要）</string>
   <string name="pref_decoder_vulkan_excluded_unsupported_device">OpenGLのみ（この端末はVulkan 1.3非対応）</string>
   <string name="renderer_build_notice_title">Vulkanなしビルド</string>
   <string name="renderer_build_notice_supported_device">OpenGLを使用中（Vulkanには標準ビルドが必要）</string>
   <string name="renderer_build_notice_unsupported_device">OpenGLを使用中（この端末はVulkan 1.3非対応）</string>
   <string name="pref_decoder_yuv420p_title">YUV420Pピクセル形式を使用</string>
-  <string name="pref_decoder_yuv420p_summary">一部の動画コーデックで黒画面を解消し、画質と引き換えに性能も向上する場合があります</string>
+  <string name="pref_decoder_yuv420p_summary">黒画面の解消や高速化に役立つ場合がありますが、画質は低下します。</string>
   <string name="pref_subtitles">字幕</string>
   <string name="pref_subtitles_summary">優先言語、フォント、検索</string>
   <string name="pref_subtitle_search_title">オンライン字幕検索</string>
@@ -300,7 +294,7 @@
   <string name="pref_audio_summary">優先言語、音声チャンネル、ピッチ補正</string>
   <string name="pref_audio_orientation_title">オーディオプレーヤーの向き</string>
   <string name="pref_audio_pitch_correction_title">音声ピッチ補正を有効にする</string>
-  <string name="pref_audio_pitch_correction_summary">高速再生時に音が高く、低速再生時に低くなるのを防ぎます</string>
+  <string name="pref_audio_pitch_correction_summary">再生速度を変えても元の音程を保ちます。</string>
   <string name="pref_audio_volume_normalization_title">音量の正規化</string>
   <string name="pref_audio_volume_normalization_summary">一定の音量を保つように音量を自動調整します</string>
   <string name="pref_music_tabs_title">音楽ライブラリのタブ</string>
@@ -310,7 +304,7 @@
   <string name="pref_audio_visualizer_style_cuboid">キューボイド</string>
   <string name="pref_audio_visualizer_galaxy_credit">CodePenのZain Razaに着想を得ています</string>
   <string name="pref_audio_ambient_mode_title">アンビエントモード</string>
-  <string name="pref_audio_ambient_mode_summary">音楽プレーヤーでアルバムのアートワークから抽出したダイナミックなグラデーションを表示（ビジュアライザー有効時は無効）</string>
+  <string name="pref_audio_ambient_mode_summary">カバーに合わせた背景色。ビジュアライザー使用中は表示しません。</string>
   <string name="pref_audio_wavy_seekbar_title">波状シークバー</string>
   <string name="pref_audio_wavy_seekbar_summary">シークバーの上に多層の流体ウェーブビジュアライザーアニメーションを表示</string>
   <string name="pref_audio_channels">音声チャンネル</string>
@@ -319,7 +313,7 @@
   <string name="pref_audio_channels_mono">モノラル</string>
   <string name="pref_audio_channels_stereo">ステレオ</string>
   <string name="pref_audio_channels_stereo_reversed">左右反転ステレオ</string>
-  <string name="pref_audio_preferred_language">複数の音声ストリームを持つ動画で標準選択する音声言語。2文字または3文字の言語コードを使用でき、複数の値はカンマで区切れます。</string>
+  <string name="pref_audio_preferred_language">言語コードをカンマ区切りで入力（例：en,eng,ja）。左から優先します。</string>
   <string name="pref_audio_volume_boost_cap">音量ブースト上限</string>
   <string name="pref_advanced">詳細設定</string>
   <string name="pref_advanced_summary">設定の場所、mpv.conf</string>
@@ -352,7 +346,7 @@
   <string name="pref_anime4k_title">Anime4Kアップスケーリング</string>
   <string name="pref_anime4k_summary">Anime4Kアップスケーリングフィルターを有効にします</string>
   <string name="pref_anime4k_incompatibility">Anime4Kの非互換性</string>
-  <string name="pref_anime4k_gpu_next_error">Anime4Kには従来のgpu、またはVulkanを有効にしたgpu-nextが必要です。OpenGL上のgpu-nextはシェーダー互換性のため従来のgpuに戻ります。</string>
+  <string name="pref_anime4k_gpu_next_error">Anime4Kは従来のGPUかVulkan対応GPU Nextが必要。OpenGLでは従来のGPUを使用。</string>
   <string name="anime4k_mode_title">Anime4Kプリセット</string>
   <string name="pref_anime4k_quality_title">Anime4Kの品質</string>
   <!-- Anime4K Modes (Renamed to Presets in UI) -->
@@ -368,7 +362,7 @@
   <string name="anime4k_quality_balanced">バランス</string>
   <string name="anime4k_quality_high">高品質</string>
   <string name="pref_anime4k_in_4k_title">4K動画でも有効化</string>
-  <string name="pref_anime4k_in_4k_summary">4Kおよび8K動画でのAnime4Kアップスケーリングを許可（GPU負荷やサーマルスロットリングが増加する可能性があります）</string>
+  <string name="pref_anime4k_in_4k_summary">4K/8K動画でも有効にします。GPU負荷や発熱が増える場合があります。</string>
   <string name="pref_anime4k_darken_title">Anime4Kの線を暗くする</string>
   <string name="pref_anime4k_darken_summary">メインアップスケーラーの後に線の暗色化を追加します。</string>
   <string name="pref_anime4k_thin_title">Anime4Kの線を細くする</string>
@@ -426,9 +420,6 @@
   <string name="player_sheets_sub_misc_card_title">その他</string>
   <string name="player_sheets_sub_delay_card_title">字幕の遅延</string>
   <string name="player_sheets_sub_delay_card_delay">遅延</string>
-  <string name="player_sheets_delay_quick_sync_summary">クイック同期は絶対オフセットを設定するため、同じチップを2回押しても値は変わりません。</string>
-  <string name="player_sheets_delay_offset_seconds">%1$+d 秒</string>
-  <string name="player_sheets_delay_offset_zero_seconds">0 秒</string>
   <string name="player_sheets_sub_delay_card_speed">速度</string>
   <string name="player_sheets_sub_delay_subtitle_voice_heard">音声が聞こえた位置</string>
   <string name="player_sheets_sub_delay_subtitle_text_seen">文字が見えた位置</string>
@@ -457,6 +448,7 @@
   <string name="player_sheets_decoder_formatted" formatted="false">%s（%s）</string>
   <string name="numeric_chooser_value_too_big">値が大きすぎます</string>
   <string name="numeric_chooser_value_too_small">値が小さすぎます</string>
+  <string name="numeric_chooser_invalid_value">有効な数値を入力してください</string>
   <string name="player_sheets_more_title">その他</string>
   <string name="player_sheets_stats_page_title">デフォルトの統計ページ</string>
   <string name="player_sheets_stats_page_chip">ページ%d</string>
@@ -464,7 +456,7 @@
   <string name="player_aspect_crop">切り抜き</string>
   <string name="player_aspect_stretch">引き伸ばす</string>
   <string name="crash_screen_title">予期しないエラー</string>
-  <string name="crash_screen_subtitle">%sで予期しないエラーが発生したようです。GitHubのIssueでクラッシュログを共有することをご検討ください。</string>
+  <string name="crash_screen_subtitle">%sで予期しないエラーが発生。GitHubのIssueでログを共有してください。</string>
   <string name="crash_screen_logs_title">クラッシュログ：</string>
   <string name="crash_screen_share">クラッシュログを共有</string>
   <string name="crash_screen_restart">アプリを再起動</string>
@@ -487,20 +479,19 @@
   <string name="pref_player_display_reduce_player_animation">プレーヤーのアニメーションを減らす</string>
   <!-- Animation settings -->
   <string name="pref_player_display_hide_player_control_time">プレーヤー操作の時刻を非表示</string>
-  <string name="show_splash_ovals_on_double_tap_to_seek">ダブルタップシーク時に波紋を表示</string>
+  <string name="show_splash_ovals_on_double_tap_to_seek">タップシーク時に波紋を表示</string>
   <string name="show_time_on_double_tap_to_seek">シーク時間を表示</string>
   <string name="player_sheets_frame_navigation_title">フレーム移動</string>
   <string name="player_sheets_frame_navigation_include_subtitles">スナップショットに字幕を含める</string>
   <string name="player_sheets_zoom_slider_label">動画ズーム</string>
   <plurals name="seconds">
-    <item quantity="one">%1$d秒</item>
     <item quantity="other">%1$d秒</item>
   </plurals>
   <!-- Background Playback -->
   <string name="pref_audio_background_playback_title">バックグラウンド再生（オーディオプレイヤー）</string>
+  <string name="toast_audio_background_playback_on">音声のバックグラウンド再生をオンにしました</string>
+  <string name="toast_audio_background_playback_off">音声のバックグラウンド再生をオフにしました</string>
   <string name="pref_audio_background_playback_summary">オーディオプレイヤーを離れたり画面をオフにしても音声を再生し続ける</string>
-  <string name="pref_audio_mini_player_track_switching_title">ミニプレイヤーで曲を切り替える</string>
-  <string name="pref_audio_mini_player_track_switching_summary">ミニプレイヤーまたはバックグラウンド再生が有効な場合、別の曲を選択しても全画面プレイヤーを開かずにミニプレイヤーで切り替えます</string>
   <string name="pref_video_background_playback_title">バックグラウンド再生（ビデオプレイヤー）</string>
   <string name="pref_video_background_playback_summary">ビデオプレイヤーを離れたり画面をオフにしても動画の音声を再生し続ける</string>
   <string name="deselect_all">すべて選択解除</string>
@@ -643,6 +634,8 @@
 
   <!-- Player - Gesture & Action Overlays Section                 -->
   <string name="pref_section_overlays">ジェスチャーと操作のオーバーレイ</string>
+  <string name="pref_app_toasts_title">アプリのトースト</string>
+  <string name="pref_app_toasts_summary">アプリ全体でポップアップメッセージを表示</string>
   <string name="pref_volume_overlay_title">音量スライダーのオーバーレイ</string>
   <string name="pref_volume_overlay_summary">音量操作のスワイプ中に縦型の音量表示を出します</string>
   <string name="pref_brightness_overlay_title">明るさスライダーのオーバーレイ</string>
@@ -753,7 +746,7 @@
   <string name="pref_config_cache_cleared_toast">設定キャッシュを消去しました</string>
   <string name="pref_thumbnail_cache_confirm_title">サムネイルキャッシュを消去しますか？</string>
   <string name="pref_thumbnail_cache_confirm_subtitle">ストレージとメモリからキャッシュ済みサムネイルが削除されます。</string>
-  <string name="pref_section_logging">ログ</string>
+  <string name="pref_section_logging">ログ・診断・プライバシー</string>
   <string name="pref_export_failed_toast">エクスポートに失敗しました：%1$s</string>
 
   <!-- ═══════════════════════════════════════════════════════════ -->
@@ -802,7 +795,7 @@
   <string name="pref_custom_prompt_section">カスタム指示</string>
   <string name="pref_override_instructions_title">デフォルト指示を上書き</string>
   <string name="pref_custom_prompts_header">カスタム指示</string>
-  <string name="pref_custom_prompts_description">空欄にすると、そのタスクの組み込み指示を使用します。古い全体指示が保存されている場合は予備として使用します。</string>
+  <string name="pref_custom_prompts_description">空欄は標準の指示、または保存済みの共通プロンプトを使います。</string>
   <string name="pref_custom_rename_prompt_label">カスタム名前変更指示</string>
   <string name="pref_custom_translation_prompt_label">カスタム字幕翻訳指示</string>
   <string name="pref_custom_format_prompt_label">カスタム字幕整形指示</string>
@@ -814,7 +807,6 @@
   <!-- Folders Preferences                                        -->
   <!-- ═══════════════════════════════════════════════════════════ -->
   <string name="pref_media_library_section">メディアライブラリ</string>
-  <string name="pref_hidden_folders_section">非表示フォルダー</string>
   <string name="pref_clear_content_desc">消去</string>
 
   <!-- ═══════════════════════════════════════════════════════════ -->
@@ -845,10 +837,6 @@
   <string name="pref_config_cache_size">サイズ: %1$s</string>
   <string name="pref_thumbnail_cache_summary">キャッシュされた動画サムネイルをすべて削除（フォルダー閲覧時に再生成されます）</string>
   <string name="pref_thumbnail_cache_size">サイズ: %1$s</string>
-  <string name="pref_clear_animated_artwork_cache_title">アニメーションアートワークのキャッシュを消去</string>
-  <string name="pref_clear_animated_artwork_cache_summary">ダウンロード済みのアニメーションアルバムカバーを削除します（表示時に再ダウンロードされます）</string>
-  <string name="pref_animated_artwork_cache_size">サイズ: %1$s</string>
-  <string name="pref_animated_artwork_cache_cleared">アニメーションアートワークのキャッシュを消去しました</string>
   <string name="pref_fonts_cache_size">サイズ: %1$s · %2$dフォント</string>
   <string name="pref_failed_to_clear">消去できませんでした: %1$s</string>
   <string name="pref_export_failed">エクスポートに失敗しました: %1$s</string>
@@ -866,15 +854,12 @@
   <!-- Extracted UI strings -->
   <string name="generic_unknown_error">不明なエラー</string>
   <string name="toast_error_loading_scripts">スクリプトの読み込みエラー: %1$s</string>
-  <string name="toast_copied_value">コピーしました: %1$s</string>
   <string name="toast_failed_to_delete_reason">削除できませんでした: %1$s</string>
   <string name="toast_failed_to_rename_reason">名前を変更できませんでした: %1$s</string>
   <plurals name="toast_renamed_items">
-    <item quantity="one">%1$d件の項目の名前を変更しました</item>
     <item quantity="other">%1$d件の項目の名前を変更しました</item>
   </plurals>
   <plurals name="toast_failed_to_rename_items">
-    <item quantity="one">%1$d件の項目の名前を変更できませんでした</item>
     <item quantity="other">%1$d件の項目の名前を変更できませんでした</item>
   </plurals>
   <string name="toast_failed_to_save_reason">保存できませんでした: %1$s</string>
@@ -890,7 +875,6 @@
   <string name="pref_api_key_type">APIキー: %1$s</string>
   <string name="pref_paste_api_key">%1$s を貼り付け</string>
   <plurals name="rename_files_action">
-    <item quantity="one">%1$d個のファイル名を変更</item>
     <item quantity="other">%1$d個のファイル名を変更</item>
   </plurals>
   <string name="compressor_original_fps">元の値 - %1$d</string>
@@ -917,22 +901,6 @@
   <string name="player_move_subtitles_hint">上下にドラッグして字幕を移動</string>
   <string name="player_next_dialog">次のセリフ</string>
   <string name="player_previous_dialog">前のセリフ</string>
-  <string name="diagnostics_playback_decoder_header">再生とデコーダー</string>
-  <string name="diagnostics_power_thermals_header">電力と温度</string>
-  <string name="diagnostics_session_header">セッション</string>
-  <string name="diagnostics_torrent_header">トレント</string>
-  <string name="diagnostics_torrent_peer_status">ピア状態</string>
-  <string name="diagnostics_torrent_peers_value">%1$d ピア | %2$d シード</string>
-  <string name="diagnostics_torrent_loaded">ダウンロード済み</string>
-  <string name="diagnostics_torrent_loaded_value">%1$s / %2$s (%3$d%%)</string>
-  <string name="diagnostics_torrent_transfer">転送</string>
-  <string name="diagnostics_torrent_transfer_value">受信 %1$s | 送信 %2$s</string>
-  <string name="diagnostics_app_cpu">アプリ CPU</string>
-  <string name="diagnostics_memory_cache_header">メモリとキャッシュ</string>
-  <string name="diagnostics_process_memory">プロセス</string>
-  <string name="diagnostics_process_memory_value">PSS %1$s | Java %2$s/%3$s | ネイティブ %4$s</string>
-  <string name="diagnostics_playback_cache">再生</string>
-  <string name="diagnostics_playback_cache_value">バッファ %1$.1f 秒 | パケット %2$s | ファイル %3$s</string>
   <string name="toast_failed_to_read_file">ファイルを読み込めませんでした: %1$s</string>
   <string name="pref_decoder_vulkan_experimental_title">Vulkan（試験的）</string>
   <string name="hdr_mode_off">オフ</string>
@@ -943,7 +911,6 @@
   <string name="hdr_mode_linear">リニアHDR</string>
   <string name="hdr_mode_linear_short">リニア</string>
   <string name="hdr_mode_linear_description">hdr-toys の Astra および Bottosson シェーダーによるリニア HDR パイプライン</string>
-  <string name="hdr_mode_output_diagnostic">HDR - %1$sモード出力</string>
   <string name="pref_section_support">サポート</string>
   <string name="pref_section_updates">アップデート</string>
   <string name="pref_section_system">システム</string>
@@ -1007,7 +974,7 @@
   <string name="lua_no_mpv_folder">MPVフォルダーが選択されていません</string>
   <string name="lua_no_scripts_found">スクリプトが見つかりません</string>
   <string name="lua_delete_script_title">スクリプトを削除しますか？</string>
-  <string name="lua_delete_script_message">"%1$s" を削除しますか？この操作は取り消せません。</string>
+  <string name="lua_delete_script_message">\"%1$s\" を削除しますか？この操作は取り消せません。</string>
   <string name="search_category_advanced">詳細設定</string>
   <string name="search_category_ai">AI</string>
   <string name="search_category_appearance">外観</string>
@@ -1045,6 +1012,9 @@
   <string name="player_horizontal_flip_off">左右反転オフ</string>
   <string name="player_vertical_flip_on">上下反転オン</string>
   <string name="player_vertical_flip_off">上下反転オフ</string>
+  <string name="player_hwplus_unsupported">%1$s は HW+ モードでは使用できません。使用するには HW または SW デコードに切り替えてください。</string>
+  <string name="player_hwplus_use_hw">HW を使用</string>
+  <string name="player_hwplus_cpu_deband">CPU バンディング除去</string>
   <string name="btn_label_back">戻る矢印</string>
   <string name="btn_label_title">動画タイトル</string>
   <string name="btn_label_bookmarks">チャプター／ブックマーク</string>
@@ -1289,11 +1259,11 @@
   <string name="ui_discovering_and_displaying_your_video_files_n_playing_media_cont">• 動画ファイルの検出と表示
 • メディアコンテンツの再生
 • 字幕ファイルの読み込み</string>
-  <string name="ui_mpvrx_has_always_required_storage_access_permission_as_it_s_esse">mpvRxでは、システムが対応していないものを含む端末上のすべてのメディアおよび字幕ファイルを見つけるために、以前からストレージへのアクセス権限が必要でした。</string>
-  <string name="ui_however_due_to_a_change_in_security_policy_apps_built_for_androi">ただし、セキュリティポリシーの変更により、Android 11以降向けのアプリでは同じアクセスを継続するために追加の権限が必要になりました。</string>
-  <string name="ui_please_know_that_this_permission_is_only_used_for_the_auto_disco">この権限は端末上のメディア／字幕ファイルの自動検出にのみ使用され、他のアプリが保存した個人データにアクセスすることはありません。</string>
-  <string name="ui_mpvrx_is_an_open_source_project_you_can_review_the_source_code_a">mpvRxはオープンソースプロジェクトです。GitHubリポジトリでソースコードと権限の使用方法を確認できます：</string>
-  <string name="ui_be_rest_assured_your_privacy_is_our_utmost_priority_and_we_neith">ご安心ください。プライバシーを最優先しており、他の目的でファイルにアクセスしたり、サーバーへ転送・保存したりすることはありません。ファイルは端末内に安全に保たれます。</string>
+  <string name="ui_mpvrx_has_always_required_storage_access_permission_as_it_s_esse">ストレージ権限で、未登録形式を含むメディアと字幕ファイルを検索できます。</string>
+  <string name="ui_however_due_to_a_change_in_security_policy_apps_built_for_androi">Android 11以降で全ストレージにアクセスするには追加の権限が必要です。</string>
+  <string name="ui_please_know_that_this_permission_is_only_used_for_the_auto_disco">メディアと字幕の検索のみに使用し、アプリの非公開データにはアクセスしません。</string>
+  <string name="ui_mpvrx_is_an_open_source_project_you_can_review_the_source_code_a">権限の使用方法は公開ソースコードで確認できます：</string>
+  <string name="ui_be_rest_assured_your_privacy_is_our_utmost_priority_and_we_neith">ファイルは端末内に残り、当社のサーバーにはアップロードしません。</string>
   <string name="ui_app_permissions">アプリの権限</string>
   <string name="ui_permissions_setup_subtitle">主要機能とメディア再生を有効にするために権限を設定します。</string>
   <string name="ui_file_permission_title">ファイルとストレージへのアクセス</string>
@@ -1303,7 +1273,7 @@
   <string name="ui_notification_permission_title">通知</string>
   <string name="ui_notification_permission_desc">任意。再生コントロール、バックグラウンド状態、更新アラートに必要です。</string>
   <string name="ui_audio_record_permission_title">音声の録音</string>
-  <string name="ui_audio_record_permission_desc">任意。オーディオビジュアルライザーがリアルタイムのスペクトルと周波数エネルギーを処理するために必要です。</string>
+  <string name="ui_audio_record_permission_desc">任意。ビジュアライザーがリアルタイムの音声レベルを取得します。</string>
   <string name="ui_permission_granted">許可済み</string>
   <string name="ui_next">次へ</string>
   <string name="ui_grant_permission_hint">タップして権限を許可</string>
@@ -1314,14 +1284,15 @@
   <string name="ui_no_results_found">結果が見つかりません</string>
   <string name="ui_no_android">Androidなし</string>
   <string name="ui_script_runtime">スクリプト実行環境</string>
-  <string name="ui_newly_enabled_scripts_can_load_during_playback_scripts_you_turn">新しく有効にしたスクリプトは再生中に読み込めます。無効にしたスクリプトを完全に停止するには、動画を開き直す必要がある場合があります。</string>
+  <string name="ui_newly_enabled_scripts_can_load_during_playback_scripts_you_turn">有効なスクリプトは即時読み込み。無効にしたものを完全に止めるには動画を開き直します。</string>
   <string name="ui_media_info">メディア情報</string>
+  <string name="media_info_playback_snapshot">プレーヤーがこのストリームから読み取れる情報を表示しています。ファイルの詳細の一部は表示できない場合があります。</string>
+  <string name="media_info_unavailable">このソースのメディア情報は取得できません。</string>
   <string name="ui_analyzing_media_file">メディアファイルを解析中...</string>
   <string name="ui_media_tracks_summary">メディアトラックの概要</string>
   <string name="ui_container_metadata">コンテナのメタデータ</string>
   <string name="ui_video_chapters_timeline">動画チャプターとタイムライン</string>
   <string name="ui_copy_all">すべてコピー</string>
-  <string name="ui_copied_specifications_to_clipboard">仕様をクリップボードにコピーしました</string>
   <string name="ui_playback_speed">再生速度</string>
   <string name="ui_previous_frame">前のフレーム</string>
   <string name="ui_take_screenshot">スクリーンショットを撮影</string>
@@ -1339,15 +1310,19 @@
   <string name="ui_enable_ass_override">ASS上書きを有効化</string>
   <string name="ui_filter_presets">フィルタープリセット</string>
   <string name="ui_yt_dlp_manager">yt-dlpマネージャー</string>
+  <string name="ytdlp_auth_required_title">YouTubeの認証が必要です</string>
+  <string name="ytdlp_auth_required_message">YouTubeの認証が必要です。再生できるブラウザーから新しいNetscape形式のcookies.txtを取り込み、一度再試行します。</string>
+  <string name="ytdlp_cookies_title">YouTube Cookie</string>
+  <string name="ytdlp_cookies_summary">YouTube Cookieをバックアップ対象外の非公開領域に保存して再利用。不要になったら消去してください。</string>
+  <string name="ytdlp_cookies_configured">Cookie設定済み</string>
+  <string name="ytdlp_cookies_help">YouTube Cookieのエクスポート方法</string>
+  <string name="ytdlp_cookies_help_failed">手順を開くブラウザーがありません。</string>
+  <string name="ytdlp_cookies_import">cookies.txtをインポート</string>
+  <string name="ytdlp_cookies_import_retry">Cookieをインポートして再試行</string>
+  <string name="ytdlp_cookies_invalid">有効なYouTube Cookieを含む、1 MiB以下のNetscape形式のcookies.txtを選択してください。</string>
+  <string name="ytdlp_cookies_import_failed">Cookieを更新できませんでした。ファイルへのアクセスを確認して再試行してください。</string>
+  <string name="ytdlp_cookies_config_owned">Cookieはmpv.confまたはカスタムyt-dlpオプションで管理されています。再試行する前にそれらを更新してください。</string>
   <string name="ui_aspect_ratio">アスペクト比</string>
-  <string name="ui_auto_crop_black_bars">黒帯を自動クロップ</string>
-  <string name="ui_auto_crop_black_bars_summary">バックグラウンドで複数のフレームを解析し、映像に常時含まれる黒帯をクロップします。</string>
-  <string name="ui_auto_crop_black_bars_analyzing">映像フレームを解析中…</string>
-  <string name="ui_auto_crop_black_bars_applied">この動画の黒帯を除去しました。</string>
-  <string name="ui_auto_crop_black_bars_none">常時表示される黒帯は検出されませんでした。</string>
-  <string name="ui_auto_crop_black_bars_unsupported">この動画ソースは解析できません。</string>
-  <string name="ui_auto_crop_black_bars_failed">黒帯の解析に失敗しました。</string>
-  <string name="ui_auto_crop_black_bars_managed">video-crop は mpv.conf で管理されています。</string>
   <string name="ui_presets">プリセット</string>
   <string name="ui_add_custom_ratio_e_g_16_9">カスタム比率を追加（例: 16:9）</string>
   <string name="ui_width">幅</string>
@@ -1386,7 +1361,6 @@
   <string name="ui_core_open_source_dependencies_used_by_mpvrx">mpvRxで使用している主要なオープンソース依存関係。</string>
   <string name="ui_copy_upi_id">UPI IDをコピー</string>
   <string name="ui_already_using_latest_version">すでに最新バージョンです</string>
-  <string name="ui_upi_id_copied">UPI IDをコピーしました！</string>
   <string name="ui_no_upi_app_found">UPIアプリが見つかりません</string>
   <string name="ui_install_and_update_yt_dlp_for_streaming_support">ストリーミング対応のためyt-dlpをインストールして更新</string>
   <string name="ui_instructions_for_ai_file_renaming">AIによるファイル名変更の指示...</string>
@@ -1395,7 +1369,7 @@
   <string name="ui_subtitle_translation_can_be_a_bit_messy">字幕翻訳は多少不正確な場合があります。 </string>
   <string name="ui_real_time_model">リアルタイムモデル</string>
   <string name="ui_auto_translate_target_languages">自動翻訳の対象言語</string>
-  <string name="ui_when_translating_subtitles_if_1_language_is_configured_it_transl">字幕翻訳では、設定言語が1つなら直接翻訳し、2つ以上なら選択画面を表示します。</string>
+  <string name="ui_when_translating_subtitles_if_1_language_is_configured_it_transl">1言語なら直接翻訳、複数なら選択画面を表示。</string>
   <string name="ui_no_target_languages_configured">対象言語が設定されていません</string>
   <string name="ui_search_languages">言語を検索...</string>
   <string name="ui_refresh">更新</string>
@@ -1437,8 +1411,6 @@
   <string name="ui_no_storage_location_configured">保存場所が設定されていません</string>
   <string name="ui_script_file_not_found">スクリプトファイルが見つかりません</string>
   <string name="ui_search_models">モデルを検索...</string>
-  <string name="ui_portrait_playback_buttons">縦向き再生ボタン</string>
-  <string name="ui_landscape_playback_buttons">横向き再生ボタン</string>
   <string name="ui_portrait_seekbar_position">縦向きのシークバーの位置</string>
   <string name="ui_landscape_seekbar_position">横向きのシークバーの位置</string>
   <string name="pref_player_buttons_opacity">プレーヤーボタンの背景の不透明度</string>
@@ -1500,7 +1472,6 @@
   <string name="oss_androidx_documentfile_description">ドキュメントストレージアクセスの抽象化レイヤー。</string>
   <string name="oss_androidx_media_description">Androidのメディアセッションおよび再生API。</string>
   <string name="oss_androidx_palette_description">画像から支配的で鮮やかなカラーパレットを抽出します。</string>
-  <string name="oss_androidx_profile_installer_description">アプリ起動を高速化するためクラスとメソッドを事前取得します。</string>
   <string name="oss_google_material_description">Material Designコンポーネントとテーマライブラリ。</string>
   <string name="oss_google_cast_description">メディアキャスト向けChromecastフレームワーク。</string>
   <string name="oss_material_symbols_description">Compose向けMaterial Symbolsアイコンセット。</string>
@@ -1541,7 +1512,7 @@
   <string name="filter_preset_vibrant_neon_like_colors_with_edge">エッジの効いた鮮やかなネオンカラー</string>
   <string name="filter_preset_enhanced_blacks_for_oled_displays">OLEDディスプレイ向けに黒を強調</string>
   <string name="filter_preset_custom_section">カスタムプリセット</string>
-  <string name="filter_preset_custom_empty">明るさ、コントラスト、ガンマ、彩度、色調、シャープネスを調整してから、その組み合わせを保存して再利用できます。</string>
+  <string name="filter_preset_custom_empty">画質を調整し、プリセットとして保存します。</string>
   <string name="filter_preset_save_current">現在を保存</string>
   <string name="filter_preset_save_title">カスタムプリセットを保存</string>
   <string name="filter_preset_rename_title">プリセットの名前を変更</string>
@@ -1555,7 +1526,7 @@
   <string name="filter_preset_menu_description">プリセットのオプション</string>
   <string name="filter_preset_save">保存</string>
   <string name="syncplay_title">Syncplay</string>
-  <string name="syncplay_description">友達と動画を同期して視聴できます。一緒に視聴するにはSyncplayサーバーに接続してください。</string>
+  <string name="syncplay_description">Syncplayサーバーで一緒に視聴。</string>
   <string name="syncplay_connected_as">%1$s としてルーム %2$s に接続中</string>
   <string name="syncplay_users_in_room">ルーム内のユーザー:</string>
   <string name="syncplay_disconnect">切断</string>
@@ -1618,18 +1589,17 @@
   <string name="secure_folder_delete_confirm_title">%1$d件のアイテムを永久に削除しますか？</string>
   <string name="secure_folder_delete_confirm_subtitle">この操作は取り消せません — ファイルは安全なフォルダから永久に削除されます。</string>
   <string name="secure_folder_hide_entry_title">設定から「安全なフォルダ」を非表示にしますか？</string>
-  <string name="secure_folder_hide_entry_subtitle">「安全なフォルダ」項目が設定から削除されます。後で開くには、ホーム画面上部のアプリ名をダブルタップしてPINを入力してください。</string>
+  <string name="secure_folder_hide_entry_subtitle">設定からこのページを隠します。再表示はホームの見出しをダブルタップし、PINを入力して設定を開きます。</string>
   <string name="secure_folder_working_on_it">処理中…</string>
   <string name="secure_folder_restore">元に戻す</string>
   <string name="secure_folder_move_to">安全なフォルダへ移動</string>
   <string name="secure_folder_moving_progress">安全なフォルダへ移動中…</string>
   <string name="secure_folder_move_folders_title">%1$d個のフォルダを安全なフォルダへ移動しますか？</string>
-  <string name="secure_folder_move_folders_subtitle">含まれるすべての動画は、元に戻されるまでこのリストおよびアプリの他の場所から消えます。</string>
+  <string name="secure_folder_move_folders_subtitle">復元するまで、このフォルダー内の全動画を隠します。</string>
   <string name="secure_folder_move_items_title">%1$d件のアイテムを安全なフォルダへ移動しますか？</string>
   <string name="secure_folder_move_items_subtitle">元に戻されるまで、このリストおよびアプリの他の場所から消えます。</string>
   <string name="secure_folder_moved_success">%1$d件のファイルを安全なフォルダへ移動しました</string>
   <string name="secure_folder_moved_partial">%1$d件移動、%2$d件失敗</string>
-  <string name="secure_folder_move_failed">安全なフォルダへの移動に失敗しました</string>
   <string name="secure_folder_error_incorrect_pin">PINが正しくありません</string>
   <string name="secure_folder_error_pins_dont_match">PINが一致しません</string>
   <string name="secure_folder_error_answer_question">秘密の質問に答えてください</string>
@@ -1647,7 +1617,7 @@
     <string name="secure_folder_settings_security">セキュリティ</string>
     <string name="secure_folder_settings_danger_zone">危険な操作</string>
     <string name="secure_folder_settings_help">ヘルプ</string>
-    <string name="secure_folder_settings_help_text">ホーム画面上部のアプリ名をダブルタップまたは長押しすると、シークレットフォルダが開きます。</string>
+    <string name="secure_folder_settings_help_text">ホームの見出しをダブルタップか長押ししてセキュアフォルダーを開きます。</string>
     <string name="secure_folder_settings_setup_first">まずシークレットフォルダを開いて PIN を設定してください。</string>
     <string name="secure_folder_biometric_title">生体認証によるロック解除を有効にする</string>
     <string name="secure_folder_biometric_summary">指紋または顔でロックを解除</string>
@@ -1669,7 +1639,7 @@
     <string name="secure_folder_destroy_no_screen_lock">これを使用するには、画面ロック（PIN、パターン、パスワード）を設定してください。</string>
   <string name="pref_codecs_decoders_summary">%1$d ハードウェア • %2$d ソフトウェアデコーダー</string>
   <string name="pref_codecs_banner_title">ハードウェア vs ソフトウェアデコード</string>
-  <string name="pref_codecs_banner_desc">ハードウェアデコーダーは専用の VPU/GPU チップで直接処理し、省電力です。ソフトウェアデコーダーは CPU で実行されるため、4K などの再生時にバッテリー消費と発熱が増加します。</string>
+  <string name="pref_codecs_banner_desc">ハードウェアデコードは省電力です。ソフトウェアデコードは発熱や電池消費が増える場合があります。</string>
   <string name="pref_codecs_core_title">主要ビデオコーデックのステータス</string>
   <string name="pref_codecs_search_placeholder">コーデック名、フォーマット、MIMEを検索...</string>
   <string name="pref_codecs_filter_all">すべて (%d)</string>
@@ -1691,7 +1661,6 @@
   <string name="pref_codecs_max_instances">最大同時インスタンス数: %d</string>
   <string name="pref_codecs_supported_profiles">対応プロファイル:</string>
   <string name="pref_codecs_hdr_tag">10 ビット HDR</string>
-  <string name="pref_codecs_report_copied">コーデックレポートをクリップボードにコピーしました</string>
   <string name="pref_codecs_bitrate_range">ビットレート範囲: %s</string>
   <string name="pref_codecs_sample_rates">対応サンプリングレート:</string>
   <string name="pref_codecs_max_channels">最大チャンネル数: %d</string>
@@ -1727,7 +1696,6 @@
   <string name="ui_new_password_keep_existing">新しいパスワード（空白の場合は保存済みのパスワードを維持）</string>
   <string name="ui_clear_saved_password">保存済みのパスワードをクリア</string>
   <plurals name="torrent_picker_playable_count">
-    <item quantity="one">%1$d 個の再生可能なファイル</item>
     <item quantity="other">%1$d 個の再生可能なファイル</item>
   </plurals>
     <string name="pref_nav_jellyfin_title">Jellyfinタブを表示</string>
@@ -1738,7 +1706,7 @@
     <string name="ui_recent_streams">最近のストリームリンク</string>
     <string name="ui_play_now">再生</string>
     <string name="ui_no_saved_media_title">保存されたリンクはありません</string>
-    <string name="ui_no_saved_media_description">ストリームURLやマグネットリンクを貼り付けるか、最近のリンクから保存してコレクションを作成します。</string>
+    <string name="ui_no_saved_media_description">配信URL・マグネット・最近のリンクを追加。</string>
     <string name="ui_search_episodes">エピソードを検索…</string>
     <string name="ui_sort_ascending">昇順で並べ替え</string>
     <string name="ui_sort_descending">降顺で並べ替え</string>
@@ -1782,8 +1750,7 @@
   <string name="pref_mpv_conf_override_osd">OSD セーフエリア</string>
   <string name="pref_mpv_conf_override_osd_summary">OSD のフォント、マージン、セーフエリア設定を上書きします。</string>
   <string name="mpv_config_owned_title">mpv.conf が制御中</string>
-  <string name="mpv_config_owned_message">このアプリ操作は、必要なオプションの一部または全部が詳細設定で mpv.conf に割り当てられているため無効です。</string>
-  <string name="pref_lyrics_translation_category">歌詞の翻訳・ローマ字変換</string>
+  <string name="mpv_config_owned_message">mpv.confが管理しています。操作するには詳細設定でオプションの管理元を変更してください。</string>
   <string name="pref_lyrics_auto_translate">外国語の歌詞を自動翻訳</string>
   <string name="pref_lyrics_auto_translate_summary">外国語の歌詞を自動的に優先言語に翻訳</string>
   <string name="pref_lyrics_target_language">デフォルトの翻訳先言語</string>
@@ -1822,7 +1789,6 @@
   <string name="seerr_server_url_hint">http://192.168.1.100:5055</string>
   <string name="seerr_api_key">API キー</string>
   <string name="seerr_api_key_hint">Overseerr / Jellyseerr API キー</string>
-  <string name="seerr_username">ユーザー名またはメールアドレス</string>
   <string name="seerr_password">パスワード</string>
   <string name="seerr_login">接続</string>
   <string name="seerr_disconnect">切断</string>
@@ -1866,9 +1832,6 @@
   <string name="ui_yt_dlp_commit">コミット %1$s</string>
   <string name="ui_version_unavailable">バージョンを取得できません</string>
   <string name="ui_update_channel">アップデートチャンネル</string>
-  <string name="ui_stable_releases">安定版</string>
-  <string name="ui_preview_builds">プレビュー (Nightly)</string>
-  <string name="ui_preview_builds_summary">プレビュービルドは最新の mpvRx の変更から公開される署名済みテスト版で、不安定な場合があります。</string>
   <string name="update_whats_new">新機能</string>
   <string name="update_no_release_notes">リリースノートはありません。</string>
   <string name="update_ready_to_install">インストール準備完了</string>
@@ -1899,7 +1862,7 @@
   <string name="storage_permission_needed_desc">メディアの閲覧と再生にはストレージアクセスを許可してください。</string>
   <string name="storage_permission_grant">アクセスを許可</string>
   <string name="pref_player_web_stream_links_title">ストリーミングサイトのリンクを開く</string>
-  <string name="pref_player_web_stream_links_summary">対応する配信サイトのリンクやテキストで共有されたリンクで mpvRx を候補に表示します。無効にしてもメディアファイルや直接のメディアURLは開けます。</string>
+  <string name="pref_player_web_stream_links_summary">対応サイトのリンクをmpvRxで開きます。オフでもメディアへの直接リンクは利用できます。</string>
 
   <string name="btn_label_scopes">スコープ</string>
   <string name="scopes_title">スコープ</string>
@@ -1965,7 +1928,7 @@
   <string name="player_started_afresh_pill">最初から再生しました</string>
   <string name="player_restart_action">最初から再生</string>
   <string name="pref_resume_indicator_overlay_title">再開インジケーター</string>
-  <string name="pref_resume_indicator_overlay_summary">再開位置または開始位置のフィードバックピルを表示します。確認モードの操作用再開ピルは常に表示されます</string>
+  <string name="pref_resume_indicator_overlay_summary">再開ヒントを表示。「確認する」では再開の確認を常に表示します。</string>
 
   <!-- Media Servers Settings -->
   <string name="pref_media_servers_title">メディアサーバー</string>
@@ -2004,23 +1967,23 @@
   <string name="pref_appearance_custom_wallpaper_preview_locked">プレビューがロックされています</string>
   <string name="pref_appearance_custom_wallpaper_preview_unlocked">プレビューのロックが解除されました</string>
   <string name="pref_appearance_custom_wallpaper_crop_title">壁紙を調整</string><string name="pref_appearance_custom_wallpaper_zoom">ズーム</string><string name="pref_appearance_custom_wallpaper_horizontal">水平位置</string><string name="pref_appearance_custom_wallpaper_vertical">垂直位置</string><string name="pref_appearance_custom_wallpaper_save">壁紙を保存</string>
-  <string name="pref_appearance_custom_theme_new">新しいカスタムテーマ</string><string name="pref_appearance_custom_theme_edit_title">カスタムテーマを編集</string><string name="pref_appearance_custom_theme_preview">プレビュー</string><string name="pref_appearance_custom_theme_live_preview">ライブプレビュー</string><string name="pref_appearance_custom_theme_name_required">テーマ名を入力してください</string><string name="pref_appearance_custom_theme_name_duplicate">同じ名前のテーマが既にあります</string><string name="pref_appearance_custom_theme_hex_invalid">#6750A4 のような16進カラーを使用してください</string><string name="pref_appearance_custom_wallpaper_gesture_hint">ドラッグして位置を変更。ピンチしてズーム。</string><string name="pref_appearance_custom_wallpaper_reset">リセット</string>
+  <string name="pref_appearance_custom_theme_new">新しいカスタムテーマ</string><string name="pref_appearance_custom_theme_edit_title">カスタムテーマを編集</string><string name="pref_appearance_custom_theme_preview">プレビュー</string><string name="pref_appearance_custom_theme_name_required">テーマ名を入力してください</string><string name="pref_appearance_custom_theme_name_duplicate">同じ名前のテーマが既にあります</string><string name="pref_appearance_custom_theme_hex_invalid">#6750A4 のような16進カラーを使用してください</string><string name="pref_appearance_custom_wallpaper_gesture_hint">ドラッグして位置を変更。ピンチしてズーム。</string><string name="pref_appearance_custom_wallpaper_reset">リセット</string>
   <string name="pref_appearance_custom_theme_light_secondary">ライトのセカンダリカラー</string><string name="pref_appearance_custom_theme_dark_secondary">ダークのセカンダリカラー</string><string name="pref_appearance_custom_theme_light_tertiary">ライトのターシャリカラー</string><string name="pref_appearance_custom_theme_dark_tertiary">ダークのターシャリカラー</string>
   <string name="pref_appearance_custom_wallpaper_fit">全体表示</string><string name="pref_appearance_custom_wallpaper_fill">画面を埋める</string><string name="pref_appearance_custom_wallpaper_replace_action">置換</string>  <string name="pref_appearance_custom_wallpaper_use_colors">壁紙の色を使用</string>
   <string name="pref_appearance_custom_wallpaper_use_colors_summary">この壁紙の色からアプリのテーマを生成します</string>
   <string name="pref_appearance_custom_wallpaper_colors_failed">この壁紙から色を抽出できませんでした</string>
   <string name="wallpaper_save_failed">壁紙を保存できませんでした。画像を選び直してください。</string>
   <string name="pref_haptic_feedback_title">触覚フィードバック</string>
-  <string name="pref_haptic_feedback_summary">選択、ドラッグ、コントロールの調整時に触覚で反応します。システム設定に従います。</string>
+  <string name="pref_haptic_feedback_summary">選択・ドラッグ・調整時の触覚フィードバック。システム設定に従います。</string>
   <string name="pref_nested_tab_swipes_title">内部タブ間のスワイプ</string>
-  <string name="pref_nested_tab_swipes_summary">音楽・ネットワーク・履歴内での左右スワイプを有効にします。メイン画面の切り替えや項目のスワイプ操作は変更されません。</string>
+  <string name="pref_nested_tab_swipes_summary">音楽・ネットワーク・履歴のサブタブをスワイプで切り替えます。</string>
   <string name="oss_kmp_vibrate_description">WonDDak (jmseb3) による触覚フィードバックライブラリ。</string>
   <string name="ambient_style_youtube">YouTube</string>
-  <string name="ambient_youtube_auto_hint">YouTube モードは完全自動です。YouTube のアンビエントモードのように、現在のフレームをぼかして投影し、帯状の余白を柔らかく照らします。</string>
+  <string name="ambient_youtube_auto_hint">動画のぼかした映像で余白を自動的に照らします。</string>
   <string name="btn_label_post_processing">ポスト処理</string>
   <string name="clip_end_short">終了</string>
   <string name="clip_start_short">開始</string>
-  <string name="enter_subtitle_title_preferences">字幕タイトルのキーワードや言語コードを、優先順位の高い順にコンマで区切って入力してください。先に一致したものが優先されます。</string>
+  <string name="enter_subtitle_title_preferences">字幕キーワードか言語コードをカンマ区切りで入力。左から優先します。</string>
   <string name="generic_configure">設定</string>
   <string name="generic_install">インストール</string>
   <string name="music_source_navidrome">Navidrome ミュージック</string>
@@ -2059,8 +2022,6 @@
   <string name="pref_appearance_custom_wallpaper_transparency">透明度</string>
   <string name="pref_folders_add_marker">マーカーファイルを追加</string>
   <string name="pref_folders_add_marker_title">隠しフォルダーのマーカーを追加</string>
-  <string name="pref_folders_hidden_markers_empty">マーカーファイルは設定されていません。名前がドットで始まるフォルダーは引き続き対象になります。</string>
-  <string name="pref_folders_hidden_markers_summary">これらのファイルを含むフォルダーとそのサブフォルダーを対象にします。名前がドットで始まるフォルダーは常に対象になります。</string>
   <string name="pref_folders_hidden_markers_title">マーカーファイル</string>
   <string name="pref_folders_include_hidden_summary">名前がドットで始まるフォルダーや、選択したマーカーファイルを含むフォルダー内の動画を検索します。</string>
   <string name="pref_folders_include_hidden_title">隠しメディアフォルダーを含める</string>
@@ -2191,11 +2152,9 @@
   <string name="playlist_unavailable_file">移動または削除されています</string>
   <string name="playlist_item_unavailable">「%1$s」%2$s</string>
   <plurals name="playlist_remove_dialog_title">
-    <item quantity="one">%1$d 件の動画をプレイリストから削除しますか？</item>
     <item quantity="other">%1$d 件の動画をプレイリストから削除しますか？</item>
   </plurals>
   <plurals name="playlist_remove_dialog_message">
-    <item quantity="one">選択した動画はこのプレイリストから削除されます。元のファイルは削除されません。</item>
     <item quantity="other">選択した動画はこのプレイリストから削除されます。元のファイルは削除されません。</item>
   </plurals>
   <string name="playlist_connect_source_title">接続済みのソースがありません</string>
@@ -2229,7 +2188,7 @@
   <string name="pref_background_playback_remember">選択を常に記憶する</string>
   <string name="pref_background_playback_remember_summary">バックグラウンド再生の選択を次の動画でも維持します。</string>
   <string name="pref_background_playback_per_video">動画ごとに選択を記憶する</string>
-  <string name="pref_background_playback_per_video_summary">バックグラウンド再生の選択を動画ごとに保存します。他の動画では有効にするまでオフのままです。</string>
+  <string name="pref_background_playback_per_video_summary">バックグラウンド再生の設定を動画ごとに保存します。</string>
   <string name="jellyfin_technical_details">技術情報</string>
 
   <!-- Snapshots (frame capture) -->
@@ -2239,6 +2198,10 @@
   <string name="pref_nav_profile_summary">履歴、プレイリスト、スナップショットを1つのタブにまとめる</string>
   <string name="profile_view_all">すべて表示</string>
   <string name="profile_edit">プロフィールを編集</string>
+  <string name="profile_layout_title">プロフィールのレイアウト</string>
+  <string name="profile_layout_sections">プロフィールのセクション</string>
+  <string name="profile_recently_added">最近追加した動画</string>
+  <string name="profile_recently_added_empty">ライブラリに追加した動画がここに表示されます。</string>
   <string name="profile_display_name">表示名</string>
   <string name="profile_choose_photo">写真を選択</string>
   <string name="profile_remove_photo">写真を削除</string>
@@ -2267,7 +2230,6 @@
   <string name="snapshot_delete_title">スナップショットを削除しますか？</string>
   <string name="snapshot_delete_selected_title">%1$d 件のスナップショットを削除しますか？</string>
   <string name="snapshot_delete_message">アプリから記録を削除します。画像はギャラリーに残ります。</string>
-  <string name="snapshot_delete">削除</string>
   <string name="snapshot_remove">記録を削除</string>
 
   <string name="snapshot_root">ルート</string>
@@ -2292,7 +2254,7 @@
   <string name="snapshot_delete_folder_empty_message">アプリからフォルダを削除します。</string>
 
   <string name="snapshot_folder_empty_title">このフォルダは空です</string>
-  <string name="snapshot_folder_empty_message">スナップショット一覧で長押しし、「フォルダへ移動」を選ぶとここに整理できます。</string>
+  <string name="snapshot_folder_empty_message">スナップショットを長押しして「フォルダーへ移動」を選択。</string>
 
   <string name="snapshot_sort_folder_name">フォルダ名</string>
   <string name="snapshot_sort_created_at">作成日</string>
@@ -2307,12 +2269,11 @@
   <string name="oss_backdrop_description">Liquid Glass 面向けの Compose ぼかしと屈折。</string>
   <string name="oss_telephoto_description">画像ビューアーのズームとパン操作。</string>
   <string name="oss_androidx_lifecycle_description">Compose 画面向けのライフサイクル対応状態と ViewModel。</string>
-  <string name="oss_leakcanary_description">デバッグビルドのメモリリークを検出します。</string>
   <string name="oss_ytdlp_description">対応ストリーミングリンク用のオンラインメディア抽出ツール。</string>
   <string name="oss_anime4k_description">アニメ動画向けのリアルタイム高解像度化・復元シェーダー。</string>
   <string name="oss_hdr_toys_description">HDR トーンマッピング、色域マッピング、伝達関数シェーダー。</string>
   <string name="pref_auto_backup_title">設定の自動バックアップ</string>
-  <string name="pref_auto_backup_summary">mpvRx がバックグラウンドに移動したとき、変更された設定を Configuration/Backup に保存します。最新の 7 件を保持します。</string>
+  <string name="pref_auto_backup_summary">バックグラウンド移行時にバックアップ。Configuration/Backupに7件保存します。</string>
   <string name="pref_auto_backup_select_folder">先に設定フォルダーを選択してください</string>
   <string name="pref_auto_backup_last_backup">前回のバックアップ: %1$s</string>
   <string name="watch_stats_title">視聴統計</string>
@@ -2322,29 +2283,31 @@
   <string name="watch_stats_video">動画</string>
   <string name="watch_stats_audio">音声</string>
   <string name="watch_stats_last_seven_days">過去 7 日間</string>
-  <string name="watch_stats_top_media">よく視聴するメディア</string>
+  <string name="watch_stats_top_media">よく再生するメディア</string>
   <string name="watch_stats_empty">メディアを再生すると統計が記録されます。</string>
   <string name="watch_stats_reset_confirm">再生統計をすべてリセットしますか？履歴、視聴済みの状態、プレイリストは保持されます。</string>
   <string name="pref_debug_log_size_title">ログサイズ上限</string>
   <string name="pref_debug_log_size_summary">ログ表示と共有診断に最大 %1$d MB を保持します。</string>
   <string name="onboarding_configuration_title">mpvRx ストレージの設定</string>
-  <string name="onboarding_configuration_desc">設定、バックアップ、スクリプト、字幕、ダウンロードに使用する設定フォルダーを選択します。</string>
+  <string name="onboarding_configuration_desc">設定・バックアップ・スクリプト・字幕・ダウンロード用のフォルダーを選びます。</string>
   <string name="onboarding_configuration_card_title">設定フォルダー</string>
-  <string name="onboarding_configuration_card_desc">mpvRx の設定フォルダーを選択します。ルートまたは Backup にある設定は自動的に復元されます。</string>
+  <string name="onboarding_configuration_card_desc">Configurationフォルダーを選択。直下またはBackupの設定を復元します。</string>
   <string name="onboarding_configuration_restoring">設定バックアップを確認しています…</string>
   <string name="onboarding_configuration_no_backup">フォルダーを設定しました。ダウンロードは Configuration/Downloads を使用します。</string>
   <string name="onboarding_configuration_restored">%1$s から設定を復元しました。ダウンロードは Configuration/Downloads を使用します。</string>
   <plurals name="onboarding_configuration_restored_partial">
     <item quantity="other">%1$s から設定を復元しました。破損した %2$d 件の項目をスキップしました。ダウンロードは Configuration/Downloads を使用します。</item>
   </plurals>
-  <string name="settings_restore_reverted">%1$s から復元した設定が原因でクラッシュしたため、元に戻しました。</string>
+  <plurals name="pref_import_skipped_invalid">
+    <item quantity="other">無効な設定を %1$d 件スキップしました</item>
+  </plurals>
   <string name="onboarding_configuration_restore_failed">フォルダーの設定を完了できませんでした: %1$s</string>
   <string name="navbar_glow_title">ガラスの輝き</string>
   <string name="navbar_glow_summary">ナビゲーションバーの縁の光とタッチ時の輝きを表示</string>
   <string name="legacy_navigation_bar_title">従来のナビゲーションバー</string>
   <string name="legacy_navigation_bar_summary">フローティングピルの代わりに、画面幅いっぱいの従来型ナビゲーションバーを使用します。</string>
   <string name="progressive_navigation_blur_title">ナビゲーションの段階的なぼかし</string>
-  <string name="progressive_navigation_blur_summary">フローティングナビゲーションバーの背後に Haze の段階的なぼかしを使用します。従来のナビゲーションバーを有効にすると自動的にオフになります。</string>
+  <string name="progressive_navigation_blur_summary">フローティングバーの背後をぼかします。従来のナビゲーションでは利用不可。</string>
   <string name="pref_seekbar_preview_skip_markers">スキップマーカー</string>
   <string name="pref_liquid_glass_optics">光学</string>
   <string name="pref_liquid_glass_opacity">背景の不透明度</string>
@@ -2368,11 +2331,11 @@
   <string name="debug_logs_config_saved">設定フォルダ内の %1$s にログを保存しました。</string>
   <string name="debug_logs_config_save_failed">ログを保存できませんでした。設定フォルダへのアクセスを確認するか、再選択してください。</string>
   <string name="pref_gesture_show_seekbar_horizontal_title">操作ボタンが非表示でもシークバーを表示</string>
-  <string name="pref_gesture_show_seekbar_horizontal_summary">左右にスワイプしてシークするとき、プレーヤーの操作ボタンが非表示でもシークバーを表示します。時間表示には影響しません。</string>
+  <string name="pref_gesture_show_seekbar_horizontal_summary">操作ボタンを隠していても、スワイプシーク中はバーを表示します。</string>
   <string name="player_zoom_overlays_follow">動画と一緒にプレーヤーOSDと字幕を拡大</string>
-  <string name="player_zoom_overlays_follow_summary">字幕と統計ページ1〜6が動画のズームに合わせて拡大します。オフにするとサイズは固定されます。</string>
+  <string name="player_zoom_overlays_follow_summary">字幕と統計ページ1〜7が動画のズームに合わせて拡大します。オフにするとサイズは固定されます。</string>
   <string name="network_smb_share_folder">共有 / フォルダー（任意）</string>
-  <string name="network_smb_share_hint">空欄にするか / を入力すると、すべての共有フォルダーを表示します。特定のフォルダーを開くには /Media または /Media/Movies を入力します。</string>
+  <string name="network_smb_share_hint">全共有を表示するには空欄か /。特定の場所は /Media/Movies のように指定します。</string>
   <string name="pref_app_icon_title">アプリアイコン</string>
   <string name="pref_app_icon_summary">ランチャーに表示するアイコンを選択</string>
   <string name="app_icon_change_failed">アイコンを変更できませんでした。</string>
@@ -2489,12 +2452,9 @@
   <string name="lyrics_provider_not_found">この曲の歌詞は %1$s にありません</string>
   <string name="lyrics_provider_sheet_title">歌詞の提供元</string>
   <string name="lyrics_search_online">オンラインで検索</string>
-  <string name="pref_paxsenix_api_key">PaxSenix API キー</string>
-  <string name="pref_paxsenix_api_key_summary">Spotify と Musixmatch の取得経路を利用可能にします</string>
-  <string name="pref_paxsenix_api_key_dialog_desc">PaxSenix API キーを貼り付けてください。空欄にすると、キーが不要な取得経路のみを使用します。</string>
-  <string name="pref_lyrics_sources_category">オンラインの歌詞</string>
+  <string name="pref_lyrics_sources_category">歌詞</string>
   <string name="pref_lyrics_auto_fetch_online">オンラインの歌詞を自動取得</string>
-  <string name="pref_lyrics_auto_fetch_online_summary">埋め込み歌詞やローカルの歌詞がない場合にのみ、オンラインの提供元を検索します。手動でのオンライン検索も可能です。</string>
+  <string name="pref_lyrics_auto_fetch_online_summary">埋め込み・ローカル歌詞がない場合にオンライン検索します。</string>
   <string name="lyrics_translation_off_summary">翻訳せずに原文を表示</string>
   <string name="lyrics_translation_dual_line">2 行表示</string>
   <string name="lyrics_translation_replace">原文を置き換え</string>
@@ -2519,7 +2479,7 @@
   <string name="network_server_scan">近くのサーバーを検索</string>
   <string name="network_server_scanning">近くのサーバーを検索中…</string>
   <string name="network_server_scan_unavailable">検出機能を利用できないか、検出が完了していません。保存済みのアドレスを選ぶか、手動で入力してください。</string>
-  <string name="network_server_discovery_hint">ローカルネットワークでサービスを公開しているサーバーを検索します。端末のアドレスはショートカットであり、検出されたサーバーではありません。認証情報は下で入力してください。</string>
+  <string name="network_server_discovery_hint">LANで公開されたサーバーを検出。端末アドレスはショートカットです。認証情報は下に入力します。</string>
   <string name="network_smb_username_hint">ユーザー名を入力してください。ドメインアカウントの場合は DOMAIN\\username を使用してください。</string>
   <string name="pref_playstore_hidden_title">選択した隠しフォルダー</string>
   <string name="pref_playstore_hidden_summary">メディアとサブフォルダーを含めるフォルダーを選択してください。</string>
@@ -2567,20 +2527,13 @@
   <string name="app_icon_create_custom_shortcut">指定したカスタムアイコンをホーム画面に追加</string>
   <string name="pref_experimental_badge">試験的</string>
   <string name="pref_liquid_glass_experimental_note">リキッドグラス効果は試験的な機能であり、端末によって見え方が異なる場合があります。</string>
-  <string name="pref_hidden_scan_per_mode_summary">ホームの各表示モードで、マーカーによって非表示にされたフォルダーや名前がドットで始まるフォルダーをスキャンするか選択します。オフにすると閲覧時にも除外されます。上のスイッチは非表示メディアを全体で有効にします。</string>
-  <string name="pref_hidden_scan_scoped_summary">各表示では、Androidでアクセスを許可したフォルダー内に限り、ドットで始まるフォルダーやマーカーで非表示にされたフォルダーを含めるか選べます。許可していないフォルダーにはアクセスできません。</string>
   <string name="pref_hidden_scan_library">ライブラリ</string>
   <string name="pref_hidden_scan_tree">ツリー</string>
   <string name="pref_hidden_scan_folders">フォルダー</string>
-  <string name="pref_hidden_scan_marked">マーカーで非表示のフォルダーをスキャン</string>
-  <string name="pref_hidden_scan_marked_summary">.nomedia またはリストにある別のマーカーを含むフォルダー</string>
-  <string name="pref_hidden_scan_single_marker_summary">この表示で、このマーカーを含むフォルダーを表示</string>
-  <string name="pref_hidden_scan_dot_summary">.Videos など、名前がドットで始まるフォルダー</string>
   <string name="ambient_cinema">シネマ</string>
   <string name="ambient_echo">エコー</string>
   <string name="ambient_mirror">ミラー</string>
   <string name="ambient_ambilight">アンビライト</string>
-  <string name="ambient_fx_auto_hint">このモードは完全自動です。最適な表示のため設定値は固定されており、変更できません。</string>
   <string name="app_icon_bg_crimson">クリムゾン</string>
   <string name="app_icon_bg_rose">ローズ</string>
   <string name="app_icon_bg_peach">ピーチ</string>
@@ -2606,7 +2559,6 @@
   <string name="pref_nav_home_title">ホーム / ファイル</string>
   <string name="pref_nav_home_summary">端末内のフォルダーとファイルを参照（常に利用可能）</string>
   <string name="pref_nav_actions_section">ナビゲーション操作</string>
-  <string name="pref_about_playback_libraries">再生ライブラリ</string>
   <string name="color_picker_field">カラーピッカー</string>
   <string name="color_picker_sliders">スライダー</string>
   <string name="color_picker_field_description">彩度と明るさ。細かく調整するにはスライダーを使用してください。</string>
@@ -2614,17 +2566,14 @@
   <string name="color_picker_selected">選択した色</string>
   <string name="color_picker_quick_colors">クイックカラー</string>
   <string name="app_icon_custom_background">カスタム背景</string>
-  <string name="app_icon_custom_background_hint">色を選択します。アプリ一覧ではAndroidが最も近い標準アイコンを使用します。指定した色はホーム画面のアイコンとして保存でき、最近使ったアプリにも使用できます。</string>
+  <string name="app_icon_custom_background_hint">アプリ一覧は近い色の標準アイコン、ホームと履歴は選択した色を使います。</string>
   <string name="app_icon_custom_logo_hint">カスタム背景に重ねるロゴを選択します。</string>
-  <string name="app_icon_shortcut_preview">ホーム画面ショートカットのプレビュー</string>
   <string name="app_icon_custom_requested">あなたのデザイン</string>
   <string name="app_icon_custom_native_match">実際のランチャーアイコン</string>
   <string name="app_icon_use_wallpaper_colors">代わりに壁紙の色を使用</string>
-  <string name="app_icon_shortcut_apply">ショートカットを追加または更新</string>
   <string name="app_icon_shortcut_requested">リクエストを送信しました。ランチャーで確認してショートカットを追加してください。</string>
   <string name="app_icon_shortcut_updated">ホーム画面のショートカットを更新しました</string>
   <string name="app_icon_shortcut_unsupported">このランチャーはホーム画面へのショートカット追加に対応していません。</string>
-  <string name="app_icon_shortcut_failed">ショートカットを保存できませんでした。もう一度お試しください。</string>
   <string name="color_picker_wheel">カラーホイール</string>
   <string name="color_picker_brightness">明るさ</string>
     <string name="only_for_video_list">動画リストのみに適用</string>
@@ -2651,7 +2600,7 @@
   <string name="selection_info_fps_value">%1$.2f フレーム/秒</string>
   <string name="selection_info_metadata_note">概要にはライブラリで利用可能なメタデータを使用します。ファイルをタップすると、すべてのメタデータを表示できます。</string>
   <string name="selection_info_missing_metadata">利用できないメタデータ</string>
-  <string name="selection_info_missing_metadata_value">サイズ不明のファイル：%1$d、再生時間不明のファイル：%2$d。合計と平均には既知の値のみを使用します。</string>
+  <string name="selection_info_missing_metadata_value">サイズ不明：%1$d、長さ不明：%2$d。合計は判明分のみ。</string>
   <string name="selection_info_no_media">選択したフォルダーに再生可能なメディアが見つかりませんでした</string>
   <string name="selection_info_copy_summary">概要をコピー</string>
   <string name="selection_info_open_media_info">メディア情報をすべて表示</string>
@@ -2712,14 +2661,14 @@
   <string name="thumbnail_no">いいえ</string>
   <string name="thumbnail_refresh">情報を更新</string>
   <string name="thumbnail_generate">サムネイルを生成</string>
-  <string name="thumbnail_quality_note">プレビューには、現在の設定で実際にキャッシュされた画像が表示されます。メディアブラウザのタイルには、設定されたサイズ上限より小さい画像がキャッシュされることがあります。このタブを開いても、新しいフレームは生成されません。</string>
+  <string name="thumbnail_quality_note">保存済みのプレビューで、新たな抽出は行いません。指定上限より小さい場合があります。</string>
   <string name="thumbnail_inspection_failed">サムネイル情報を読み取れませんでした。更新してください。</string>
   <string name="thumbnail_generation_unavailable">選択した生成方法では、このファイルのサムネイルを取得できませんでした。</string>
 
   <!-- Automatic thumbnail generation -->
   <string name="pref_appearance_thumbnail_generator_summary">ローカルのサムネイルと曲のカバーに自動、Native、MediaStoreのいずれかを選択</string>
   <string name="pref_thumbnail_generator_auto">自動（デフォルト）</string>
-  <string name="pref_thumbnail_generator_auto_summary">最初にMediaStoreを試し、サムネイルや曲のカバーを取得できない場合はNativeを使用します。隠しフォルダにも適用されます。モードを切り替えるとキャッシュ済みのサムネイルが消去されます。</string>
+  <string name="pref_thumbnail_generator_auto_summary">Androidを優先し、取得できなければネイティブ抽出。切り替えるとキャッシュを消去。</string>
   <string name="thumbnail_strategy_auto">最初にMediaStore、取得できない場合はNative</string>
 
   <string name="update_download_failed">ダウンロードに失敗しました。「再試行」をタップすると再開します。</string>
@@ -2728,7 +2677,7 @@
   <string name="update_checking_download">ダウンロードした APK を確認中…</string>
   <string name="update_check_failed">更新を確認できませんでした。接続を確認するか、後でもう一度お試しください。</string>
   <string name="update_auto_install">自動でダウンロードしてインストール</string>
-  <string name="update_auto_install_summary">従量制ではないネットワークでダウンロードし、mpvRx を使用していないときにインストールします。Android が承認を求める場合があります。</string>
+  <string name="update_auto_install_summary">従量制でない回線で取得し、待機時にインストール。Androidが許可を求める場合があります。</string>
   <string name="update_download_and_install">ダウンロードしてインストール</string>
   <string name="update_background_downloading">アプリの更新をダウンロード中…</string>
   <string name="update_installing">更新をインストール中…</string>
@@ -2739,10 +2688,9 @@
   <string name="pref_appearance_thumbnail_generator_title">サムネイルの生成方法</string>
   <string name="pref_thumbnail_generator_native">直接抽出</string>
   <string name="pref_thumbnail_generator_mediastore">MediaStore</string>
-  <string name="pref_thumbnail_generator_native_summary">ローカル動画のサムネイルと楽曲のカバーをメディアファイルから抽出します。切り替えるとキャッシュ済みのサムネイルが削除されます。</string>
-  <string name="pref_thumbnail_generator_mediastore_summary">ローカルの動画や楽曲に Android のサムネイルとアルバムアートを使用します。切り替えるとキャッシュ済みのサムネイルが削除され、画像を取得できない場合は代替画像を表示します。ネットワークのプレビューには直接抽出を使用します。</string>
+  <string name="pref_thumbnail_generator_native_summary">ローカルファイルからサムネイルとカバーを抽出。切り替えるとキャッシュを消去。</string>
+  <string name="pref_thumbnail_generator_mediastore_summary">Androidのサムネイルとカバーを使用。切り替えるとキャッシュを消去。ネットワークはネイティブ抽出です。</string>
   <string name="ui_update_channels_summary">安定版、ナイトリープレビュー、実験的な CI ビルド。</string>
-  <string name="update_experimental_build_format">実験版 r%1$d</string>
   <string name="tv_nav_settings">設定</string>
   <string name="tv_move_up">上へ移動</string>
   <string name="tv_move_down">下へ移動</string>
@@ -2755,7 +2703,7 @@
   <string name="tv_player_quality">画質</string>
   <string name="tv_player_seek_bar">シークバー</string>
   <string name="pref_audio_animated_artwork_title">アニメーションアルバムアート</string>
-  <string name="pref_audio_animated_artwork_summary">全画面の音楽プレーヤーで、楽曲に合うアニメーションカバーを Apple Music から取得します。曲名、アーティスト名、アルバム名を Apple に送信し、モバイルデータを使用します。初期設定ではオフです。取得できない場合は現在のカバーを表示します。表示するにはビジュアライザーからカバーに切り替えてください。</string>
+  <string name="pref_audio_animated_artwork_summary">Apple Musicの動画カバー。曲情報を共有し通信を使用します。取得できない場合は静止画のままです。</string>
   <string name="jellyfin_featured">注目の作品</string>
   <string name="jellyfin_series">シリーズ</string>
   <string name="jellyfin_movie">映画</string>
@@ -2763,6 +2711,9 @@
   <string name="jellyfin_details">詳細</string>
   <string name="jellyfin_trailer">予告編</string>
   <string name="jellyfin_open_trailer_error">予告編を開くアプリがありません。</string>
+  <string name="no_app_for_action">このデバイスにはこれを開けるアプリがありません。</string>
+  <string name="tv_picker_file_exists">同じ名前のファイルがすでに存在します。</string>
+  <string name="tv_picker_no_access">mpvRx はこの場所にアクセスできません。</string>
   <string name="jellyfin_libraries">ライブラリ</string>
   <string name="jellyfin_continue_watching">視聴を続ける</string>
   <string name="jellyfin_latest_movies">新着映画</string>
@@ -2783,7 +2734,6 @@
   <string name="jellyfin_more_like_this">おすすめの類似作品</string>
   <string name="jellyfin_watched">視聴済み</string>
   <string name="jellyfin_search_hint">映画、番組、エピソードを検索…</string>
-  <string name="pref_scan_filters">スキャンフィルター</string>
   <string name="pref_filter_short_videos">短い動画を除外</string>
   <string name="pref_filter_short_videos_summary">スキャン時に指定時間より短い動画を除外</string>
   <string name="pref_filter_small_files">小さいファイルを除外</string>
@@ -2834,12 +2784,15 @@
   <!-- Folder filters and clip export tracks -->
   <string name="clip_audio_track">音声トラック</string>
   <string name="clip_subtitle_track">字幕トラック</string>
-  <string name="clip_burn_subtitles">動画に字幕を焼き込む</string>
+  <string name="clip_include_subtitles">動画に字幕を含める</string>
+  <string name="clip_subtitle_read_failed">選択した字幕を読み込めません。</string>
+  <string name="clip_subtitle_unsupported">この字幕形式は動画に含めることができません。</string>
+  <string name="clip_subtitle_too_large">字幕ファイルが大きすぎるため、クリップに含めることができません。</string>
   <string name="clip_track_auto_off">自動 / オフ</string>
   <string name="pref_blacklist_count">除外フォルダー %1$d 個</string>
   <string name="pref_whitelist_disabled">ホワイトリストは無効です</string>
-  <string name="pref_blacklist_summary">このリストのフォルダーはメディアから非表示になります。フォルダーごとに、動画、音声、または両方を非表示にするかを選べます。</string>
-  <string name="pref_whitelist_summary">ホワイトリストが有効な場合、これらのフォルダーとそのサブフォルダーのみをスキャンします。フォルダーを追加していない場合は何も制限されません。</string>
+  <string name="pref_blacklist_summary">指定フォルダーの動画・音声、または両方を隠します。</string>
+  <string name="pref_whitelist_summary">指定フォルダーとその配下のみをスキャン。空欄なら制限しません。</string>
   <string name="pref_whitelist_empty_message">下のボタンをタップして、スキャンするフォルダーを追加します</string>
   <string name="clip_section_range">範囲</string>
   <string name="clip_section_output">出力</string>
@@ -2852,4 +2805,310 @@
   <string name="clip_quick_length">長さのクイック選択</string>
   <string name="clip_length_seconds">%1$d秒</string>
   <string name="clip_crop_reset">フレーム全体を使用</string>
+  <string name="pref_layout_seekbar_above">シークバーを上に</string>
+  <string name="pref_layout_seekbar_below">シークバーを下に</string>
+  <string name="player_layout_preset_title">再生操作の配置</string>
+  <string name="pref_ignore_audio_focus_title">オーディオフォーカスを無視</string>
+  <string name="pref_ignore_audio_focus_summary">他のアプリと同時に音声や動画を再生し、一時停止や音量の低下を防ぎます</string>
+  <string name="pref_audio_spatial_title">空間オーディオ</string>
+  <string name="pref_audio_spatial_summary">ステレオ音源の音場を広げ、より臨場感のあるサウンドにします</string>
+  <string name="pref_layout_portrait_playback_position">縦向きの再生コントロール</string>
+  <string name="pref_layout_landscape_playback_position">横向きの再生コントロール</string>
+  <string name="pref_layout_playback_center">画面中央</string>
+  <string name="pref_layout_playback_above_seekbar">シークバーの上</string>
+  <string name="pref_layout_playback_below_seekbar">シークバーの下</string>
+  <string name="player_skip_intro">オープニングをスキップ</string>
+  <string name="player_skip_recap">振り返りをスキップ</string>
+  <string name="player_skip_outro">エンディングをスキップ</string>
+  <string name="player_skip_credits">クレジットをスキップ</string>
+  <string name="player_skip_preview">予告をスキップ</string>
+  <string name="player_skip_automatic">%1$s（自動）</string>
+
+  <string name="grayscale_watched_thumbnails">視聴済みのサムネイルをモノクロにする</string>
+  <string name="pref_gesture_require_double_tap_title">シークのたびにダブルタップを必須にする</string>
+  <string name="pref_gesture_require_double_tap_summary">毎回ダブルタップでシーク。オフなら表示中のインジケーターに続けてシングルタップできます。</string>
+  <string name="audio_footer_show_artwork">アルバムアートを表示</string>
+  <string name="audio_footer_show_visualizer">ビジュアライザーを表示</string>
+  <string name="toast_updating_thumbnail_generator">サムネイルを更新しています</string>
+  <string name="player_settings_title">プレーヤー設定</string>
+  <string name="player_settings_open">プレーヤー設定を開く</string>
+  <string name="player_settings_close">プレーヤー設定を閉じる</string>
+  <string name="player_settings_search">プレーヤー設定を検索</string>
+  <string name="player_settings_clear_search">検索をクリア</string>
+  <string name="player_settings_favorites">お気に入り</string>
+  <string name="player_settings_categories">すべてのプレーヤー設定</string>
+  <string name="player_settings_pin_hint">検索結果の横にあるハートをタップすると、お気に入りに追加できます。</string>
+  <string name="player_settings_pin">お気に入りに追加</string>
+  <string name="player_settings_unpin">お気に入りから削除</string>
+  <string name="player_settings_dependency">現在の設定またはメディアでは利用できません。</string>
+  <string name="player_settings_config_owned">mpv.conf で管理</string>
+
+  <string name="pref_custom_openai_base_url_title">カスタム OpenAI 互換 API のベース URL</string>
+  <string name="pref_custom_openai_base_url_summary">Chat CompletionsのベースURL（例：https://example.com/v1）。APIキーを含めないでください。</string>
+  <string name="pref_custom_openai_key_title">カスタムプロバイダーの API キー</string>
+  <string name="pref_custom_openai_key_summary">認証不要のサーバーでは省略可。キーの送信にはHTTPSを使ってください。</string>
+  <string name="pref_custom_openai_model_title">カスタムモデル ID</string>
+  <string name="pref_custom_openai_model_summary">モデルIDを入力、または一覧を取得してアクセスを確認します。</string>
+  <string name="pref_custom_openai_check_endpoint">エンドポイントを確認</string>
+  <string name="pref_ai_cached_models_invalid">保存されたモデル一覧を読み込めませんでした。もう一度モデル一覧を取得してください。</string>
+
+  <string name="motion_title">フレーム補間</string>
+  <string name="motion_configure">フレーム補間の設定</string>
+  <string name="motion_summary">GPU によるフレーム補間で動きをなめらかにします。GPU Next + Vulkan が必要です。</string>
+  <string name="motion_toast_on">フレーム補間: %1$s</string>
+  <string name="motion_toast_off">フレーム補間はオフです</string>
+  <string name="motion_renderer_enabled">GPU Next + Vulkan をオンにしました。動画を開き直してください。</string>
+  <string name="motion_use_gpu_next_vulkan">GPU Next + Vulkan を使用</string>
+  <string name="motion_target_title">目標 FPS</string>
+  <string name="motion_target_auto">自動</string>
+  <string name="motion_target_auto_summary">ディスプレイの最大リフレッシュレートまで</string>
+  <string name="motion_target_auto_value">自動（%1$d fps）</string>
+  <string name="motion_target_fixed_summary">指定したフレームレートまで</string>
+  <string name="motion_fps_value">%1$d fps</string>
+  <string name="motion_status_off">オフ</string>
+  <string name="motion_status_waiting">動作条件が整うのを待っています</string>
+  <string name="motion_rate_unknown">–</string>
+  <string name="motion_rates">%1$s → %2$s fps · %3$s Hz</string>
+  <string name="motion_status_unsupported_build">FongMi ビルドのみ対応</string>
+  <string name="motion_status_unsupported_device">Vulkan 1.2（Android 10 以降）が必要です</string>
+  <string name="motion_status_needs_renderer">GPU Next + Vulkan が必要です</string>
+  <string name="motion_status_unsupported_libmpv">この mpv ビルドには含まれていません。mpvRx を更新してください。</string>
+  <string name="motion_status_config_owned">mpv.conf で設定されています</string>
+  <string name="motion_status_renderer_restart">反映するには動画を開き直してください</string>
+  <string name="motion_status_needs_display_sync">mpv.conf の video-sync を display-* に設定してください</string>
+  <string name="motion_status_unsupported_gpu">この GPU は非対応です</string>
+  <string name="motion_state_disabled">オフ</string>
+  <string name="motion_state_ready">準備完了</string>
+  <string name="motion_state_active">補間中</string>
+  <string name="motion_state_source">パススルー</string>
+  <string name="motion_state_idle">待機中</string>
+  <string name="motion_state_paused">一時停止中</string>
+  <string name="motion_state_unsupported">非対応</string>
+  <string name="motion_state_error">エラー</string>
+  <string name="player_move_resize_subtitles_hint">ドラッグで移動 · 2 本指のピンチでサイズ変更</string>
+  <string name="hdr_linear_inverse_ownership">Linear HDR 使用時は、アプリがこの値を yes に固定します。自分で変更するには、mpv.conf で管理するように設定してください。</string>
+  <string name="hdr_linear_tone_ownership">Linear HDR 使用時は、アプリがこの値を clip に固定します。自分で変更するには、mpv.conf で管理するように設定してください。</string>
+
+  <string name="audio_information_title">音声情報</string>
+  <string name="audio_info_loading">音声情報を読み込み中…</string>
+  <string name="audio_info_unavailable">現在のトラックの読み込みが完了するまで、音声情報は表示できません。</string>
+  <string name="audio_info_track_title">タイトル</string>
+  <string name="audio_info_artist">アーティスト</string>
+  <string name="audio_info_album">アルバム</string>
+  <string name="audio_info_album_artist">アルバムアーティスト</string>
+  <string name="audio_info_genre">ジャンル</string>
+  <string name="audio_info_composer">作曲者</string>
+  <string name="audio_info_date">日付</string>
+  <string name="audio_info_track_number">トラック番号</string>
+  <string name="audio_info_disc_number">ディスク番号</string>
+  <string name="audio_info_label">レーベル / 発売元</string>
+  <string name="audio_info_copyright">著作権</string>
+  <string name="audio_info_codec">音声コーデック</string>
+  <plurals name="audio_info_channel_count">
+    <item quantity="other">%1$d チャンネル</item>
+  </plurals>
+  <string name="secure_folder_move_failed_details">セキュアフォルダーへのファイルの移動に失敗しました:\n%1$s</string>
+  <string name="secure_folder_source_unreadable">%1$s を開けませんでした。メディアへのアクセス権を確認して、もう一度お試しください。</string>
+  <string name="storage_source_delete_not_approved">削除が許可されませんでした。元のファイルは残されています。</string>
+  <string name="storage_source_delete_failed">元のファイルを削除できませんでした。</string>
+
+  <string name="lyrics_source_edited">保存した編集内容</string>
+  <string name="lyrics_editor_title">歌詞を編集</string>
+  <string name="lyrics_sync_timing">タイミングを同期</string>
+  <string name="lyrics_editor_instructions">行を編集して選択し、曲を再生しながら「時刻を設定」をタップしてください。時刻を設定すると、次の行に進みます。</string>
+  <string name="lyrics_editor_storage">MpvRX 内にのみ保存されます。音声ファイルは変更されません。</string>
+  <string name="lyrics_editor_line">%1$d 行目</string>
+  <string name="lyrics_editor_line_options">歌詞の %1$d 行目のオプション</string>
+  <string name="lyrics_editor_untimed">--:--.---</string>
+  <string name="lyrics_editor_options">歌詞編集のオプション</string>
+  <string name="lyrics_editor_set_time">時刻を設定</string>
+  <string name="lyrics_editor_earlier">0.1 秒前へ</string>
+  <string name="lyrics_editor_later">0.1 秒後へ</string>
+  <string name="lyrics_editor_insert_line">下に行を挿入</string>
+  <string name="lyrics_editor_delete_line">行を削除</string>
+  <string name="lyrics_editor_edit_time">タイムスタンプを編集</string>
+  <string name="lyrics_editor_remove_time">タイムスタンプを削除</string>
+  <string name="lyrics_editor_clear_times">すべてのタイムスタンプを削除</string>
+  <string name="lyrics_editor_clear_times_message">すべての行の時刻を削除します。時刻なしの歌詞として残すには保存してください。元のタイミングを残すには、編集をキャンセルしてください。</string>
+  <string name="lyrics_editor_paste">歌詞を貼り付け</string>
+  <string name="lyrics_editor_paste_hint">プレーンテキスト、または [00:12.345] 歌詞 のような LRC 形式の歌詞</string>
+  <string name="lyrics_editor_paste_empty">歌詞のテキスト、または有効な LRC 形式の歌詞を入力してください。</string>
+  <string name="lyrics_editor_time_hint">mm:ss.SSS</string>
+  <string name="lyrics_editor_time_invalid">分:秒（秒は 00〜59）の形式で入力してください。小数点以下は 3 桁まで指定できます。</string>
+  <string name="lyrics_editor_empty">保存する前に歌詞を入力してください。</string>
+  <string name="lyrics_editor_incomplete_timing">すべての歌詞の行に時刻を設定するか、すべてのタイムスタンプを削除して時刻なしの歌詞として保存してください。</string>
+  <string name="lyrics_editor_out_of_order">タイムスタンプは行の順に並べてください。保存する前に、前の行より早い時刻を修正してください。</string>
+  <string name="lyrics_editor_invalid_draft">保存する前に歌詞とタイムスタンプを修正してください。</string>
+  <string name="lyrics_editor_unavailable">現在の曲と歌詞の読み込みが完了してから編集してください。</string>
+  <string name="lyrics_editor_track_changed">別の曲に切り替わりました。この下書きは引き続き上に表示された曲のものです。再生に合わせたタイミング設定とシークは無効になっています。</string>
+  <string name="lyrics_editor_discard_title">歌詞の変更を破棄しますか？</string>
+  <string name="lyrics_editor_discard_message">この下書きの変更は保存されていません。</string>
+  <string name="lyrics_editor_discard">破棄</string>
+  <string name="lyrics_editor_restore_title">元の歌詞に戻しますか？</string>
+  <string name="lyrics_editor_restore_message">この曲の保存済みの編集内容を削除し、埋め込み、ローカル、またはオンラインの歌詞を再読み込みします。現在の下書きも破棄されます。音声ファイルは変更されません。</string>
+  <string name="lyrics_editor_save_failed">歌詞の編集内容を保存できませんでした。下書きは残っています。もう一度お試しください。</string>
+  <string name="lyrics_editor_restore_failed">保存した歌詞の編集内容を削除できませんでした。もう一度お試しください。</string>
+  <string name="lyrics_editor_load_failed">歌詞を読み込めませんでした。保存した編集内容は削除されていません。エディターで内容を置き換えるか、元の歌詞に戻すことができます。</string>
+  <string name="lyrics_editor_saved">歌詞の編集内容を保存しました</string>
+  <string name="lyrics_editor_restored">元の歌詞に戻しました</string>
+
+  <string name="pref_audio_immersive_artwork_title">没入型アートワーク</string>
+  <string name="pref_audio_immersive_artwork_summary">縦向き・横向きでアートワークを画面いっぱいに表示。</string>
+  <string name="wallpaper_preset_link">リンクから</string>
+  <string name="wallpaper_link_title">壁紙をダウンロード</string>
+  <string name="wallpaper_link_label">画像のリンク</string>
+  <string name="wallpaper_link_download">ダウンロード</string>
+  <string name="wallpaper_link_invalid">http または https の画像リンクを入力してください。</string>
+  <string name="wallpaper_link_failed">このリンクから画像をダウンロードできませんでした。</string>
+
+  <string name="remote_settings_title_tv">スマートフォンリモコン</string>
+  <string name="remote_settings_summary_tv">同じネットワーク上のスマートフォンから MPVRX を操作し、リンクを入力できます</string>
+  <string name="remote_settings_title_phone">テレビリモコン</string>
+  <string name="remote_settings_summary_phone">このスマートフォンからテレビの MPVRX を操作し、リンクを入力できます</string>
+  <string name="remote_tv_enable">スマートフォンからのリモコン操作を許可</string>
+  <string name="remote_tv_enable_summary">同じネットワークのスマートフォンを接続。各要求はこのテレビで承認します。</string>
+  <string name="remote_tv_address">このテレビ: %1$s</string>
+  <string name="remote_tv_address_unavailable">このテレビをネットワークに接続すると、アドレスが表示されます。</string>
+  <string name="remote_tv_how_to">スマートフォンで MPVRX を開き、「設定 &gt; テレビリモコン」からこのテレビを選択してください。一覧にない場合は、上のアドレスを入力してください。</string>
+  <string name="remote_tv_paired_phones">ペアリング済みのスマートフォン</string>
+  <string name="remote_tv_no_paired_phones">ペアリング済みのスマートフォンはありません。</string>
+  <string name="remote_tv_remove">削除</string>
+  <string name="remote_pair_title">スマートフォンをリモコンとしてペアリングしますか？</string>
+  <string name="remote_pair_message">%1$s が MPVRX の操作をリクエストしています。スマートフォンにこのコードが表示されている場合のみ許可してください。</string>
+  <string name="remote_pair_allow">許可</string>
+  <string name="remote_pair_deny">拒否</string>
+  <string name="remote_phone_searching">このネットワーク上のテレビを検索中…</string>
+  <string name="remote_phone_no_tvs">テレビが見つかりません。テレビで MPVRX を開くか、テレビの「スマートフォンリモコン」設定に表示されているアドレスを入力してください。</string>
+  <string name="remote_phone_address_label">テレビのアドレス</string>
+  <string name="remote_phone_connect">接続</string>
+  <string name="remote_phone_forget">登録を解除</string>
+  <string name="remote_phone_connecting">%1$s に接続中…</string>
+  <string name="remote_phone_confirm_code">%1$s にこのコードが表示されていれば、「許可」を選択してください:</string>
+  <string name="remote_phone_connected">%1$s に接続しました</string>
+  <string name="remote_phone_disconnect">切断</string>
+  <string name="remote_phone_text_label">テレビに入力するテキストまたはリンク</string>
+  <string name="remote_phone_send">テレビに送信</string>
+  <string name="remote_phone_backspace">1 文字削除</string>
+  <string name="remote_phone_clear_field">入力欄をクリア</string>
+  <string name="remote_phone_enter">入力を確定</string>
+  <string name="remote_phone_ok">OK</string>
+  <string name="remote_phone_up">上</string>
+  <string name="remote_phone_down">下</string>
+  <string name="remote_phone_left">左</string>
+  <string name="remote_phone_right">右</string>
+  <string name="remote_phone_back">戻る</string>
+  <string name="remote_phone_menu">メニュー</string>
+  <string name="remote_phone_play_pause">再生 / 一時停止</string>
+  <string name="remote_phone_rewind">巻き戻し</string>
+  <string name="remote_phone_fast_forward">早送り</string>
+  <string name="remote_phone_volume_down">音量を下げる</string>
+  <string name="remote_phone_volume_up">音量を上げる</string>
+  <string name="remote_error_unreachable">テレビに接続できませんでした。両方の端末が同じネットワークに接続され、テレビで MPVRX が開いていることを確認してください。</string>
+  <string name="remote_error_denied">テレビがペアリングを拒否しました。</string>
+  <string name="remote_error_busy">テレビには別のペアリングリクエストが表示されています。</string>
+  <string name="remote_error_verification">テレビを認証できませんでした。もう一度試すか、「登録を解除」を選んで再度ペアリングしてください。</string>
+  <string name="remote_error_disconnected">テレビとの接続が切れました。</string>
+  <string name="remote_error_background">操作するには、テレビで MPVRX を開いてください。</string>
+  <string name="remote_error_invalid_address">192.168.1.20:47821 のような、テレビに表示されているアドレスを入力してください。</string>
+
+  <string name="btn_label_motion_interpolation">フレーム補間</string>
+  <string name="network_dlna_description_path">デバイス記述ファイルのパス</string>
+  <string name="network_dlna_description_hint">近くの DLNA サーバーを検索するか、デバイス記述ファイルの URL とパスを入力してください。</string>
+  <string name="app_icon_confirm_custom_message">アプリ一覧のアイコンは、最も近い組み込みアイコンの %1$s に切り替わります。ホーム画面には、指定したとおりの色のアイコンが追加されます。</string>
+  <string name="connected_mini_player_navigation_title">ミニプレーヤーとナビゲーションを一体化</string>
+  <string name="connected_mini_player_navigation_summary">個別のパネルではなく、角の丸みをそろえて上下に重ねたドックを使用します</string>
+
+  <string name="autoeq_title">AutoEq</string>
+  <string name="equalizer_tab_tone">音色</string>
+  <string name="equalizer_tab_bands">バンド</string>
+  <string name="autoeq_headphone_correction">ヘッドホン補正</string>
+  <string name="autoeq_correction_enabled">有効</string>
+  <string name="autoeq_correction_bypassed">バイパス中</string>
+  <string name="autoeq_no_headphones">ヘッドホンが選択されていません</string>
+  <string name="autoeq_loading_preset">プリセットを読み込み中</string>
+  <string name="autoeq_searching">ヘッドホンを検索中</string>
+  <string name="autoeq_choose_headphones">ヘッドホンを選択</string>
+  <string name="autoeq_search">ヘッドホンまたは測定元</string>
+  <string name="autoeq_preset_details">プリアンプ %1$.1f dB、フィルター %2$d 個</string>
+  <string name="autoeq_unavailable">このトラックでは AutoEq を有効にできませんでした。</string>
+  <string name="autoeq_download_failed">プリセットを読み込めないか、対応していません。別のプロファイルを選ぶか、もう一度お試しください。</string>
+  <string name="autoeq_no_matches">一致するヘッドホンがありません</string>
+  <string name="autoeq_reference_target">Harman 基準ターゲット</string>
+  <string name="autoeq_harman_in_ear">インイヤー 2019</string>
+  <string name="autoeq_harman_over_ear">オーバーイヤー 2018</string>
+  <string name="pref_layout_playback_with_buttons">ボタン列と同じ位置</string>
+  <string name="pref_action_open_page">ページを開く</string>
+  <string name="pref_action_open_dialog">ダイアログを開く</string>
+  <string name="pref_persistent_status_progress_line">再生位置を示す細いライン</string>
+
+  <string name="pref_appearance_custom_theme_base">ベースにするテーマ</string>
+  <string name="pref_appearance_custom_theme_light_palette">ライトモードの配色</string>
+  <string name="pref_appearance_custom_theme_dark_palette">ダークモードの配色</string>
+  <string name="pref_appearance_custom_theme_background">背景</string>
+  <string name="pref_appearance_custom_theme_advanced">詳細な色設定</string>
+  <string name="pref_appearance_custom_theme_reset_color">色をリセット</string>
+  <string name="pref_appearance_custom_theme_reset_all">個別の色設定をリセット</string>
+  <string name="pref_appearance_custom_theme_amoled_preview">AMOLED</string>
+  <string name="theme_color_on_primary">メインアクセント上の文字色</string>
+  <string name="theme_color_primary_container">メインボタンの背景色</string>
+  <string name="theme_color_on_primary_container">メインボタン上の文字色</string>
+  <string name="theme_color_on_secondary">サブアクセント上の文字色</string>
+  <string name="theme_color_secondary_container">サブボタンの背景色</string>
+  <string name="theme_color_on_secondary_container">サブボタン上の文字色</string>
+  <string name="theme_color_on_tertiary">ハイライトアクセント上の文字色</string>
+  <string name="theme_color_tertiary_container">ハイライトボタンの背景色</string>
+  <string name="theme_color_on_tertiary_container">ハイライトボタン上の文字色</string>
+  <string name="theme_color_surface">ページの背景色</string>
+  <string name="theme_color_on_surface">文字とアイコンの色</string>
+  <string name="theme_color_on_background">背景上の文字色</string>
+  <string name="theme_color_surface_variant">サブパネルの背景色</string>
+  <string name="theme_color_on_surface_variant">サブパネル上の文字色</string>
+  <string name="theme_color_surface_dim">暗めの背景色</string>
+  <string name="theme_color_surface_bright">明るめの背景色</string>
+  <string name="theme_color_surface_container_lowest">フラットなパネルの背景色</string>
+  <string name="theme_color_surface_container_low">控えめなパネルの背景色</string>
+  <string name="theme_color_surface_container">パネルの背景色</string>
+  <string name="theme_color_surface_container_high">浮き上がったパネルの背景色</string>
+  <string name="theme_color_surface_container_highest">フローティングパネルの背景色</string>
+  <string name="theme_color_outline">枠線の色</string>
+  <string name="theme_color_outline_variant">控えめな枠線の色</string>
+  <string name="theme_color_surface_tint">パネルの色合い</string>
+  <string name="theme_color_inverse_surface">コントラスト用パネルの背景色</string>
+  <string name="theme_color_inverse_on_surface">コントラスト用パネル上の文字色</string>
+  <string name="theme_color_inverse_primary">コントラスト用アクセント</string>
+  <string name="theme_color_scrim">オーバーレイの暗幕色</string>
+  <string name="theme_color_error">エラーのアクセント</string>
+  <string name="theme_color_on_error">エラーのアクセント上の文字色</string>
+  <string name="theme_color_error_container">エラーパネルの背景色</string>
+  <string name="theme_color_on_error_container">エラーパネル上の文字色</string>
+  <string name="theme_color_primary_fixed">淡いメインアクセント</string>
+  <string name="theme_color_primary_fixed_dim">淡いメインアクセント（暗め）</string>
+  <string name="theme_color_on_primary_fixed">淡いメインアクセント上の文字色</string>
+  <string name="theme_color_on_primary_fixed_variant">淡いメインアクセント上の控えめな文字色</string>
+  <string name="theme_color_secondary_fixed">淡いサブアクセント</string>
+  <string name="theme_color_secondary_fixed_dim">淡いサブアクセント（暗め）</string>
+  <string name="theme_color_on_secondary_fixed">淡いサブアクセント上の文字色</string>
+  <string name="theme_color_on_secondary_fixed_variant">淡いサブアクセント上の控えめな文字色</string>
+  <string name="theme_color_tertiary_fixed">淡いハイライトアクセント</string>
+  <string name="theme_color_tertiary_fixed_dim">淡いハイライトアクセント（暗め）</string>
+  <string name="theme_color_on_tertiary_fixed">淡いハイライトアクセント上の文字色</string>
+  <string name="theme_color_on_tertiary_fixed_variant">淡いハイライトアクセント上の控えめな文字色</string>
+  <string name="theme_color_primary">メインアクセント</string>
+  <string name="theme_color_secondary">サブアクセント</string>
+  <string name="theme_color_tertiary">ハイライトアクセント</string>
+  <string name="permission_video_access_summary">Downloads・Movies・DCIMの動画へのアクセスを許可します。</string>
+  <string name="permission_media_access_summary">保存済みの動画・音声ファイルへのアクセスを許可します。</string>
+  <string name="pref_audio_passthrough_summary">サラウンド音声をデコードやエフェクト処理なしで受信機に送ります。</string>
+  <string name="pref_floating_lyrics_title">フローティング歌詞</string>
+  <string name="pref_floating_lyrics_summary">他のアプリの上に移動できる歌詞パネルを表示</string>
+  <string name="floating_lyrics_permission">フローティング歌詞を使うには他のアプリの上への表示を許可してください</string>
+  <string name="floating_lyrics_unavailable">フローティング歌詞を開始できませんでした</string>
+  <string name="floating_lyrics_background_required">先に音声のバックグラウンド再生を有効にしてください</string>
+  <string name="floating_lyrics_open_player">プレーヤーを開く</string>
+  <string name="floating_lyrics_dock_left">歌詞パネルを左側へ移動</string>
+  <string name="floating_lyrics_dock_right">歌詞パネルを右側へ移動</string>
+  <string name="floating_lyrics_dismiss">mpvRxを再び開くまで非表示</string>
+  <string name="floating_lyrics_turn_off">フローティング歌詞をオフ</string>
+  <string name="floating_lyrics_never">今後表示しない</string>
+  <string name="floating_lyrics_no_lyrics">歌詞がありません</string>
 </resources>

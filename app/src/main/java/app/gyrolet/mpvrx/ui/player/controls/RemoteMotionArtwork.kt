@@ -32,37 +32,71 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import app.gyrolet.mpvrx.data.artwork.AppleMusicArtworkRepository
 import app.gyrolet.mpvrx.data.artwork.MotionArtworkQuery
+import app.gyrolet.mpvrx.data.artwork.MotionArtworkRendition
+import app.gyrolet.mpvrx.data.artwork.MotionArtworkResolver
+import app.gyrolet.mpvrx.data.artwork.MotionArtworkSource
 import app.gyrolet.mpvrx.data.artwork.RemoteMotionArtwork
+import app.gyrolet.mpvrx.preferences.AudioPreferences
+import app.gyrolet.mpvrx.preferences.preference.collectAsState
 import kotlinx.coroutines.delay
 import org.koin.compose.koinInject
 
+/**
+ * Online motion artwork over the still cover. Providers are tried in order; when every
+ * rendition of one fails to play, the next provider is asked, and the still cover remains
+ * if none succeeds.
+ */
 @Composable
 internal fun RemoteMotionArtwork(
   query: MotionArtworkQuery,
   isPlaying: Boolean,
   modifier: Modifier = Modifier,
 ) {
-  val repository = koinInject<AppleMusicArtworkRepository>()
+  val resolver = koinInject<MotionArtworkResolver>()
+  val preferences = koinInject<AudioPreferences>()
+  val appleMusic by preferences.animatedArtworkAppleMusic.collectAsState()
+  val tidal by preferences.animatedArtworkTidal.collectAsState()
+  val tidalClientId by preferences.tidalClientId.collectAsState()
+  val tidalClientSecret by preferences.tidalClientSecret.collectAsState()
+  val sources = remember(appleMusic, tidal, tidalClientId, tidalClientSecret) {
+    MotionArtworkResolver.sources(
+      appleMusic = appleMusic,
+      tidal = tidal && tidalClientId.isNotBlank() && tidalClientSecret.isNotBlank(),
+    )
+  }
   val lifecycleOwner = LocalLifecycleOwner.current
-  var artwork by remember(query) { mutableStateOf<RemoteMotionArtwork?>(null) }
-  LaunchedEffect(query, lifecycleOwner, repository) {
+  var exhausted by remember(query, sources) { mutableStateOf(emptySet<MotionArtworkSource>()) }
+  var artwork by remember(query, sources) { mutableStateOf<RemoteMotionArtwork?>(null) }
+  LaunchedEffect(query, sources, exhausted, lifecycleOwner, resolver) {
+    val remaining = sources - exhausted
+    if (remaining.isEmpty()) return@LaunchedEffect
     lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
       // Metadata can arrive in several updates; skip transient combinations during track changes.
       delay(600)
-      artwork = repository.find(query)
+      artwork = resolver.find(query, remaining)
     }
   }
   val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
   if (lifecycleState.isAtLeast(Lifecycle.State.STARTED)) {
     artwork?.let { result ->
       key(query, result) {
-        MotionArtworkVideo(artwork = result, isPlaying = isPlaying, modifier = modifier)
+        MotionArtworkVideo(
+          artwork = result,
+          isPlaying = isPlaying,
+          modifier = modifier,
+          onExhausted = {
+            if (artwork === result) {
+              artwork = null
+              exhausted = exhausted + result.source
+            }
+          },
+        )
       }
     }
   }
@@ -73,6 +107,7 @@ private fun MotionArtworkVideo(
   artwork: RemoteMotionArtwork,
   isPlaying: Boolean,
   modifier: Modifier,
+  onExhausted: () -> Unit,
 ) {
   var sourceIndex by remember { mutableIntStateOf(0) }
   var failed by remember { mutableStateOf(false) }
@@ -82,14 +117,19 @@ private fun MotionArtworkVideo(
     var firstFrame by remember { mutableStateOf(false) }
     val attempt = sourceIndex
     val retryOrFallBack = {
-      if (sourceIndex == attempt) {
-        if (sourceIndex < artwork.urls.lastIndex) sourceIndex++ else failed = true
+      if (sourceIndex == attempt && !failed) {
+        if (sourceIndex < artwork.renditions.lastIndex) {
+          sourceIndex++
+        } else {
+          failed = true
+          onExhausted()
+        }
       }
     }
     LaunchedEffect(firstFrame) {
       if (!firstFrame) {
         delay(20_000)
-        Log.w("MotionArtworkVideo", "Artwork first frame timed out; trying another rendition or retaining the cover")
+        Log.w("MotionArtworkVideo", "Artwork first frame timed out; trying another rendition or provider")
         retryOrFallBack()
       }
     }
@@ -98,7 +138,8 @@ private fun MotionArtworkVideo(
       factory = { context ->
         MotionArtworkTextureView(
           context = context,
-          url = artwork.urls[sourceIndex],
+          rendition = artwork.renditions[sourceIndex],
+          source = artwork.source,
           onFrameReady = { firstFrame = it },
           onFailure = retryOrFallBack,
         )
@@ -114,11 +155,45 @@ private fun MotionArtworkVideo(
   }
 }
 
-/** HLS/fMP4 artwork with audio tracks disabled; no audio focus, media session or video disk cache. */
+/** Local folder cover.mp4, looped silently and scoped to the visible player lifecycle. */
+@Composable
+internal fun LocalFolderMotionArtworkVideo(
+  uri: String,
+  isPlaying: Boolean,
+  modifier: Modifier = Modifier,
+) {
+  val lifecycleOwner = LocalLifecycleOwner.current
+  val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
+  if (lifecycleState.isAtLeast(Lifecycle.State.STARTED)) {
+    key(uri) {
+      var firstFrame by remember { mutableStateOf(false) }
+      AndroidView(
+        modifier = modifier,
+        factory = { context ->
+          MotionArtworkTextureView(
+            context = context,
+            rendition = MotionArtworkRendition(uri, hls = false),
+            source = null,
+            onFrameReady = { firstFrame = it },
+            onFailure = { Log.w("MotionArtworkVideo", "Local folder cover.mp4 could not be played") },
+          )
+        },
+        update = { view ->
+          view.alpha = if (firstFrame) 1f else 0f
+          view.setPlaying(isPlaying)
+        },
+        onRelease = { view -> view.releasePlayer() },
+      )
+    }
+  }
+}
+
+/** HLS/MP4 artwork with audio tracks disabled; no audio focus, media session or video disk cache. */
 @OptIn(UnstableApi::class)
 private class MotionArtworkTextureView(
   context: Context,
-  private val url: String,
+  private val rendition: MotionArtworkRendition,
+  private val source: MotionArtworkSource?,
   private val onFrameReady: (Boolean) -> Unit,
   private val onFailure: () -> Unit,
 ) : TextureView(context) {
@@ -145,11 +220,14 @@ private class MotionArtworkTextureView(
     try {
       val http = DefaultHttpDataSource.Factory()
         .setUserAgent("Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36")
-        .setDefaultRequestProperties(mapOf("Referer" to "https://music.apple.com/", "Origin" to "https://music.apple.com"))
         .setConnectTimeoutMs(10_000)
         .setReadTimeoutMs(10_000)
+      // Apple's CDN expects requests from its web player; other CDNs get no borrowed origin.
+      if (source == MotionArtworkSource.APPLE_MUSIC) {
+        http.setDefaultRequestProperties(mapOf("Referer" to "https://music.apple.com/", "Origin" to "https://music.apple.com"))
+      }
       val current = ExoPlayer.Builder(context.applicationContext)
-        .setMediaSourceFactory(DefaultMediaSourceFactory(http))
+        .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(context.applicationContext, http)))
         .setLoadControl(DefaultLoadControl.Builder().setBufferDurationsMs(2_000, 8_000, 500, 1_000).build())
         .setAudioAttributes(AudioAttributes.DEFAULT, false)
         .setHandleAudioBecomingNoisy(false)
@@ -217,10 +295,10 @@ private class MotionArtworkTextureView(
           }
         }
       }
-      val mime = if (url.substringBefore('?').endsWith(".mp4", ignoreCase = true)) {
-        MimeTypes.VIDEO_MP4
-      } else MimeTypes.APPLICATION_M3U8
-      current.setMediaItem(MediaItem.Builder().setUri(url).setMimeType(mime).build())
+      val item = MediaItem.Builder().setUri(rendition.url)
+      // Progressive files are sniffed, since not every CDN URL ends in a container extension.
+      if (rendition.hls) item.setMimeType(MimeTypes.APPLICATION_M3U8)
+      current.setMediaItem(item.build())
       current.prepare()
     } catch (e: IllegalArgumentException) {
       fail("Unsupported artwork stream", e)

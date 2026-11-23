@@ -30,11 +30,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import app.gyrolet.mpvrx.R
 import app.gyrolet.mpvrx.ui.liquidglass.LiquidPillButton
 import app.gyrolet.mpvrx.ui.theme.AppShapeScale
+import app.gyrolet.mpvrx.ui.theme.controlColor
 import app.gyrolet.mpvrx.ui.theme.spacing
 import dev.vivvvek.seeker.Segment
 import `is`.xyz.mpv.Utils
@@ -55,57 +56,60 @@ fun CurrentChapter(
   onClick: () -> Unit = {},
   onLongClick: () -> Unit = {},
 ) {
-  val enableLiquidGlass = liquidGlassActive()
+  val borderless = LocalBorderlessPlayerControls.current
+  val enableLiquidGlass = liquidGlassActive() && !borderless
+  val chapterContentColor = if (borderless) controlColor else playerButtonContentColor()
 
   val chapterContent: @Composable () -> Unit = {
-    AnimatedContent(
-      targetState = chapter,
+    val startTimeSec = chapter.start.toInt()
+    val timeText = remember(startTimeSec) { Utils.prettyTime(startTimeSec) }
+    Row(
       modifier = Modifier.padding(horizontal = MaterialTheme.spacing.medium, vertical = MaterialTheme.spacing.small),
-      transitionSpec = {
-        if (targetState.start > initialState.start) {
-          (slideInVertically { height -> height } + fadeIn())
-            .togetherWith(slideOutVertically { height -> -height } + fadeOut())
-        } else {
-          (slideInVertically { height -> -height } + fadeIn())
-            .togetherWith(slideOutVertically { height -> height } + fadeOut())
-        }.using(
-          SizeTransform(clip = false),
-        )
-      },
-      label = "Chapter",
-    ) { currentChapter ->
-      val startTimeSec = currentChapter.start.toInt()
-      val timeText = remember(startTimeSec) { Utils.prettyTime(startTimeSec) }
-      Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.extraSmall),
-      ) {
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.extraSmall),
+    ) {
+      Text(
+        text = timeText,
+        fontWeight = FontWeight.Bold,
+        style = MaterialTheme.typography.titleMedium,
+        maxLines = 1,
+        softWrap = false,
+        overflow = TextOverflow.Clip,
+        color = if (borderless) chapterContentColor else MaterialTheme.colorScheme.primary,
+      )
+      if (chapter.name.isNotBlank()) {
         Text(
-          text = timeText,
-          fontWeight = FontWeight.Bold,
-          style = MaterialTheme.typography.bodyMedium,
+          text = Typography.bullet.toString(),
+          textAlign = TextAlign.Center,
+          style = MaterialTheme.typography.titleMedium,
           maxLines = 1,
+          color = chapterContentColor,
           overflow = TextOverflow.Clip,
-          color = MaterialTheme.colorScheme.primary,
         )
-        currentChapter.name.let {
+        AnimatedContent(
+          targetState = chapter,
+          modifier = Modifier.weight(1f, fill = false),
+          transitionSpec = {
+            if (targetState.start > initialState.start) {
+              (slideInVertically { height -> height } + fadeIn())
+                .togetherWith(slideOutVertically { height -> -height } + fadeOut())
+            } else {
+              (slideInVertically { height -> -height } + fadeIn())
+                .togetherWith(slideOutVertically { height -> height } + fadeOut())
+            }.using(SizeTransform(clip = true))
+          },
+          label = "ChapterTitle",
+        ) { currentChapter ->
           Text(
-            text = Typography.bullet.toString(),
+            text = currentChapter.name,
             textAlign = TextAlign.Center,
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.titleMedium,
             maxLines = 1,
-            color = MaterialTheme.colorScheme.onSurface,
+            softWrap = false,
             overflow = TextOverflow.Clip,
-          )
-          Text(
-            text = it,
-            textAlign = TextAlign.Center,
-            style = MaterialTheme.typography.bodyMedium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
             fontWeight = FontWeight.ExtraBold,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.basicMarquee(),
+            color = chapterContentColor,
+            modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE),
           )
         }
       }
@@ -135,15 +139,10 @@ fun CurrentChapter(
             onLongClickLabel = stringResource(R.string.audiobook_add_bookmark),
           ),
       shape = AppShapeScale.full,
-      color =
-        playerButtonContainerColor(),
-      contentColor = MaterialTheme.colorScheme.onSurface,
+      color = if (borderless) Color.Transparent else playerButtonContainerColor(),
+      contentColor = chapterContentColor,
       tonalElevation = 0.dp,
-      border =
-        BorderStroke(
-          1.dp,
-          playerButtonBorderColor(),
-        ),
+      border = if (borderless) null else BorderStroke(1.dp, playerButtonBorderColor()),
     ) {
       chapterContent()
     }

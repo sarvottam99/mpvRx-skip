@@ -20,33 +20,45 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.ui.NavDisplay
 import app.gyrolet.mpvrx.preferences.PlayerPreferences
 import app.gyrolet.mpvrx.preferences.preference.collectAsState
 import app.gyrolet.mpvrx.presentation.Screen
+import app.gyrolet.mpvrx.ui.browser.LocalNavigationBarHeight
+import app.gyrolet.mpvrx.ui.browser.NavigationBarState
+import app.gyrolet.mpvrx.ui.browser.fab.LocalFabHostInsetsApplied
 import app.gyrolet.mpvrx.ui.player.NavigationAnimStyle
 import app.gyrolet.mpvrx.ui.player.LocalInAppMusicSheet
+import app.gyrolet.mpvrx.ui.preferences.ScrollableSettingsScreen
 import app.gyrolet.mpvrx.ui.theme.AppMotion
 import app.gyrolet.mpvrx.ui.theme.LocalAppWallpaperActive
 import app.gyrolet.mpvrx.ui.theme.wallpaperAwareBackgroundColor
 import app.gyrolet.mpvrx.ui.tv.TvEdgeToEdgeScreen
 import app.gyrolet.mpvrx.ui.tv.TvScreenFocusHost
 import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
 import org.koin.compose.koinInject
 
 private val NavigationEnterEasing = CubicBezierEasing(0.05f, 0.70f, 0.10f, 1.00f)
@@ -111,6 +123,8 @@ internal fun ScreenNavDisplay(
   tvSafeArea: Boolean = false,
   tvAutoFocus: Boolean = true,
   tvFocusRequestKey: Any? = Unit,
+  bottomOverlayClearance: Dp = 0.dp,
+  bottomOverlayExempt: Screen? = null,
   onBack: () -> Unit = { backStack.popSafely() },
   content: @Composable (Screen) -> Unit = { it.Content() },
 ) {
@@ -124,10 +138,33 @@ internal fun ScreenNavDisplay(
   // With a wallpaper / animated background the entries are transparent, so a normal slide or
   // cross-fade shows the outgoing and incoming screens on top of each other (ghosted titles,
   // doubled lists, jumpy predictive back). Use a sequential fade-through there instead.
-  val seeThrough = LocalAppWallpaperActive.current && !opaqueBackground
+  val wallpaperSeeThrough = LocalAppWallpaperActive.current && !opaqueBackground
+
+  // Screens at/above [opaqueFrom] (Preferences, Appearance, Wallpaper editor...) draw an opaque
+  // surface. Between two such screens the fade-through used for wallpaper mode fades one opaque
+  // surface out before the next fades in, which exposes the full app wallpaper for a few frames
+  // (the flicker seen when going back from the wallpaper editor). So when both ends of a
+  // transition are opaque we use the normal overlapping transition on a solid host background.
+  val opaqueFromIndex = opaqueFrom?.let { backStack.indexOf(it) } ?: -1
+  val topOpaque = opaqueBackground || (opaqueFromIndex >= 0 && backStack.lastIndex >= opaqueFromIndex)
+  // What the top of the stack was before the current transition began; only catches up once the
+  // transition has finished, so a transition into the first opaque screen is not treated as opaque.
+  var settledTopOpaque by remember { mutableStateOf(topOpaque) }
+  val settleMillis = navigationDurationMillis(speed) + 80
+  LaunchedEffect(topOpaque, settleMillis) {
+    if (topOpaque != settledTopOpaque) {
+      delay(settleMillis.toLong())
+      settledTopOpaque = topOpaque
+    }
+  }
+  val solidHost = opaqueBackground || (topOpaque && settledTopOpaque)
   val backgroundColor by rememberUpdatedState(
-    if (opaqueBackground) MaterialTheme.colorScheme.background else wallpaperAwareBackgroundColor(),
+    if (solidHost) MaterialTheme.colorScheme.background else wallpaperAwareBackgroundColor(),
   )
+
+  /** True when the screen being navigated to, and the one being left, are both opaque. */
+  fun opaqueToOpaque(targetIndex: Int): Boolean =
+    opaqueBackground || (settledTopOpaque && opaqueFromIndex >= 0 && targetIndex >= opaqueFromIndex)
 
   NavDisplay(
     backStack = backStack,
@@ -138,16 +175,27 @@ internal fun ScreenNavDisplay(
       if (musicSheet?.isVisible == true) musicSheet.collapse() else onBack()
     },
     sizeTransform = null,
-    transitionSpec = { screenNavTransition(true, style, speed, direction, reduceMotion, seeThrough) },
-    popTransitionSpec = { screenNavTransition(false, style, speed, direction, reduceMotion, seeThrough) },
+    transitionSpec = {
+      // Push: the new screen is already the top of the stack. It must sit strictly above
+      // [opaqueFrom], otherwise the screen being left is the transparent one.
+      val bothOpaque = opaqueToOpaque(backStack.lastIndex) && backStack.lastIndex > opaqueFromIndex
+      screenNavTransition(true, style, speed, direction, reduceMotion, wallpaperSeeThrough && !bothOpaque)
+    },
+    popTransitionSpec = {
+      // Pop: the stack already lost the screen being left, so the top is the destination.
+      val bothOpaque = opaqueToOpaque(backStack.lastIndex)
+      screenNavTransition(false, style, speed, direction, reduceMotion, wallpaperSeeThrough && !bothOpaque)
+    },
     predictivePopTransitionSpec = { edge: Int ->
+      // Predictive back: the pop has not been committed yet, so the destination is one below the top.
+      val bothOpaque = opaqueToOpaque(backStack.lastIndex - 1)
       screenNavTransition(
         forward = false,
         style = style,
         speed = speed,
         direction = if (edge == BackEventCompat.EDGE_RIGHT) -1 else 1,
         reduceMotion = reduceMotion,
-        seeThrough = seeThrough,
+        seeThrough = wallpaperSeeThrough && !bothOpaque,
       )
     },
     entryProvider = { route ->
@@ -155,21 +203,45 @@ internal fun ScreenNavDisplay(
         val entryOpaque =
           remember(route) {
             opaqueBackground ||
+              route is app.gyrolet.mpvrx.ui.preferences.LuaScriptEditorScreen ||
               (opaqueFrom != null && backStack.indexOf(opaqueFrom).let { it >= 0 && it <= backStack.indexOf(route) })
           }
         val entryColor =
           if (entryOpaque) MaterialTheme.colorScheme.background else wallpaperAwareBackgroundColor()
-        CompositionLocalProvider(LocalCurrentScreen provides route) {
-          Surface(Modifier.fillMaxSize(), color = entryColor) {
-            // TV: predictable initial focus, focus restored on Back, and overscan-safe content.
-            TvScreenFocusHost(
-              scope = route,
-              safeArea = tvSafeArea && route !is TvEdgeToEdgeScreen,
-              active = route == backStack.lastOrNull(),
-              autoFocus = tvAutoFocus,
-              focusRequestKey = tvFocusRequestKey,
+        // Settings lists reserve clearance in their scroll content so the page can continue
+        // behind the floating mini-player instead of exposing an empty host-background strip.
+        val scrollHandlesOverlay =
+          route is ScrollableSettingsScreen ||
+            route is app.gyrolet.mpvrx.ui.preferences.LuaScriptEditorScreen
+        val insetByHost = bottomOverlayExempt != null && route != bottomOverlayExempt &&
+          !NavigationBarState.isInSelectionMode && !scrollHandlesOverlay
+        val inheritedClearance = LocalNavigationBarHeight.current
+        CompositionLocalProvider(
+          LocalCurrentScreen provides route,
+          LocalNavigationBarHeight provides if (insetByHost) 0.dp else inheritedClearance,
+          LocalFabHostInsetsApplied provides insetByHost,
+        ) {
+          Surface(
+            Modifier.fillMaxSize(),
+            color = androidx.compose.ui.graphics.Color.Transparent,
+            contentColor = androidx.compose.material3.contentColorFor(entryColor),
+          ) {
+            Box(
+              Modifier.fillMaxSize()
+                .padding(bottom = if (insetByHost) bottomOverlayClearance else 0.dp),
             ) {
-              content(route)
+              Surface(Modifier.fillMaxSize(), color = entryColor) {
+                // TV: predictable initial focus, focus restored on Back, and overscan-safe content.
+                TvScreenFocusHost(
+                  scope = route,
+                  safeArea = tvSafeArea && route !is TvEdgeToEdgeScreen,
+                  active = route == backStack.lastOrNull(),
+                  autoFocus = tvAutoFocus,
+                  focusRequestKey = tvFocusRequestKey,
+                ) {
+                  content(route)
+                }
+              }
             }
           }
         }

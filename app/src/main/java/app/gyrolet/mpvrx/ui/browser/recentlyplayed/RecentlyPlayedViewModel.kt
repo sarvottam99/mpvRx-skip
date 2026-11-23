@@ -11,6 +11,7 @@ package app.gyrolet.mpvrx.ui.browser.recentlyplayed
 
 import android.app.Application
 import android.net.Uri
+import android.provider.OpenableColumns
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -25,6 +26,8 @@ import app.gyrolet.mpvrx.utils.storage.leafStorageName
 import app.gyrolet.mpvrx.domain.recentlyplayed.repository.RecentlyPlayedRepository
 import app.gyrolet.mpvrx.utils.permission.PermissionUtils
 import app.gyrolet.mpvrx.utils.media.HttpUtils
+import app.gyrolet.mpvrx.utils.media.MetadataRetrieval
+import app.gyrolet.mpvrx.utils.media.ScopedHiddenFolderScanner
 import app.gyrolet.mpvrx.utils.storage.FileTypeUtils
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -60,7 +63,7 @@ class RecentlyPlayedViewModel(
     viewModelScope.launch {
       kotlinx.coroutines.flow
         .combine(
-          recentlyPlayedRepository.observeRecentlyPlayed(limit = 50),
+          recentlyPlayedRepository.observeRecentlyPlayed(limit = DEFAULT_HISTORY_LIMIT),
           refreshRevision,
         ) { entities, revision ->
           entities to revision
@@ -98,16 +101,21 @@ class RecentlyPlayedViewModel(
             filePath.startsWith("rtmp://", ignoreCase = true) ||
             filePath.startsWith("rtsp://", ignoreCase = true)
 
+        val uri = Uri.parse(filePath)
         val video =
-          if (isNetworkUri) {
-            createNetworkVideoFromUrl(filePath, entity.videoTitle, entity)
-          } else {
-            val file = File(filePath)
-            if (file.exists()) {
-              createVideoFromFilePath(filePath, file, entity.videoTitle)
-            } else {
-              recentlyPlayedRepository.deleteByFilePath(filePath)
-              null
+          when {
+            isNetworkUri -> createNetworkVideoFromUrl(filePath, entity.videoTitle, entity)
+            uri.scheme.equals("content", ignoreCase = true) ->
+              withContext(Dispatchers.IO) { createVideoFromContentUri(uri, entity) }
+            else -> {
+              val localPath = uri.path.takeIf { uri.scheme.equals("file", ignoreCase = true) } ?: filePath
+              val file = File(localPath)
+              if (file.exists()) {
+                createVideoFromFilePath(localPath, file, entity.videoTitle)
+              } else {
+                recentlyPlayedRepository.deleteByFilePath(filePath)
+                null
+              }
             }
           }
 
@@ -140,7 +148,6 @@ class RecentlyPlayedViewModel(
       val title = file.nameWithoutExtension
 
       // Get metadata from cache or extract it
-      val metadataCache by inject<VideoMetadataCacheRepository>(VideoMetadataCacheRepository::class.java)
       val metadata = metadataCache.getOrExtractMetadata(file, uri, displayName)
 
       val duration = metadata?.durationMs ?: 0L
@@ -206,10 +213,92 @@ class RecentlyPlayedViewModel(
         height = height,
         fps = fps,
         resolution = if (isAudio) "--" else VideoScanUtils.formatResolution(width, height),
+        hasEmbeddedSubtitles = metadata?.hasEmbeddedSubtitles == true,
+        subtitleCodec = metadata?.subtitleCodec.orEmpty(),
         isAudio = isAudio,
       )
+    } catch (cancelled: CancellationException) {
+      throw cancelled
     } catch (e: Exception) {
       Log.e("RecentlyPlayedViewModel", "Error creating video from path: $filePath", e)
+      null
+    }
+
+  /**
+   * Builds recent items from MediaStore and SAF content URIs without treating them as filesystem
+   * paths. Play Store Tree and Library entries, including `.nomedia` files, are provider-backed.
+   */
+  private suspend fun createVideoFromContentUri(
+    uri: Uri,
+    entity: RecentlyPlayedEntity,
+  ): Video? =
+    try {
+      val context = getApplication<Application>()
+      val metadata =
+        context.contentResolver
+          .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)
+          ?.use { cursor ->
+            if (!cursor.moveToFirst()) return null
+            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+            val name = if (nameIndex >= 0) cursor.getString(nameIndex) else null
+            val size = if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) cursor.getLong(sizeIndex) else null
+            name to size
+          } ?: run {
+            Log.w("RecentlyPlayedViewModel", "Cannot query recent content URI: $uri")
+            return null
+          }
+
+      val displayName =
+        metadata.first?.takeIf(String::isNotBlank)
+          ?: entity.fileName.takeIf(String::isNotBlank)
+          ?: uri.lastPathSegment?.substringAfterLast('/')?.takeIf(String::isNotBlank)
+          ?: return null
+      val file = File(displayName)
+      val providerMimeType = context.contentResolver.getType(uri).orEmpty()
+      val isAudio = providerMimeType.startsWith("audio/") || FileTypeUtils.isAudioFile(file)
+      val isVideo = providerMimeType.startsWith("video/") || FileTypeUtils.isVideoFile(file)
+      if (!isAudio && !isVideo) return null
+
+      val mimeType =
+        providerMimeType.takeIf(String::isNotBlank)
+          ?: if (isAudio) "audio/*" else "video/*"
+      val localPath = ScopedHiddenFolderScanner.localPathOf(uri)
+      val parentPath = localPath?.let { File(it).parent }.orEmpty()
+      val bucketName =
+        parentPath.takeIf(String::isNotBlank)?.let(::File)?.name
+          ?: uri.authority
+          ?: "Recent"
+      val duration = entity.duration
+      val size = metadata.second?.takeIf { it > 0L } ?: entity.fileSize
+
+      val video = Video(
+        id = uri.toString().hashCode().toLong(),
+        title = entity.videoTitle?.takeIf(String::isNotBlank) ?: FileTypeUtils.stripExtension(displayName),
+        displayName = displayName,
+        path = uri.toString(),
+        uri = uri,
+        duration = duration,
+        durationFormatted = formatDuration(duration),
+        size = size,
+        sizeFormatted = formatFileSize(size),
+        dateModified = entity.timestamp / 1_000L,
+        dateAdded = entity.timestamp / 1_000L,
+        mimeType = mimeType,
+        bucketId = parentPath.ifBlank { ScopedHiddenFolderScanner.documentKey(uri) },
+        bucketDisplayName = bucketName,
+        width = entity.width,
+        height = entity.height,
+        fps = 0f,
+        resolution = if (isAudio) "--" else VideoScanUtils.formatResolution(entity.width, entity.height),
+        isAudio = isAudio,
+        artworkUrl = entity.artworkUrl,
+      )
+      metadataCache.getOrExtractContentMetadata(video)?.let { MetadataRetrieval.withMetadata(video, it) } ?: video
+    } catch (cancelled: CancellationException) {
+      throw cancelled
+    } catch (error: Exception) {
+      Log.w("RecentlyPlayedViewModel", "Cannot restore recent content URI: $uri", error)
       null
     }
 
@@ -403,23 +492,11 @@ class RecentlyPlayedViewModel(
     }
   }
 
-  private fun formatFileSize(bytes: Long): String {
-    if (bytes <= 0) return "0 B"
-    val units = arrayOf("B", "KB", "MB", "GB", "TB")
-    val digitGroups = (kotlin.math.log10(bytes.toDouble()) / kotlin.math.log10(1024.0)).toInt()
-    return String.format(
-      java.util.Locale.getDefault(),
-      "%.1f %s",
-      bytes / 1024.0.pow(digitGroups.toDouble()),
-      units[digitGroups],
-    )
-  }
+  private fun formatFileSize(bytes: Long): String =
+    app.gyrolet.mpvrx.utils.storage.VideoScanUtils.formatFileSize(bytes)
 
   private fun isNetworkUri(path: String): Boolean =
-    path.startsWith("http://", ignoreCase = true) ||
-      path.startsWith("https://", ignoreCase = true) ||
-      path.startsWith("rtmp://", ignoreCase = true) ||
-      path.startsWith("rtsp://", ignoreCase = true)
+    app.gyrolet.mpvrx.utils.storage.FileTypeUtils.isNetworkStreamUri(path)
 
   /**
    * Checks if a URL is likely a streaming playlist (M3U, HLS, DASH, etc.)
@@ -482,7 +559,11 @@ class RecentlyPlayedViewModel(
     fun isGenericStreamName(name: String?): Boolean =
       name.isNullOrBlank() || name.trim().lowercase() in GENERIC_STREAM_NAMES
 
-    fun factory(application: Application): ViewModelProvider.Factory =
+    const val DEFAULT_HISTORY_LIMIT = 50
+
+    fun factory(
+      application: Application,
+    ): ViewModelProvider.Factory =
       viewModelFactory {
         initializer {
           RecentlyPlayedViewModel(application)

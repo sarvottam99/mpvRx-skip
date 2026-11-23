@@ -9,8 +9,9 @@
 
 package app.gyrolet.mpvrx.ui.player.controls.components.sheets
 
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.snap
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import app.gyrolet.mpvrx.ui.theme.appPressFeedback
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -28,7 +29,6 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
@@ -53,14 +53,12 @@ import app.gyrolet.mpvrx.presentation.components.AppPickerSheet
 import app.gyrolet.mpvrx.presentation.components.PlayerSheetSearchField
 import app.gyrolet.mpvrx.presentation.components.PlayerSheetAction
 import app.gyrolet.mpvrx.presentation.components.PlayerSheetSectionHeader
-import app.gyrolet.mpvrx.ui.icons.Icon
 import app.gyrolet.mpvrx.ui.icons.Icons
 import app.gyrolet.mpvrx.ui.liquidglass.LocalPlayerGlassSurfaceActive
 import app.gyrolet.mpvrx.ui.player.TrackNode
 import app.gyrolet.mpvrx.ui.player.controls.components.rememberTvInitialFocusRequester
 import app.gyrolet.mpvrx.ui.player.controls.components.tvFocusHighlight
 import app.gyrolet.mpvrx.ui.player.controls.components.tvInitialFocus
-import app.gyrolet.mpvrx.ui.theme.AppMotion
 import app.gyrolet.mpvrx.ui.theme.ConnectedLayout
 import app.gyrolet.mpvrx.ui.theme.rememberConnectedShape
 import app.gyrolet.mpvrx.ui.theme.spacing
@@ -587,12 +585,16 @@ fun SubtitleTrackRow(
 ) {
   val isTelevision = DeviceFormFactor.isTelevision(LocalContext.current)
   val haptics = rememberAppHaptics()
+  val interactionSource = remember { MutableInteractionSource() }
+  val pressed by interactionSource.collectIsPressedAsState()
   val shape =
     if (groupIndex != null && groupSize != null && groupSize > 0) {
       rememberConnectedShape(
         index = groupIndex,
         itemCount = groupSize,
         layout = ConnectedLayout.Vertical,
+        pressed = pressed,
+        selected = isSelected,
       )
     } else {
       MaterialTheme.shapes.medium
@@ -602,6 +604,7 @@ fun SubtitleTrackRow(
     selected = isSelected,
     frosted = isFrosted,
     label = "subtitleTrackSelection",
+    pressed = pressed,
   )
   val badges = subtitleTrackBadges(track, selectionIndicator, isExternal)
   Surface(
@@ -610,11 +613,16 @@ fun SubtitleTrackRow(
         .fillMaxWidth()
         .padding(horizontal = 8.dp, vertical = 2.dp)
         .tvFocusHighlight(shape)
+        .appPressFeedback(interactionSource, pressedScale = 0.985f)
         .clip(shape)
-        .toggleable(value = isSelected, role = Role.Checkbox) { selected ->
-          onToggle()
-          haptics.selection(selected)
-        },
+        .toggleable(
+          value = isSelected, role = Role.Checkbox,
+          interactionSource = interactionSource, indication = androidx.compose.material3.ripple(),
+          onValueChange = { selected ->
+            onToggle()
+            haptics.selection(selected)
+          },
+        ),
     shape = shape,
     color = containerColor,
   ) {

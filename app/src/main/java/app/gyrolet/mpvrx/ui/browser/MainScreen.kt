@@ -60,6 +60,7 @@ import app.gyrolet.mpvrx.ui.utils.NavigationPager
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -69,6 +70,7 @@ import androidx.compose.material3.NavigationBarDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -77,7 +79,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -96,6 +97,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
@@ -165,12 +167,11 @@ import app.gyrolet.mpvrx.ui.theme.LocalAppBackgroundBackdrop
 import app.gyrolet.mpvrx.ui.theme.wallpaperAwareBackgroundColor
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.drawBackdrop
-import app.gyrolet.mpvrx.ui.liquidglass.drawCapsuleTint
+import app.gyrolet.mpvrx.ui.liquidglass.drawShapeTint
 import app.gyrolet.mpvrx.ui.liquidglass.liquidGlassEffects
 import app.gyrolet.mpvrx.ui.liquidglass.rememberLiquidGlassSettings
 import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.Shadow
-import com.kyant.shapes.Capsule
 import kotlinx.serialization.Serializable
 import org.koin.compose.koinInject
 import app.gyrolet.mpvrx.ui.tv.RegisterTvContentFocus
@@ -306,10 +307,12 @@ object MainScreen : Screen, TvEdgeToEdgeScreen {
       onDispose {
         NavigationBarState.isNavBarVisible = false
         NavigationBarState.isDualPaneLayout = false
+        NavigationBarState.dockBackdrop = null
       }
     }
     SideEffect {
       NavigationBarState.isNavBarVisible = backStack.lastOrNull() == MainScreen && showBottomNavigation
+      NavigationBarState.dockBackdrop = liquidLayerBackdrop
       NavigationBarState.navigationBarBottomSpacing =
         if (legacyNavigationBar) 0.dp else NavigationBarState.floatingBarSpacing
     }
@@ -321,11 +324,14 @@ object MainScreen : Screen, TvEdgeToEdgeScreen {
         visibleTabs.indexOf(persistentSelectedTab).coerceAtLeast(0)
       }
 
-    val pagerState =
+    // The page count and key provider must belong to the same tab snapshot. Reusing the old
+    // PagerState while tabs are removed lets its key-index map request an already-removed page.
+    val pagerState = key(visibleTabs) {
       rememberPagerState(
         initialPage = initialPageIndex,
         pageCount = { visibleTabs.size },
       )
+    }
     var tabNavigationJob by remember { mutableStateOf<Job?>(null) }
     val tabContentAlpha = remember { Animatable(1f) }
     var isDirectTabJumpInProgress by remember { mutableStateOf(false) }
@@ -348,6 +354,8 @@ object MainScreen : Screen, TvEdgeToEdgeScreen {
     LaunchedEffect(pagerState, visibleTabs) {
       tabNavigationJob?.cancelAndJoin()
       tabNavigationJob = null
+      tabContentAlpha.snapTo(1f)
+      isDirectTabJumpInProgress = false
       if (visibleTabs.isEmpty()) {
         persistentSelectedTab = MainTab.HOME
         return@LaunchedEffect
@@ -490,8 +498,7 @@ object MainScreen : Screen, TvEdgeToEdgeScreen {
         }
     }
 
-    // Keep the app's established Haze path for the normal navigation bar. Liquid Glass uses the
-    // separate Kyant layer backdrop declared with the screen state above.
+    // Progressive blur still needs its Haze source when Liquid Glass captures a Kyant backdrop.
     val navigationBackdrop = rememberHazeState()
 
     val mainNavBar = @Composable { modifier: Modifier ->
@@ -508,7 +515,7 @@ object MainScreen : Screen, TvEdgeToEdgeScreen {
           selectedTab = selectedTab,
           onTabSelected = onTabSelected,
           pagerState = pagerState,
-          hazeBackdrop = navigationBackdrop.takeIf { progressiveNavigationBlur },
+          hazeBackdrop = navigationBackdrop,
           kyantBackdrop = liquidNavigationBackdrop,
           liquidGlassEnabled = liquidGlassEnabled,
           modifier = modifier,
@@ -573,13 +580,14 @@ object MainScreen : Screen, TvEdgeToEdgeScreen {
               Modifier
                 .fillMaxSize()
                 .padding(tvContentPadding)
+                .then(if (liquidGlassEnabled) Modifier.layerBackdrop(liquidLayerBackdrop) else Modifier)
                 .then(
-                    when {
-                      liquidGlassEnabled -> Modifier.layerBackdrop(liquidLayerBackdrop)
-                      !legacyNavigationBar && progressiveNavigationBlur -> Modifier.hazeSource(navigationBackdrop)
-                      else -> Modifier
-                    },
-                  ),
+                  if (!legacyNavigationBar && (!liquidGlassEnabled || progressiveNavigationBlur)) {
+                    Modifier.hazeSource(navigationBackdrop)
+                  } else {
+                    Modifier
+                  },
+                ),
           ) {
             CompositionLocalProvider(
               LocalNavigationBarHeight provides contentBottomPadding,
@@ -604,14 +612,15 @@ object MainScreen : Screen, TvEdgeToEdgeScreen {
                   .clipToBounds()
                   .graphicsLayer { alpha = tabContentAlpha.value }
                   .nestedScroll(NavigationBarState.navScrollConnection)
+                  .then(if (liquidGlassEnabled) Modifier.layerBackdrop(liquidLayerBackdrop) else Modifier)
                   .then(
-                    when {
-                      liquidGlassEnabled -> Modifier.layerBackdrop(liquidLayerBackdrop)
-                      !legacyNavigationBar && progressiveNavigationBlur -> Modifier.hazeSource(navigationBackdrop)
-                      else -> Modifier
+                    if (!legacyNavigationBar && (!liquidGlassEnabled || progressiveNavigationBlur)) {
+                      Modifier.hazeSource(navigationBackdrop)
+                    } else {
+                      Modifier
                     },
                   ),
-              key = { page -> visibleTabs[page].name },
+              key = { page -> visibleTabs.getOrNull(page)?.name ?: "removed-tab-$page" },
               beyondViewportPageCount = if (adjacentTabsWarm) 1 else 0,
               userScrollEnabled = !isTelevision && !isPermissionDenied && !isDirectTabJumpInProgress,
               activePageFocusRequester = tvContentFocusRequester.takeIf { isTelevision },
@@ -866,7 +875,7 @@ object MainScreen : Screen, TvEdgeToEdgeScreen {
               }
               Box(Modifier.matchParentSize()) {
                 // Haze only runs while its navigation surface is visible.
-                if (!liquidGlassEnabled && progressiveNavigationBlur && !legacyNavigationBar) {
+                if (progressiveNavigationBlur && !legacyNavigationBar) {
                   ProgressiveNavigationBackdrop(
                     state = navigationBackdrop,
                     modifier =
@@ -899,13 +908,15 @@ object MainScreen : Screen, TvEdgeToEdgeScreen {
                   )
                 } else {
                   val horizontalMargin by animateDpAsState(
-                    targetValue = NavigationBarState.navigationPillMaxMargin - 30.dp * NavigationBarState.navLabelVisibility,
+                    targetValue = if (NavigationBarState.isMiniPlayerDocked) NavigationBarState.floatingBarSpacing
+                      else NavigationBarState.navigationPillMaxMargin - 30.dp * NavigationBarState.navLabelVisibility,
                     animationSpec = if (navStyle == NavigationAnimStyle.None) snap() else tween(300, easing = NavigationBarEasing),
                     label = "navigation_margin",
                   )
                   val centerFraction = animateFloatAsState(
                     targetValue = when {
                       isDualPaneFolderSelected && selectedTab == MainTab.HOME -> 0.2f
+                      NavigationBarState.isMiniPlayerDocked -> 0.5f
                       isMiniPlayerVisible && NavigationBarState.canPlaceMiniPlayerBesideNavigation(maxWidth) -> 0f
                       else -> 0.5f
                     },
@@ -943,7 +954,7 @@ object MainScreen : Screen, TvEdgeToEdgeScreen {
                     selectedTab = selectedTab,
                     onTabSelected = onTabSelected,
                     pagerState = pagerState,
-                    hazeBackdrop = navigationBackdrop.takeIf { progressiveNavigationBlur },
+                    hazeBackdrop = navigationBackdrop,
                     kyantBackdrop = liquidNavigationBackdrop,
                     liquidGlassEnabled = liquidGlassEnabled,
                     modifier = navModifier,
@@ -1028,11 +1039,22 @@ internal fun ExpressivePillNavigationBar(
   val labelStyle = if (compactIcons) MaterialTheme.typography.labelSmall else MaterialTheme.typography.labelMedium
   val activeLabelStyle =
     if (compactIcons) MaterialTheme.typography.labelSmallEmphasized else MaterialTheme.typography.labelMediumEmphasized
-  val labelHeight = with(density) { labelStyle.lineHeight.toDp() }
+  val labelLineCount = if (density.fontScale > 1f) 2 else 1
+  val labelHeight = with(density) { labelStyle.lineHeight.toDp() } * labelLineCount
   val labelFraction by animateFloatAsState(
     targetValue = NavigationBarState.navLabelVisibility,
     animationSpec = if (reducedMotion) snap() else tween(300, easing = NavigationBarEasing),
     label = "navigation_labels",
+  )
+  val dockProgress = NavigationBarState.dockProgress
+  val standaloneCorner = (48.dp + labelHeight * labelFraction) / 2f
+  val joiningCorner = standaloneCorner * (1f - dockProgress) + NavigationBarState.connectedDockCorner * dockProgress
+  val outsideCorner = standaloneCorner * (1f - dockProgress) + 20.dp * dockProgress
+  val navigationShape = if (dockProgress <= 0f) CircleShape else RoundedCornerShape(
+    topStart = joiningCorner,
+    topEnd = joiningCorner,
+    bottomEnd = outsideCorner,
+    bottomStart = outsideCorner,
   )
   LaunchedEffect(selectedTab) { NavigationBarState.expandNavLabels() }
   LaunchedEffect(selectedIndex, motion, reducedMotion) {
@@ -1051,10 +1073,9 @@ internal fun ExpressivePillNavigationBar(
 
   val surfaceColor = MaterialTheme.colorScheme.surfaceContainerHigh
   val accentColor = MaterialTheme.colorScheme.primary
-  val mutedColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f)
-  val selectedSurface = accentColor.copy(alpha = 0.15f)
-  val selectedContent = accentColor
-  val accentBrush = Brush.linearGradient(listOf(accentColor, MaterialTheme.colorScheme.secondary))
+  val mutedColor = MaterialTheme.colorScheme.onSurfaceVariant
+  val selectedSurface = MaterialTheme.colorScheme.secondaryContainer
+  val selectedContent = MaterialTheme.colorScheme.onSecondaryContainer
 
   val tabRow: @Composable (Boolean) -> Unit = { active ->
       Row(
@@ -1082,17 +1103,16 @@ internal fun ExpressivePillNavigationBar(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
               ) {
-                Box(Modifier.size(iconSize).graphicsLayer { translationY = 2.dp.toPx() * labelFraction }
-                  .then(if (active && tab != MainScreen.MainTab.PROFILE) Modifier.navigationAccentMask(accentBrush) else Modifier)) {
-                  MainTabIcon(tab, if (active && tab != MainScreen.MainTab.PROFILE) Color.White else contentColor, null, iconSize)
+                Box(Modifier.size(iconSize).graphicsLayer { translationY = 2.dp.toPx() * labelFraction }) {
+                  MainTabIcon(tab, contentColor, null, iconSize)
                 }
                 Box(Modifier.height(labelHeight * labelFraction).fillMaxWidth().clipToBounds().graphicsLayer { alpha = labelFraction }) {
                 Text(
                   text = label,
                   style = if (active) activeLabelStyle else labelStyle,
                   color = contentColor,
-                  maxLines = 1,
-                  softWrap = false,
+                  maxLines = labelLineCount,
+                  softWrap = true,
                   overflow = TextOverflow.Ellipsis,
                   textAlign = TextAlign.Center,
                   modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
@@ -1157,44 +1177,53 @@ internal fun ExpressivePillNavigationBar(
         },
       )
 
+  val renderLiquidGlass = liquidGlassEnabled && kyantBackdrop != null
+  val pixelsPerDp = density.density
+  val navigationMotionLayer: GraphicsLayerScope.() -> Unit = {
+    val frame = motion.frame
+    val scale = frame.trackScale
+    val stretch = frame.trackScaleX
+    val origin = frame.originX * pixelsPerDp
+    transformOrigin = TransformOrigin.Center
+    scaleX = scale * stretch
+    scaleY = scale
+    translationX = scale * (stretch * frame.panelOffset * pixelsPerDp + (1f - stretch) * (origin - size.width / 2f))
+    translationY = scale * frame.trackOffsetY * pixelsPerDp
+  }
+  val navigationMotionModifier = Modifier.graphicsLayer(block = navigationMotionLayer)
+
   Box(baseModifier) {
     Box(
-      Modifier.matchParentSize().graphicsLayer {
-        scaleX = motion.frame.trackScale
-        scaleY = motion.frame.trackScale
-      }.graphicsLayer {
-        val frame = motion.frame
-        transformOrigin = TransformOrigin(if (size.width > 0) frame.originX * density.density / size.width else 0.5f, 0.5f)
-        scaleX = frame.trackScaleX
-        translationY = frame.trackOffsetY * density.density
-      }.graphicsLayer {
-        translationX = motion.frame.panelOffset * density.density
-      },
+      Modifier.matchParentSize().then(if (renderLiquidGlass) Modifier else navigationMotionModifier),
     ) {
-      if (liquidGlassEnabled && kyantBackdrop != null) {
+      if (renderLiquidGlass) {
         Box(
           modifier =
             Modifier
               .matchParentSize()
               .drawBackdrop(
-                backdrop = kyantBackdrop,
-                shape = { Capsule() },
+                backdrop = checkNotNull(kyantBackdrop),
+                shape = { navigationShape },
                 effects = {
-                  liquidGlassEffects(glassSettings, 8.dp.toPx(), 24.dp.toPx(), 24.dp.toPx(), vibrant = true)
+                  liquidGlassEffects(
+                    glassSettings, 8.dp.toPx(), 24.dp.toPx(), 24.dp.toPx(),
+                    vibrant = true,
+                  )
                 },
+                layerBlock = navigationMotionLayer,
                 highlight = {
-                  glassSettings.highlight(Highlight.Ambient.copy(alpha = 0.58f * glowStrength))
+                  glassSettings.highlight(Highlight.Ambient.copy(alpha = 0.58f * glowStrength * (1f - dockProgress)))
                 },
                 shadow = {
                   Shadow(
                     radius = 8.dp,
-                    color = Color.Black.copy(alpha = 0.14f * glowStrength),
+                    color = Color.Black.copy(alpha = 0.14f * glowStrength * (1f - dockProgress)),
                   )
                 },
                 onDrawSurface = {
-                  drawCapsuleTint(glassSettings.surfaceColor(surfaceColor.copy(alpha = 0.34f)))
+                  drawShapeTint(navigationShape, glassSettings.surfaceColor(surfaceColor.copy(alpha = 0.34f)))
                 },
-              ).navigationGlassRim(glowStrength * glassSettings.highlightStrength.coerceAtMost(1f))
+              ).navigationGlassRim(glowStrength * glassSettings.highlightStrength.coerceAtMost(1f), navigationShape, dockProgress)
               .drawWithContent {
                 drawContent()
                 drawNavigationJellyGlow(motion.frame, accentColor.copy(alpha = glowStrength))
@@ -1203,47 +1232,49 @@ internal fun ExpressivePillNavigationBar(
       } else {
         Box(
           modifier = Modifier.matchParentSize()
-            .clip(CircleShape)
+            .clip(navigationShape)
             .drawWithContent {
               drawContent()
               drawNavigationJellyGlow(motion.frame, accentColor.copy(alpha = glowStrength))
             },
         ) {
-          NavigationGlassSurface(hazeBackdrop, surfaceColor, glowStrength, Modifier.matchParentSize())
+          NavigationGlassSurface(hazeBackdrop, surfaceColor, glowStrength, Modifier.matchParentSize(), navigationShape, dockProgress)
         }
       }
-      Box(Modifier.matchParentSize().drawWithContent {
-        clipPath(navigationJellyPath(motion.frame, visibleTabs.size), ClipOp.Difference) {
-          this@drawWithContent.drawContent()
-        }
-      }) { tabRow(false) }
-      Box(Modifier.matchParentSize().drawWithContent {
-        val pillPath = navigationJellyPath(motion.frame, visibleTabs.size)
-        drawPath(pillPath, selectedSurface)
-        clipPath(pillPath) {
-          drawNavigationJellyGlow(motion.frame, accentColor.copy(alpha = glowStrength))
-          this@drawWithContent.drawContent()
-        }
-      }) { tabRow(true) }
-      Row(Modifier.matchParentSize().padding(horizontal = 4.dp).selectableGroup()) {
-        visibleTabs.forEachIndexed { index, tab ->
-          Box(
-            Modifier.weight(1f).fillMaxHeight()
-              .then(if (tab == selectedTab) Modifier.tvInitialFocus(initialFocusRequester) else Modifier)
-              .tvFocusHighlight(CircleShape, focusedScale = 1.04f)
-              .clip(CircleShape)
-              .selectable(
-                selected = tab == selectedTab,
-                role = Role.Tab,
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-              ) {
-                if (tab != selectedTab) navigationHaptics.selection(true)
-                if (reducedMotion) motion.snapTo(visualIndex(index)) else motion.select(visualIndex(index))
-                onTabSelected(tab)
-              }
-              .semantics { contentDescription = labels[index] },
-          )
+      Box(Modifier.matchParentSize().then(if (renderLiquidGlass) navigationMotionModifier else Modifier)) {
+        Box(Modifier.matchParentSize().drawWithContent {
+          clipPath(navigationJellyPath(motion.frame, visibleTabs.size), ClipOp.Difference) {
+            this@drawWithContent.drawContent()
+          }
+        }) { tabRow(false) }
+        Box(Modifier.matchParentSize().drawWithContent {
+          val pillPath = navigationJellyPath(motion.frame, visibleTabs.size)
+          drawPath(pillPath, selectedSurface)
+          clipPath(pillPath) {
+            drawNavigationJellyGlow(motion.frame, accentColor.copy(alpha = glowStrength))
+            this@drawWithContent.drawContent()
+          }
+        }) { tabRow(true) }
+        Row(Modifier.matchParentSize().padding(horizontal = 4.dp).selectableGroup()) {
+          visibleTabs.forEachIndexed { index, tab ->
+            Box(
+              Modifier.weight(1f).fillMaxHeight()
+                .then(if (tab == selectedTab) Modifier.tvInitialFocus(initialFocusRequester) else Modifier)
+                .tvFocusHighlight(CircleShape, focusedScale = 1.04f)
+                .clip(CircleShape)
+                .selectable(
+                  selected = tab == selectedTab,
+                  role = Role.Tab,
+                  interactionSource = remember { MutableInteractionSource() },
+                  indication = null,
+                ) {
+                  if (tab != selectedTab) navigationHaptics.selection(true)
+                  if (reducedMotion) motion.snapTo(visualIndex(index)) else motion.select(visualIndex(index))
+                  onTabSelected(tab)
+                }
+                .semantics { contentDescription = labels[index] },
+            )
+          }
         }
       }
     }

@@ -14,9 +14,12 @@ import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
+import app.gyrolet.mpvrx.ui.components.AppToast as Toast
 import android.app.Activity
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -44,6 +47,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -68,6 +73,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import app.gyrolet.mpvrx.preferences.AppearancePreferences
+import app.gyrolet.mpvrx.preferences.GesturePreferences
 import app.gyrolet.mpvrx.preferences.PlayerPreferences
 import app.gyrolet.mpvrx.preferences.preference.collectAsState
 import app.gyrolet.mpvrx.presentation.Screen
@@ -77,8 +83,10 @@ import app.gyrolet.mpvrx.presentation.components.rememberLiquidGlassBackdrop
 import app.gyrolet.mpvrx.ui.browser.MainScreen
 import app.gyrolet.mpvrx.ui.browser.LocalNavigationBarHeight
 import app.gyrolet.mpvrx.ui.browser.NavigationBarState
+import app.gyrolet.mpvrx.ui.browser.rememberMiniPlayerShape
 import app.gyrolet.mpvrx.ui.browser.TvSideNavigationDefaults
 import app.gyrolet.mpvrx.ui.tv.TvSafeArea
+import app.gyrolet.mpvrx.ui.tv.startForResultOrToast
 import app.gyrolet.mpvrx.ui.browser.components.MiniPlayer
 import app.gyrolet.mpvrx.ui.theme.AppMotion
 import app.gyrolet.mpvrx.ui.theme.DarkMode
@@ -110,8 +118,8 @@ import app.gyrolet.mpvrx.ui.player.PlayerLifecyclePolicy
 import app.gyrolet.mpvrx.ui.player.MediaPlaybackService
 import app.gyrolet.mpvrx.ui.player.TrackNode
 import app.gyrolet.mpvrx.ui.player.toObject
-import app.gyrolet.mpvrx.ui.theme.AppShapeScale
 import app.gyrolet.mpvrx.ui.utils.LocalBackStack
+import app.gyrolet.mpvrx.ui.utils.LocalRootBackStack
 import app.gyrolet.mpvrx.ui.utils.ScreenNavDisplay
 import app.gyrolet.mpvrx.ui.utils.popSafely
 import app.gyrolet.mpvrx.utils.device.VulkanCapabilities
@@ -143,6 +151,7 @@ private const val NON_VULKAN_NOTICE_SHOWN = "non_vulkan_notice_shown"
  */
 open class MainActivity : AppCompatActivity() {
   private val appearancePreferences by inject<AppearancePreferences>()
+  private val gesturePreferences by inject<GesturePreferences>()
   private val playerPreferences by inject<PlayerPreferences>()
   private var appliedEdgeToEdgeDarkMode: Boolean? = null
   private lateinit var pipHelper: MPVPipHelper
@@ -152,6 +161,29 @@ open class MainActivity : AppCompatActivity() {
   private var isExpandingFromPip by mutableStateOf(false)
   private var openUpdateSheet by mutableStateOf(false)
   private var mediaDiscoveryJob: Job? = null
+  private var lastExitBackPressAt = 0L
+
+  /**
+   * Registered before setContent, so it only receives Back once no screen, rail, sheet or
+   * navigation entry wants it, which is exactly when Android would leave the app.
+   */
+  private val tvExitBackCallback =
+    object : OnBackPressedCallback(true) {
+      override fun handleOnBackPressed() {
+        val now = SystemClock.elapsedRealtime()
+        val confirmed = lastExitBackPressAt != 0L && now - lastExitBackPressAt <= TV_EXIT_BACK_WINDOW_MS
+        if (gesturePreferences.confirmBackToExit.get() && !confirmed) {
+          lastExitBackPressAt = now
+          Toast.makeText(this@MainActivity, R.string.toast_press_back_again_to_exit, Toast.LENGTH_SHORT).show()
+          return
+        }
+        lastExitBackPressAt = 0L
+        // Hand the press back to Android so the usual exit (or move to background) still happens.
+        isEnabled = false
+        onBackPressedDispatcher.onBackPressed()
+        isEnabled = true
+      }
+    }
 
   // Register the ActivityResultLauncher at class level
   private val mediaAccessLauncher =
@@ -165,6 +197,10 @@ open class MainActivity : AppCompatActivity() {
   private val runtimePermissionLauncher =
     registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
 
+  @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION")
+  override fun startActivityForResult(intent: Intent, requestCode: Int, options: Bundle?) =
+    startForResultOrToast(intent, requestCode) { target -> super.startActivityForResult(target, requestCode, options) }
+
   override fun onCreate(savedInstanceState: Bundle?) {
     // Match REX Player's splash handoff: use only Android's system SplashScreen and hand
     // directly into the real UI. Do not draw a second Compose logo/title layer afterwards.
@@ -175,6 +211,7 @@ open class MainActivity : AppCompatActivity() {
 
     if (DeviceFormFactor.isTelevision(this)) {
       requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+      onBackPressedDispatcher.addCallback(this, tvExitBackCallback)
     }
 
     pipHelper = MPVPipHelper(
@@ -601,18 +638,14 @@ open class MainActivity : AppCompatActivity() {
       // to see against arbitrary artwork, wallpapers and expressive surfaces.
       window.isNavigationBarContrastEnforced = true
     }
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-      // Draw into camera-cutout areas too, so the wallpaper covers the whole screen.
-      window.attributes =
-        window.attributes.apply {
-          layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-        }
-    }
+    // enableEdgeToEdge selects the supported cutout mode for this Android version.
+    // Overriding it with SHORT_EDGES conflicts with Android 15's edge-to-edge policy.
     appliedEdgeToEdgeDarkMode = isDarkMode
   }
 
   private companion object {
     const val SYSTEM_BAR_THEME_SWITCH_PROGRESS = 0.55f
+    const val TV_EXIT_BACK_WINDOW_MS = 2_000L
 
     // Per process: alias states only change through LauncherIconManager or the repair receiver.
     val launcherIconsReconciled = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -655,7 +688,6 @@ open class MainActivity : AppCompatActivity() {
     val context = LocalContext.current
     val currentVersion =
       when {
-        BuildConfig.IS_EXPERIMENTAL_BUILD -> stringResource(R.string.update_experimental_build_format, BuildConfig.GIT_COUNT)
         BuildConfig.IS_PREVIEW_BUILD -> stringResource(R.string.update_beta_build_format, BuildConfig.GIT_COUNT)
         else -> BuildConfig.VERSION_NAME.substringBefore('-')
       }
@@ -678,11 +710,13 @@ open class MainActivity : AppCompatActivity() {
     }
     val liquidGlassEnabled by appearancePreferences.liquidGlassEnabled.collectAsState()
     val legacyNavigationBar by appearancePreferences.legacyNavigationBar.collectAsState()
+    val connectedMiniPlayerNavigation by appearancePreferences.connectedMiniPlayerNavigation.collectAsState()
     val musicSheet = LocalInAppMusicSheet.current
 
     // Provide both LocalBackStack and the LazyList/Grid states to all screens
     CompositionLocalProvider(
       LocalBackStack provides typedBackstack,
+      LocalRootBackStack provides typedBackstack,
     ) {
       val hasNavEntries = typedBackstack.isNotEmpty()
 
@@ -694,7 +728,8 @@ open class MainActivity : AppCompatActivity() {
 
       if (hasNavEntries) {
         val miniPlayerBackdrop = rememberLiquidGlassBackdrop()
-        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        var browserRootLeft by remember { mutableStateOf(0f) }
+        BoxWithConstraints(modifier = Modifier.fillMaxSize().onGloballyPositioned { browserRootLeft = it.positionInRoot().x }) {
           val density = LocalDensity.current
           val layoutDirection = LocalLayoutDirection.current
           val safeInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
@@ -704,19 +739,34 @@ open class MainActivity : AppCompatActivity() {
           val isDualPane = isMainScreen && !legacyNavigationBar && NavigationBarState.isDualPaneLayout
           val isNavBarVisible = isMainScreen && NavigationBarState.isNavBarVisible
           val spacing = NavigationBarState.floatingBarSpacing
+          val dockedPlayer = connectedMiniPlayerNavigation && isNavBarVisible && !legacyNavigationBar && !isDualPane &&
+            !DeviceFormFactor.isTelevision(context) && NavigationBarState.isMiniPlayerVisible &&
+            NavigationBarState.miniPlayerConnectionEnabled
+          val reducedMotion = AppMotion.shouldReduceMotion()
+          val dockFraction by animateFloatAsState(
+            targetValue = if (dockedPlayer) 1f else 0f,
+            animationSpec = if (reducedMotion) snap() else tween(320, easing = FastOutSlowInEasing),
+            label = "mini_player_dock_placement",
+          )
           val navigationStart =
             if (layoutDirection == LayoutDirection.Ltr) {
               NavigationBarState.navbarLeftOffset - leftInset
             } else {
               maxWidth - NavigationBarState.navbarLeftOffset - NavigationBarState.navbarWidth - rightInset
             }
+          val dockLeft = NavigationBarState.navbarLeftOffset - with(density) { browserRootLeft.toDp() }
+          val dockStart = if (layoutDirection == LayoutDirection.Ltr) dockLeft
+            else maxWidth - dockLeft - NavigationBarState.navbarWidth
           val besideStartSpacing = (navigationStart + NavigationBarState.navbarWidth + spacing).coerceAtLeast(spacing)
-          val besideNavigation = isNavBarVisible && !legacyNavigationBar && !isDualPane &&
+          val besideNavigation = !dockedPlayer && isNavBarVisible && !legacyNavigationBar && !isDualPane &&
             NavigationBarState.canPlaceMiniPlayerBesideNavigation(maxWidth - leftInset - rightInset) &&
             maxWidth - leftInset - rightInset - besideStartSpacing - spacing >= NavigationBarState.miniPlayerMinWidth
           SideEffect {
             NavigationBarState.isMiniPlayerBesideNavigation = besideNavigation
+            NavigationBarState.isMiniPlayerDocked = dockedPlayer
+            NavigationBarState.dockProgress = dockFraction
           }
+          val miniPlayerShape = rememberMiniPlayerShape()
 
           CompositionLocalProvider(
             LocalNavigationBarHeight provides NavigationBarState.bottomOverlayClearance,
@@ -731,6 +781,8 @@ open class MainActivity : AppCompatActivity() {
               backStack = typedBackstack,
               opaqueFrom = app.gyrolet.mpvrx.ui.preferences.PreferencesScreen,
               tvSafeArea = true,
+              bottomOverlayClearance = NavigationBarState.miniPlayerClearance,
+              bottomOverlayExempt = MainScreen,
               onBack = {
                 if (typedBackstack.size <= 1 || !typedBackstack.popSafely()) {
                   this@MainActivity.finish()
@@ -739,7 +791,6 @@ open class MainActivity : AppCompatActivity() {
             )
           }
 
-          val reducedMotion = AppMotion.shouldReduceMotion()
           val playerHandoff = PlayerSheetTransitions.motion != null ||
             PlayerSheetTransitions.collapsedMediaId != null || PlayerSheetTransitions.expandingMediaId != null
           val placementAnimation = if (reducedMotion || playerHandoff) snap() else tween<Float>(
@@ -748,7 +799,9 @@ open class MainActivity : AppCompatActivity() {
           )
           val targetLift = when {
             NavigationBarState.isInSelectionMode -> NavigationBarState.selectionBarClearance - spacing
-            isNavBarVisible && !besideNavigation && !isDualPane -> NavigationBarState.navigationBarClearance - spacing
+            isNavBarVisible && !besideNavigation && !isDualPane ->
+              NavigationBarState.navigationBarClearance - spacing -
+                (spacing - NavigationBarState.connectedDockSpacing) * dockFraction
             else -> 0.dp
           }
           var lastLift by remember { mutableStateOf(targetLift) }
@@ -763,12 +816,13 @@ open class MainActivity : AppCompatActivity() {
           // Animate visibility changes, not heights that the navigation is already animating.
           val miniPlayerLift = (if (targetLift > 0.dp) targetLift else lastLift) * liftFraction
           // Follow the measured navigation edge directly, including its alignment animation.
-          val startSpacing =
-            if (besideNavigation) {
-              besideStartSpacing
-            } else {
-              spacing
-            }
+          val startInset = if (isDualPane) 0.dp else if (layoutDirection == LayoutDirection.Ltr) leftInset else rightInset
+          val endInset = if (isDualPane) 0.dp else if (layoutDirection == LayoutDirection.Ltr) rightInset else leftInset
+          val standaloneStart = startInset + if (besideNavigation) besideStartSpacing else spacing
+          val standaloneEnd = endInset + spacing
+          val dockEnd = (maxWidth - dockStart - NavigationBarState.navbarWidth).coerceAtLeast(0.dp)
+          val startSpacing = standaloneStart * (1f - dockFraction) + dockStart.coerceAtLeast(0.dp) * dockFraction
+          val endSpacing = standaloneEnd * (1f - dockFraction) + dockEnd * dockFraction
 
           val miniPlayerModifier =
             if (DeviceFormFactor.isTelevision(context)) {
@@ -788,9 +842,10 @@ open class MainActivity : AppCompatActivity() {
                 .align(if (isDualPane) Alignment.BottomEnd else Alignment.BottomStart)
                 .fillMaxWidth(if (isDualPane) 0.6f else 1f)
                 .windowInsetsPadding(
-                  if (isDualPane) safeInsets.only(WindowInsetsSides.End + WindowInsetsSides.Bottom) else safeInsets,
+                  if (isDualPane) safeInsets.only(WindowInsetsSides.End + WindowInsetsSides.Bottom)
+                  else safeInsets.only(WindowInsetsSides.Bottom),
                 )
-                .padding(start = startSpacing, end = spacing, bottom = spacing)
+                .padding(start = startSpacing, end = endSpacing, bottom = spacing)
                 .offset(y = -miniPlayerLift)
             }
 
@@ -798,16 +853,16 @@ open class MainActivity : AppCompatActivity() {
             modifier = miniPlayerModifier
               .height(NavigationBarState.miniPlayerHeight)
               .playerSheetMiniPlacement(
-                AppShapeScale.largeIncreased,
+                miniPlayerShape,
                 androidx.compose.material3.MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.96f),
               ),
           )
           ProvideLiquidGlassBackdrop(
-            backdrop = miniPlayerBackdrop,
+            backdrop = NavigationBarState.dockBackdrop?.takeIf { dockFraction > 0f } ?: miniPlayerBackdrop,
             enabled = liquidGlassEnabled,
           ) {
             MiniPlayer(
-              modifier = miniPlayerModifier.inAppMusicSheetMiniSource(musicSheet, AppShapeScale.largeIncreased),
+              modifier = miniPlayerModifier.inAppMusicSheetMiniSource(musicSheet, miniPlayerShape),
             )
           }
           PlayerSheetTransitionOverlay(PlayerSheetDestination.MINI, Modifier.matchParentSize())

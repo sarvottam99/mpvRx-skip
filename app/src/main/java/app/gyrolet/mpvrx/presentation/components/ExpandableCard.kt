@@ -27,21 +27,19 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CardElevation
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ProvideTextStyle
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import app.gyrolet.mpvrx.R
+import app.gyrolet.mpvrx.ui.liquidglass.LocalPlayerGlassSurfaceActive
+import app.gyrolet.mpvrx.ui.liquidglass.playerGlassContainerColor
 import app.gyrolet.mpvrx.ui.icons.Icon
 import app.gyrolet.mpvrx.ui.icons.Icons
 import app.gyrolet.mpvrx.ui.theme.AppMotion
@@ -72,6 +70,15 @@ fun ExpandableCard(
   content: @Composable () -> Unit,
 ) {
   val reduceMotion = AppMotion.shouldReduceMotion()
+  val frosted = LocalPlayerGlassSurfaceActive.current
+  val resolvedColors = if (frosted) {
+    CardDefaults.cardColors(
+      containerColor = playerGlassContainerColor(colors.containerColor),
+      contentColor = colors.contentColor,
+      disabledContainerColor = playerGlassContainerColor(colors.disabledContainerColor),
+      disabledContentColor = colors.disabledContentColor,
+    )
+  } else colors
   val interactionSource = remember { MutableInteractionSource() }
   val actionLabel = stringResource(if (isExpanded) R.string.generic_collapse else R.string.generic_expand)
   val rotationState by animateFloatAsState(
@@ -81,9 +88,9 @@ fun ExpandableCard(
   )
   Card(
     modifier = modifier.animateContentSize(if (reduceMotion) snap() else AppMotion.IntSizeSpring),
-    colors = colors,
+    colors = resolvedColors,
     shape = shape,
-    border = border,
+    border = if (frosted) null else border,
     elevation = elevation,
   ) {
     Row(
@@ -128,27 +135,4 @@ fun ExpandableCard(
       }
     }
   }
-}
-
-@Composable
-@Preview
-private fun PreviewExpandableCard() {
-  var isExpanded by remember { mutableStateOf(true) }
-
-  ExpandableCard(
-    isExpanded,
-    title = {
-      Text(
-        androidx.compose.ui.res
-          .stringResource(app.gyrolet.mpvrx.R.string.pref_preferences),
-      )
-    },
-    content = {
-      Text(
-        androidx.compose.ui.res
-          .stringResource(app.gyrolet.mpvrx.R.string.pref_appearance_summary),
-      )
-    },
-    onExpand = { isExpanded = it },
-  )
 }

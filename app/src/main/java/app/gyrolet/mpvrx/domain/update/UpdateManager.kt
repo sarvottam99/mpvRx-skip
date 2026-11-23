@@ -13,6 +13,7 @@ import android.content.Context
 import android.os.Build
 import androidx.core.content.pm.PackageInfoCompat
 import app.gyrolet.mpvrx.BuildConfig
+import app.gyrolet.mpvrx.network.awaitResponse
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -38,7 +39,7 @@ const val MPVRX_SKIP_VERSION = "3.0.2.2"
 class UpdateManager(
   private val context: Context,
 ) {
-  private val client = OkHttpClient()
+  private val client = OkHttpClient.Builder().build()
   private val json = Json {
     ignoreUnknownKeys = true
     coerceInputValues = true
@@ -61,8 +62,7 @@ class UpdateManager(
           AppUpdateChannel.EXPERIMENTAL -> EXPERIMENTAL_RELEASE_URL
           AppUpdateChannel.MPVRX_SKIP -> MPVRX_SKIP_RELEASE_URL
         },
-        allowMissing = channel == AppUpdateChannel.EXPERIMENTAL,
-      ) ?: return null
+      )
     if (selectUpdateAsset(release) == null) {
       return null
     }
@@ -85,7 +85,7 @@ class UpdateManager(
           val currentVersion = if (channel == AppUpdateChannel.MPVRX_SKIP) MPVRX_SKIP_VERSION else BuildConfig.VERSION_NAME.substringBefore('-')
           isNewerVersion(release.tagName.removePrefix("v"), currentVersion)
         }
-        AppUpdateChannel.PREVIEW, AppUpdateChannel.EXPERIMENTAL -> isNewerCiBuild(release, channel)
+        AppUpdateChannel.PREVIEW -> isNewerPreviewBuild(release)
       }
 
     return if (isNewer) {
@@ -96,20 +96,15 @@ class UpdateManager(
   }
 
   /**
-   * Preview and experimental feeds both publish the newest CI build of master. Commit counts order
+   * Preview feeds publish the newest CI build of master. Commit counts order
    * builds, but an amended or force-pushed master publishes a different commit at the same count,
    * which must still reach users who already run that count.
    */
-  private fun isNewerCiBuild(
-    release: Release,
-    channel: AppUpdateChannel,
-  ): Boolean {
-    val isPreview = channel == AppUpdateChannel.PREVIEW
-    val remoteBuild = (if (isPreview) release.previewBuildNumber else release.experimentalBuildNumber) ?: return false
+  private fun isNewerPreviewBuild(release: Release): Boolean {
+    val remoteBuild = release.previewBuildNumber ?: return false
     if (remoteBuild != BuildConfig.GIT_COUNT) return remoteBuild > BuildConfig.GIT_COUNT
 
-    val alreadyOnChannel = if (isPreview) BuildConfig.IS_PREVIEW_BUILD else BuildConfig.IS_EXPERIMENTAL_BUILD
-    return !alreadyOnChannel || isDifferentCommit(release.commitSha)
+    return !BuildConfig.IS_PREVIEW_BUILD || isDifferentCommit(release.commitSha)
   }
 
   private fun isDifferentCommit(remoteSha: String?): Boolean {
@@ -121,11 +116,9 @@ class UpdateManager(
 
   internal fun isInstalledRelease(release: Release): Boolean =
     when {
-      release.isExperimental -> BuildConfig.IS_EXPERIMENTAL_BUILD &&
-        release.experimentalBuildNumber == BuildConfig.GIT_COUNT && !isDifferentCommit(release.commitSha)
       release.isPreview -> BuildConfig.IS_PREVIEW_BUILD &&
         release.previewBuildNumber == BuildConfig.GIT_COUNT && !isDifferentCommit(release.commitSha)
-      else -> !BuildConfig.IS_EXPERIMENTAL_BUILD && !BuildConfig.IS_PREVIEW_BUILD &&
+      else -> !BuildConfig.IS_PREVIEW_BUILD &&
         release.tagName.removePrefix("v") == BuildConfig.VERSION_NAME.substringBefore('-')
     }
 
@@ -145,12 +138,10 @@ class UpdateManager(
       .apply()
   }
 
-  private suspend fun getLatestRelease(url: String, allowMissing: Boolean = false): Release? =
+  private suspend fun getLatestRelease(url: String): Release =
     withContext(Dispatchers.IO) {
       val request = Request.Builder().url(url).header("Cache-Control", "no-cache").build()
-      client.newCall(request).execute().use { response ->
-        // The channel becomes available after the first successful signed CI publication.
-        if (allowMissing && response.code == 404) return@withContext null
+      client.newCall(request).awaitResponse().use { response ->
         if (!response.isSuccessful) throw IOException("Unexpected code $response")
         val responseBody = response.body.string()
         json.decodeFromString<Release>(responseBody)
@@ -309,7 +300,7 @@ class UpdateManager(
           .apply { if (alreadyDownloaded > 0L) header("Range", "bytes=$alreadyDownloaded-") }
           .build()
 
-      client.newCall(request).execute().use { response ->
+      client.newCall(request).awaitResponse().use { response ->
         if (response.code == HTTP_RANGE_NOT_SATISFIABLE && allowResume) {
           partial.delete()
           throw RetryWithoutRangeSignal
@@ -418,32 +409,6 @@ class UpdateManager(
   private fun progressOf(downloaded: Long, total: Long?): Float =
     if (total != null && total > 0L) ((downloaded.toDouble() / total) * 100).toFloat().coerceIn(0f, 99f) else -1f
 
-  /**
-   * Progress already banked from a previous session, so the UI can show a resumed download starting
-   * from where it stopped instead of snapping back to 0%.
-   */
-  suspend fun getResumableProgress(release: Release): Float? = withContext(Dispatchers.IO) {
-    if (!BuildConfig.ENABLE_UPDATE_FEATURE) return@withContext null
-    val asset = selectUpdateAsset(release) ?: return@withContext null
-    val partial = File(localApkFile(asset).absolutePath + PART_SUFFIX)
-    val downloaded = partial.takeIf { it.isFile }?.takeIf { it.length() > 0L }?.length() ?: return@withContext null
-    val total = asset.size.takeIf { it > 0L } ?: resolveAssetLength(asset) ?: return@withContext null
-    if (total <= downloaded) return@withContext null
-    progressOf(downloaded, total)
-  }
-
-  private suspend fun resolveAssetLength(asset: Asset): Long? =
-    withContext(Dispatchers.IO) {
-      runCatching {
-        val request = Request.Builder().url(asset.downloadUrl).method("HEAD", null).build()
-        client.newCall(request).execute().use { response ->
-          if (!response.isSuccessful) return@use null
-          response.header("Content-Length")?.toLongOrNull()
-            ?: response.body.contentLength().takeIf { it > 0L }
-        }
-      }.getOrNull()
-    }
-
   suspend fun getApkFile(release: Release): File? = withContext(Dispatchers.IO) {
     // Return null if update feature is disabled
     if (!BuildConfig.ENABLE_UPDATE_FEATURE) {
@@ -484,4 +449,3 @@ class UpdateManager(
     val HEX_DIGITS = "0123456789abcdef".toCharArray()
   }
 }
-

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -31,7 +32,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ModalBottomSheetProperties
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
@@ -45,6 +45,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.gyrolet.mpvrx.R
+import app.gyrolet.mpvrx.presentation.components.ResponsiveBottomSheet
 import app.gyrolet.mpvrx.domain.update.Release
 import app.gyrolet.mpvrx.ui.icons.Icon
 import app.gyrolet.mpvrx.ui.icons.Icons
@@ -78,7 +79,7 @@ fun UpdateSheet(
   val asset = state.asset
   val busy = state.isDownloading || state.isInstalling
 
-  ModalBottomSheet(
+  ResponsiveBottomSheet(
     onDismissRequest = { if (!busy) onDismiss() },
     sheetState = sheetState,
     sheetGesturesEnabled = !busy,
@@ -130,7 +131,7 @@ fun UpdateSheet(
           VersionTransitionRow(currentVersion, releaseVersion(release))
           Spacer(Modifier.height(8.dp))
           ReleaseMetaRow(
-            publishedAt = if (release.isExperimental) release.updatedAt ?: release.publishedAt else release.publishedAt,
+            publishedAt = release.publishedAt,
             sizeBytes = asset.size,
           )
           Spacer(Modifier.height(8.dp))
@@ -173,10 +174,10 @@ fun UpdateSheet(
       if (state.selecting) {
         Text(stringResource(R.string.update_checking_download), style = MaterialTheme.typography.bodySmall)
       }
-      Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+      FlowRow(
+        modifier = Modifier.align(Alignment.End).padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
       ) {
         if (state.isDownloading) {
           TextButton(onClick = onCancelDownload) { Text(stringResource(R.string.generic_cancel)) }
@@ -184,7 +185,6 @@ fun UpdateSheet(
         if (!busy && !state.readyToInstall && release != null) {
           TextButton(onClick = onIgnore, enabled = !state.selecting) { Text(stringResource(R.string.ui_ignore)) }
         }
-        Spacer(Modifier.weight(1f))
         if (!busy) {
           TextButton(onClick = onDismiss) { Text(stringResource(R.string.generic_cancel)) }
           if (release != null && asset != null) {
@@ -210,8 +210,7 @@ fun UpdateSheet(
 
 @Composable
 private fun releaseVersion(release: Release): String =
-  release.experimentalBuildNumber?.let { stringResource(R.string.update_experimental_build_format, it) }
-    ?: release.previewBuildNumber?.let { stringResource(R.string.update_beta_build_format, it) }
+  release.previewBuildNumber?.let { stringResource(R.string.update_beta_build_format, it) }
     ?: release.tagName.removePrefix("v")
 
 @Composable
@@ -380,12 +379,8 @@ private fun DownloadProgressSection(progress: Float) {
 private fun formatFileSize(
   size: Long,
   unknownLabel: String,
-): String {
-  if (size <= 0) return unknownLabel
-  val units = arrayOf("B", "KB", "MB", "GB", "TB")
-  val digitGroups = (Math.log10(size.toDouble()) / Math.log10(1024.0)).toInt()
-  return String.format("%.1f %s", size / Math.pow(1024.0, digitGroups.toDouble()), units[digitGroups])
-}
+): String =
+  if (size <= 0) unknownLabel else app.gyrolet.mpvrx.utils.storage.VideoScanUtils.formatFileSize(size)
 
 private fun formatDate(dateString: String): String {
   return try {

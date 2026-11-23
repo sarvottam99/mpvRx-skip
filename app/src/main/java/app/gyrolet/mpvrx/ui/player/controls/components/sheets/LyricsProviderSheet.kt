@@ -11,6 +11,10 @@
 
 package app.gyrolet.mpvrx.ui.player.controls.components.sheets
 
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.runtime.remember
+import app.gyrolet.mpvrx.ui.theme.appPressFeedback
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -41,11 +45,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.gyrolet.mpvrx.R
 import app.gyrolet.mpvrx.domain.lyrics.LyricsProvider
+import app.gyrolet.mpvrx.domain.lyrics.LyricsTiming
 import app.gyrolet.mpvrx.presentation.components.PlayerSheet
 import app.gyrolet.mpvrx.ui.icons.AppIcon
 import app.gyrolet.mpvrx.ui.icons.Icon
 import app.gyrolet.mpvrx.ui.icons.Icons
 import app.gyrolet.mpvrx.ui.player.PlayerViewModel
+import app.gyrolet.mpvrx.ui.player.Sheets
 import app.gyrolet.mpvrx.ui.player.controls.components.tvFocusHighlight
 import app.gyrolet.mpvrx.ui.theme.AppConnectedShapeTokens
 import app.gyrolet.mpvrx.ui.theme.ConnectedLayout
@@ -72,7 +78,11 @@ fun LyricsProviderSheet(
 ) {
   val state by viewModel.lyricsUiState.collectAsState()
 
-  PlayerSheet(onDismissRequest, title = stringResource(R.string.lyrics_provider_sheet_title)) {
+  PlayerSheet(
+    onDismissRequest,
+    title = stringResource(R.string.lyrics_provider_sheet_title),
+    actions = { LyricsEditAction(viewModel, origin = Sheets.LyricsProvider) },
+  ) {
     LazyColumn(
       modifier = modifier.fillMaxWidth(),
       contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
@@ -83,8 +93,13 @@ fun LyricsProviderSheet(
         ProviderRow(
           title = stringResource(R.string.lyrics_provider_auto),
           subtitle =
-            state.onlineProvider?.takeIf { status == ProviderStatus.CURRENT }?.let {
-              stringResource(R.string.lyrics_provider_auto_best, it.label)
+            state.onlineProvider?.takeIf { status == ProviderStatus.CURRENT }?.let { provider ->
+              val timing = state.providerTimings[provider]
+              if (timing != null) {
+                stringResource(R.string.lyrics_provider_auto_best_timing, provider.label, stringResource(timing.labelRes()))
+              } else {
+                stringResource(R.string.lyrics_provider_auto_best, provider.label)
+              }
             } ?: statusText(status),
           status = status,
           autoRow = true,
@@ -99,7 +114,7 @@ fun LyricsProviderSheet(
         val status = providerStatus(provider, state)
         ProviderRow(
           title = provider.label,
-          subtitle = statusText(status),
+          subtitle = statusText(status, state.providerTimings[provider]),
           status = status,
           enabled = state.onlineEnabled,
           onClick = { viewModel.switchLyricsProvider(provider) },
@@ -153,6 +168,30 @@ private fun providerStatus(
   }
 }
 
+private fun LyricsTiming.labelRes(): Int =
+  when (this) {
+    LyricsTiming.WORD -> R.string.lyrics_timing_word
+    LyricsTiming.PARTIAL_WORD -> R.string.lyrics_timing_partial_word
+    LyricsTiming.LINE -> R.string.lyrics_timing_line
+    LyricsTiming.PLAIN -> R.string.lyrics_timing_plain
+  }
+
+/** A fetched provider also says how well its lyrics are timed, which is what Auto ranks by. */
+@Composable
+private fun statusText(
+  status: ProviderStatus,
+  timing: LyricsTiming?,
+): String {
+  val timingLabel = timing?.let { stringResource(it.labelRes()) }
+  return when {
+    timingLabel != null && status == ProviderStatus.CURRENT ->
+      stringResource(R.string.lyrics_provider_row_current_timing, timingLabel)
+    timingLabel != null && status == ProviderStatus.FOUND ->
+      stringResource(R.string.lyrics_provider_row_found_timing, timingLabel)
+    else -> statusText(status)
+  }
+}
+
 @Composable
 private fun statusText(status: ProviderStatus): String =
   stringResource(
@@ -184,8 +223,14 @@ private fun ProviderRow(
   val current = status == ProviderStatus.CURRENT
   // A finished empty answer cannot be improved by asking again; a failure can.
   val tappable = enabled && !current && status != ProviderStatus.MISSING
-  val container = animatedPlayerSheetSelectionColor(current, label = "lyricsProviderRow")
-  val shape = rememberConnectedShape(index = groupIndex, itemCount = groupSize, layout = ConnectedLayout.Vertical)
+  val interactionSource = remember { MutableInteractionSource() }
+  val pressed by interactionSource.collectIsPressedAsState()
+  val container = animatedPlayerSheetSelectionColor(
+    current, label = "lyricsProviderRow", pressed = pressed, enabled = tappable,
+  )
+  val shape = rememberConnectedShape(
+    groupIndex, groupSize, ConnectedLayout.Vertical, pressed = pressed && tappable, selected = current,
+  )
   val dim = status == ProviderStatus.MISSING
 
   Surface(
@@ -193,11 +238,13 @@ private fun ProviderRow(
       modifier
         .fillMaxWidth()
         .tvFocusHighlight(shape, enabled = tappable)
+        .appPressFeedback(interactionSource, enabled = tappable, pressedScale = 0.985f)
         .clip(shape)
-        .selectable(selected = current, enabled = tappable, role = Role.RadioButton) {
-          onClick()
-          haptics.selection(true)
-        },
+        .selectable(
+          selected = current, enabled = tappable, role = Role.RadioButton,
+          interactionSource = interactionSource, indication = androidx.compose.material3.ripple(),
+          onClick = { onClick(); haptics.selection(true) },
+        ),
     shape = shape,
     color = container,
   ) {

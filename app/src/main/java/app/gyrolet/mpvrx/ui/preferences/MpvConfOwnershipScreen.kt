@@ -59,7 +59,6 @@ import app.gyrolet.mpvrx.R
 import app.gyrolet.mpvrx.preferences.AdvancedPreferences
 import app.gyrolet.mpvrx.preferences.MpvConfigOverride
 import app.gyrolet.mpvrx.preferences.preference.collectAsState
-import app.gyrolet.mpvrx.presentation.Screen
 import app.gyrolet.mpvrx.presentation.components.ExpandableCard
 import app.gyrolet.mpvrx.ui.icons.Icon
 import app.gyrolet.mpvrx.ui.icons.Icons
@@ -74,13 +73,14 @@ import org.koin.compose.koinInject
  * page stays scannable; expanding reveals the individual options.
  */
 @Serializable
-object MpvConfOwnershipScreen : Screen {
+object MpvConfOwnershipScreen : ScrollableSettingsScreen {
   @OptIn(ExperimentalMaterial3Api::class)
   @Composable
   override fun Content() {
     val backStack = LocalBackStack.current
     val preferences = koinInject<AdvancedPreferences>()
     val storedValues by preferences.mpvConfOverrides.collectAsState()
+    val availableGroups = MpvConfigOverride.availableGroups
     val selectedOptions = remember(storedValues) { MpvConfigOverride.resolveOptionNames(storedValues) }
     val hasMpvConfig = remember { hasMeaningfulMpvConfig(preferences.mpvConf.get()) }
     var expandedGroup by rememberSaveable { mutableStateOf<String?>(null) }
@@ -100,7 +100,7 @@ object MpvConfOwnershipScreen : Screen {
           .fillMaxSize()
             .tvContentFocus()
           .padding(padding),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp),
+        contentPadding = settingsContentPadding(PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp)),
         verticalArrangement = Arrangement.spacedBy(AppConnectedShapeTokens.spacing),
       ) {
         item(key = "header") {
@@ -112,13 +112,13 @@ object MpvConfOwnershipScreen : Screen {
         }
 
         items(
-          count = MpvConfigOverride.entries.size,
-          key = { index -> MpvConfigOverride.entries[index].preferenceKey },
+          count = availableGroups.size,
+          key = { index -> availableGroups[index].preferenceKey },
         ) { index ->
-          val override = MpvConfigOverride.entries[index]
+          val override = availableGroups[index]
           OwnershipGroupCard(
             override = override,
-            shape = rememberConnectedShape(index, MpvConfigOverride.entries.size, ConnectedLayout.Vertical),
+            shape = rememberConnectedShape(index, availableGroups.size, ConnectedLayout.Vertical),
             selectedOptions = selectedOptions,
             isExpanded = expandedGroup == override.preferenceKey,
             onExpand = { expanded ->
@@ -304,10 +304,21 @@ private fun OwnershipGroupCard(
           ) {
             Checkbox(checked = checked, onCheckedChange = null)
             Spacer(modifier = Modifier.width(8.dp))
-            Text(
-              text = optionName,
-              style = MaterialTheme.typography.bodyMedium,
-            )
+            Column(modifier = Modifier.weight(1f)) {
+              Text(text = optionName, style = MaterialTheme.typography.bodyMedium)
+              val description = when (optionName) {
+                "inverse-tone-mapping" -> R.string.hdr_linear_inverse_ownership
+                "tone-mapping" -> R.string.hdr_linear_tone_ownership
+                else -> null
+              }
+              description?.let {
+                Text(
+                  text = stringResource(it),
+                  style = MaterialTheme.typography.bodySmall,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+              }
+            }
           }
         }
       }

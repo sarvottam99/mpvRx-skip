@@ -3,8 +3,9 @@ package app.gyrolet.mpvrx.ui.preferences
 
 import android.os.Build
 import android.app.Activity
+import android.content.Context
 import android.widget.ImageView
-import android.widget.Toast
+import app.gyrolet.mpvrx.ui.components.AppToast as Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.spring
@@ -20,14 +21,18 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
@@ -83,11 +88,12 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import app.gyrolet.mpvrx.R
-import app.gyrolet.mpvrx.presentation.Screen
 import app.gyrolet.mpvrx.ui.components.ExpressiveColorPicker
 import app.gyrolet.mpvrx.ui.components.ColorPickerMode
 import app.gyrolet.mpvrx.ui.theme.AppMotion
 import app.gyrolet.mpvrx.ui.theme.appPressFeedback
+import app.gyrolet.mpvrx.ui.theme.animatedConnectedContainerColor
+import app.gyrolet.mpvrx.ui.theme.rememberConnectedShape
 import app.gyrolet.mpvrx.ui.icons.Icon
 import app.gyrolet.mpvrx.ui.icons.Icons
 import app.gyrolet.mpvrx.ui.theme.AppConnectedShapeTokens
@@ -104,7 +110,7 @@ import kotlin.math.abs
  * the chosen background. Nothing changes on the launcher until the pick is applied and confirmed.
  */
 @Serializable
-object AppIconPreferencesScreen : Screen {
+object AppIconPreferencesScreen : ScrollableSettingsScreen {
   @Composable
   override fun Content() {
     val context = LocalContext.current
@@ -150,6 +156,7 @@ object AppIconPreferencesScreen : Screen {
             .widthIn(max = 600.dp)
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
+            .padding(settingsContentPadding())
             .padding(
               start = 16.dp,
               end = 16.dp,
@@ -187,10 +194,23 @@ object AppIconPreferencesScreen : Screen {
                 "sliders" to R.string.color_picker_sliders,
               ).forEachIndexed { index, choice ->
                 val selected = customMode == choice.first
-                val shape = connectedShape(index, 3, ConnectedLayout.Horizontal)
+                val interactionSource = remember { MutableInteractionSource() }
+                val pressed by interactionSource.collectIsPressedAsState()
+                val shape = rememberConnectedShape(
+                  index, 3, ConnectedLayout.Horizontal, pressed = pressed, selected = selected,
+                )
                 androidx.compose.material3.Surface(
-                  modifier = Modifier.weight(1f).clip(shape).selectable(selected = selected, role = Role.RadioButton) { customMode = choice.first },
-                  color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+                  modifier = Modifier.weight(1f)
+                    .appPressFeedback(interactionSource, pressedScale = 0.985f)
+                    .clip(shape)
+                    .selectable(
+                      selected = selected, role = Role.RadioButton,
+                      interactionSource = interactionSource, indication = androidx.compose.material3.ripple(),
+                      onClick = { customMode = choice.first },
+                    ),
+                  color = animatedConnectedContainerColor(
+                    selected = selected, pressed = pressed, containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                  ),
                   shape = shape,
                 ) {
                   Text(
@@ -265,14 +285,7 @@ object AppIconPreferencesScreen : Screen {
           }
           if (customBackground) {
             TextButton(onClick = {
-              val result = CustomIconShortcut.apply(context, customColor, customMark)
-              val message = when (result) {
-                CustomIconShortcut.Result.Requested -> R.string.app_icon_shortcut_requested
-                CustomIconShortcut.Result.Updated -> R.string.app_icon_shortcut_updated
-                CustomIconShortcut.Result.Unsupported -> R.string.app_icon_shortcut_unsupported
-                CustomIconShortcut.Result.Failed -> R.string.app_icon_change_failed
-              }
-              Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+              showShortcutResult(context, CustomIconShortcut.apply(context, customColor, customMark))
             }) { Text(stringResource(R.string.app_icon_create_custom_shortcut)) }
           }
         }
@@ -286,7 +299,14 @@ object AppIconPreferencesScreen : Screen {
           confirmingCustomColor = null
         },
         title = { Text(stringResource(R.string.app_icon_confirm_title)) },
-        text = { Text(stringResource(R.string.app_icon_confirm_message, iconName(target))) },
+        text = {
+          Text(
+            stringResource(
+              if (confirmingCustomColor != null) R.string.app_icon_confirm_custom_message else R.string.app_icon_confirm_message,
+              iconName(target),
+            ),
+          )
+        },
         confirmButton = {
           TextButton(
             onClick = {
@@ -307,6 +327,11 @@ object AppIconPreferencesScreen : Screen {
               } catch (_: Exception) {
                 Toast.makeText(context, R.string.app_icon_change_failed, Toast.LENGTH_LONG).show()
                 current = runCatching { LauncherIconManager.current(context) }.getOrDefault(current)
+                return@TextButton
+              }
+              // The app drawer can only show a built-in icon, so the exact color goes to the home screen.
+              if (chosenCustomColor != null) {
+                showShortcutResult(context, CustomIconShortcut.apply(context, chosenCustomColor, customMark))
               }
             },
           ) { Text(stringResource(R.string.app_icon_confirm_action)) }
@@ -320,6 +345,16 @@ object AppIconPreferencesScreen : Screen {
       )
     }
   }
+}
+
+private fun showShortcutResult(context: Context, result: CustomIconShortcut.Result) {
+  val message = when (result) {
+    CustomIconShortcut.Result.Requested -> R.string.app_icon_shortcut_requested
+    CustomIconShortcut.Result.Updated -> R.string.app_icon_shortcut_updated
+    CustomIconShortcut.Result.Unsupported -> R.string.app_icon_shortcut_unsupported
+    CustomIconShortcut.Result.Failed -> R.string.app_icon_change_failed
+  }
+  Toast.makeText(context, message, Toast.LENGTH_LONG).show()
 }
 
 /** Name of an icon: its background, plus the logo when that is not the one the background leads with. */
@@ -479,17 +514,24 @@ private fun IconBuilder(
       val choices: List<IconMark?> = IconMark.entries + listOf(null)
       BoxWithConstraints(Modifier.fillMaxWidth()) {
         val columns = (maxWidth / (104.dp * fontScale)).toInt().coerceIn(1, choices.size)
+        // 12dp padding twice, the 44dp icon, the 8dp gap and two label lines: one size for every tile.
+        val tileMinHeight =
+          76.dp + with(LocalDensity.current) { (MaterialTheme.typography.bodySmall.lineHeight * 2).toDp() }
         Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(AppConnectedShapeTokens.spacing)) {
           choices.chunked(columns).forEachIndexed { row, marks ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppConnectedShapeTokens.spacing)) {
+            Row(
+              Modifier.fillMaxWidth().height(IntrinsicSize.Max),
+              horizontalArrangement = Arrangement.spacedBy(AppConnectedShapeTokens.spacing),
+            ) {
               marks.forEachIndexed { column, mark ->
                 val shape = connectedShape(row * columns + column, choices.size, ConnectedLayout.Grid, columns)
+                val tileModifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = tileMinHeight)
                 if (mark == null) {
                   CustomBackgroundTile(
                     selected = customBackground,
                     onClick = { onCustomBackground(!customBackground) },
                     shape = shape,
-                    modifier = Modifier.weight(1f),
+                    modifier = tileModifier,
                   )
                 } else {
                   val background = if (customBackground) nearestIcon.background else pending.background
@@ -502,7 +544,7 @@ private fun IconBuilder(
                     customColor = if (customBackground) Color(customColor or 0xFF000000.toInt()) else null,
                     onClick = { if (customBackground) onCustomMark(mark) else icon?.let(onPick) },
                     shape = shape,
-                    modifier = Modifier.weight(1f),
+                    modifier = tileModifier,
                   )
                 }
               }
@@ -544,7 +586,7 @@ private fun CustomBackgroundTile(
       .selectable(selected = selected, role = Role.Checkbox, onClick = onClick)
       .padding(horizontal = 8.dp, vertical = 12.dp),
     horizontalAlignment = Alignment.CenterHorizontally,
-    verticalArrangement = Arrangement.spacedBy(8.dp),
+    verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
   ) {
     Icon(Icons.RoundedFilled.Palette, null, modifier = Modifier.size(44.dp), tint = MaterialTheme.colorScheme.primary)
     Text(
@@ -552,7 +594,6 @@ private fun CustomBackgroundTile(
       style = MaterialTheme.typography.bodySmall,
       fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
       textAlign = TextAlign.Center,
-      minLines = 2,
     )
   }
 }
@@ -603,7 +644,7 @@ private fun MarkTile(
       )
       .padding(horizontal = 8.dp, vertical = 12.dp),
     horizontalAlignment = Alignment.CenterHorizontally,
-    verticalArrangement = Arrangement.spacedBy(8.dp),
+    verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
   ) {
     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
       Box(Modifier.alpha(if (enabled) 1f else 0.35f)) {
@@ -630,7 +671,6 @@ private fun MarkTile(
       color = (if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface)
         .copy(alpha = if (enabled) 1f else 0.5f),
       textAlign = TextAlign.Center,
-      minLines = 2,
     )
   }
 }

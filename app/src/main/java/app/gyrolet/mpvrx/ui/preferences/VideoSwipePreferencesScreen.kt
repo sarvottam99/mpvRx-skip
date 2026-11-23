@@ -22,7 +22,6 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
@@ -60,7 +59,6 @@ import app.gyrolet.mpvrx.preferences.BrowserPreferences
 import app.gyrolet.mpvrx.preferences.VideoSwipeAction
 import app.gyrolet.mpvrx.preferences.preference.collectAsState
 import app.gyrolet.mpvrx.presentation.components.AppPickerSheet
-import app.gyrolet.mpvrx.presentation.Screen
 import app.gyrolet.mpvrx.ui.browser.cards.containerColor
 import app.gyrolet.mpvrx.ui.browser.cards.contentColor
 import app.gyrolet.mpvrx.ui.browser.cards.icon
@@ -80,7 +78,7 @@ import org.koin.compose.koinInject
 import kotlin.math.roundToInt
 
 @Serializable
-object VideoSwipePreferencesScreen : Screen {
+object VideoSwipePreferencesScreen : ScrollableSettingsScreen {
   @OptIn(ExperimentalMaterial3Api::class)
   @Composable
   override fun Content() {
@@ -115,7 +113,7 @@ object VideoSwipePreferencesScreen : Screen {
       LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize().padding(padding).then(highlight),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        contentPadding = settingsContentPadding(androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 12.dp)),
         verticalArrangement = Arrangement.spacedBy(AppConnectedShapeTokens.spacing),
       ) {
         item(key = "right-swipe") {

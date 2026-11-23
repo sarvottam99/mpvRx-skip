@@ -2,12 +2,6 @@ name: Make release
 
 on:
   push:
-    branches:
-      - master
-    paths:
-      - app/build.gradle.kts
-      - CHANGELOG.md
-      - .github/workflows/release.yml
     tags:
       - 'v*'
   workflow_dispatch:
@@ -28,8 +22,7 @@ jobs:
   prepare:
     name: Resolve release tag
     if: >-
-      github.event_name != 'push' || startsWith(github.ref, 'refs/tags/') ||
-      startsWith(github.event.head_commit.message, 'chore(release): v')
+      github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -161,6 +154,9 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: gradle
+
+      - name: Install compile SDK
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.2"'
 
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew

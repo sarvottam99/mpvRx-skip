@@ -5,18 +5,48 @@
 package app.gyrolet.mpvrx.ui.preferences
 
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import app.gyrolet.mpvrx.R
+import app.gyrolet.mpvrx.presentation.Screen
+import app.gyrolet.mpvrx.ui.browser.LocalNavigationBarHeight
 import app.gyrolet.mpvrx.ui.icons.Icon
 import app.gyrolet.mpvrx.ui.icons.Icons
 import app.gyrolet.mpvrx.ui.utils.LocalShowSettingsBackArrow
+
+/** Reserves mini-player clearance inside scrolling content, not around the whole page. */
+interface ScrollableSettingsScreen : Screen
+
+@Composable
+internal fun settingsContentPadding(padding: PaddingValues = PaddingValues(0.dp)): PaddingValues {
+  val direction = LocalLayoutDirection.current
+  val clearance = if (LocalPlayerSettingsPanel.current) 0.dp else LocalNavigationBarHeight.current
+  return PaddingValues(
+    start = padding.calculateStartPadding(direction),
+    top = padding.calculateTopPadding(),
+    end = padding.calculateEndPadding(direction),
+    bottom = padding.calculateBottomPadding() + clearance,
+  )
+}
+
+/** The floating player panel already owns system/keyboard insets; embedded pages need only their content padding. */
+@Composable
+internal fun settingsContentWindowInsets(): WindowInsets =
+  if (LocalPlayerSettingsPanel.current) WindowInsets(0, 0, 0, 0) else ScaffoldDefaults.contentWindowInsets
 
 /** Standard settings-screen top bar; the back arrow follows [LocalShowSettingsBackArrow]. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -28,6 +58,7 @@ internal fun SettingsTopAppBar(
   onClose: (() -> Unit)? = null,
   windowInsets: WindowInsets = TopAppBarDefaults.windowInsets,
 ) {
+  if (LocalPlayerSettingsPanel.current) return
   TopAppBar(
     title = {
       Text(
@@ -43,7 +74,7 @@ internal fun SettingsTopAppBar(
         IconButton(onClick = onBack) {
           Icon(
             Icons.RoundedFilled.ArrowBack,
-            contentDescription = null,
+            contentDescription = stringResource(R.string.back),
             tint = MaterialTheme.colorScheme.secondary,
           )
         }
@@ -54,7 +85,7 @@ internal fun SettingsTopAppBar(
         IconButton(onClick = onClose) {
           Icon(
             Icons.RoundedFilled.Close,
-            contentDescription = null,
+            contentDescription = stringResource(R.string.ui_close),
             tint = MaterialTheme.colorScheme.secondary,
           )
         }

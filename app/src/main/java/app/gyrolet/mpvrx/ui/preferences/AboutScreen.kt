@@ -15,7 +15,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.widget.ImageView
-import android.widget.Toast
+import app.gyrolet.mpvrx.ui.components.AppToast as Toast
 import androidx.annotation.StringRes
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -71,7 +71,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import app.gyrolet.mpvrx.BuildConfig
 import app.gyrolet.mpvrx.R
 import app.gyrolet.mpvrx.domain.update.AppUpdateChannel
-import app.gyrolet.mpvrx.presentation.Screen
 import app.gyrolet.mpvrx.presentation.crash.CrashActivity.Companion.collectDeviceInfo
 import app.gyrolet.mpvrx.ui.components.IconSwitch
 import app.gyrolet.mpvrx.ui.components.themedSegmentedButtonColors
@@ -86,7 +85,7 @@ import java.util.Locale
 import kotlinx.serialization.Serializable
 
 @Serializable
-object AboutScreen : Screen {
+object AboutScreen : ScrollableSettingsScreen {
   @Suppress("DEPRECATION")
   @OptIn(ExperimentalMaterial3Api::class)
   @Composable
@@ -98,7 +97,7 @@ object AboutScreen : Screen {
     val versionName =
       packageInfo.versionName
         ?.let { value ->
-          if (BuildConfig.IS_PREVIEW_BUILD || BuildConfig.IS_EXPERIMENTAL_BUILD) value else value.substringBefore('-')
+          if (BuildConfig.IS_PREVIEW_BUILD) value else value.substringBefore('-')
         }
         ?: BuildConfig.VERSION_NAME
     val buildType = BuildConfig.BUILD_TYPE
@@ -141,7 +140,8 @@ object AboutScreen : Screen {
         modifier =
           Modifier
             .padding(paddingValues)
-            .verticalScroll(settingsScrollState),
+            .verticalScroll(settingsScrollState)
+            .padding(settingsContentPadding()),
       ) {
         PreferenceCard {
           Box(
@@ -237,6 +237,7 @@ object AboutScreen : Screen {
                     Modifier
                       .weight(1f)
                       .height(56.dp),
+                  contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
                   shape = RoundedCornerShape(topStart = 24.dp, topEnd = 6.dp, bottomEnd = 6.dp, bottomStart = 6.dp),
                   colors =
                     ButtonDefaults.buttonColors(
@@ -254,6 +255,8 @@ object AboutScreen : Screen {
                     text = stringResource(id = R.string.pref_about_oss_libraries),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                   )
                 }
 
@@ -270,6 +273,7 @@ object AboutScreen : Screen {
                     Modifier
                       .weight(1f)
                       .height(56.dp),
+                  contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
                   shape = RoundedCornerShape(topStart = 6.dp, topEnd = 24.dp, bottomEnd = 6.dp, bottomStart = 6.dp),
                   colors =
                     ButtonDefaults.buttonColors(
@@ -289,6 +293,8 @@ object AboutScreen : Screen {
                         .stringResource(app.gyrolet.mpvrx.R.string.ui_github),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                   )
                 }
               }
@@ -348,6 +354,7 @@ object AboutScreen : Screen {
                 }
                 Text(
                   text = collectDeviceInfo(),
+                  modifier = Modifier.padding(bottom = 8.dp),
                   style = MaterialTheme.typography.bodySmall,
                   color = cs.onPrimaryContainer.copy(alpha = 0.85f),
                 )
@@ -403,14 +410,7 @@ object AboutScreen : Screen {
                         context = context,
                         label = "mpvrx_upi_id",
                         text = "panditritesh2001@okhdfcbank",
-                        showToast = false,
                       )
-                      Toast
-                        .makeText(
-                          context,
-                          context.getString(app.gyrolet.mpvrx.R.string.ui_upi_id_copied),
-                          Toast.LENGTH_SHORT,
-                        ).show()
                     }.padding(horizontal = 16.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -540,12 +540,13 @@ object AboutScreen : Screen {
                   verticalAlignment = Alignment.CenterVertically,
                   horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                  Column(modifier = Modifier.weight(1f)) {
-                    Text(stringResource(R.string.update_auto_install), style = MaterialTheme.typography.titleMedium,
-                      fontWeight = FontWeight.SemiBold, color = cs.onSurface)
-                    Spacer(Modifier.height(2.dp))
-                    Text(stringResource(R.string.update_auto_install_summary), style = MaterialTheme.typography.bodyMedium, color = cs.outline)
-                  }
+                  Text(
+                    text = stringResource(R.string.update_auto_install),
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = cs.onSurface,
+                  )
                   IconSwitch(checked = isAutoInstallEnabled, onCheckedChange = { updateViewModel.toggleAutoInstall(it) })
                 }
               }
@@ -832,7 +833,7 @@ internal val OPEN_SOURCE_LIBRARIES =
     ),
     OpenSourceLibrary(
       name = "MediaInfo Android",
-      artifact = "com.github.marlboro-advance:mediainfoAndroid",
+      artifact = "io.github.marlboro-advance:mediainfo-android",
       descriptionRes = R.string.oss_mediainfo_android_description,
       license = "BSD-2-Clause",
       url = "https://github.com/marlboro-advance/mediainfoAndroid",
@@ -964,13 +965,6 @@ internal val OPEN_SOURCE_LIBRARIES =
       url = "https://developer.android.com/jetpack/androidx/releases/palette",
     ),
     OpenSourceLibrary(
-      name = "AndroidX Profile Installer",
-      artifact = "androidx.profileinstaller:profileinstaller",
-      descriptionRes = R.string.oss_androidx_profile_installer_description,
-      license = "Apache-2.0",
-      url = "https://developer.android.com/jetpack/androidx/releases/profileinstaller",
-    ),
-    OpenSourceLibrary(
       name = "Google Material",
       artifact = "com.google.android.material:material",
       descriptionRes = R.string.oss_google_material_description,
@@ -1097,13 +1091,6 @@ internal val OPEN_SOURCE_LIBRARIES =
       url = "https://developer.android.com/jetpack/androidx/releases/lifecycle",
     ),
     OpenSourceLibrary(
-      name = "LeakCanary",
-      artifact = "com.squareup.leakcanary:leakcanary-android",
-      descriptionRes = R.string.oss_leakcanary_description,
-      license = "Apache-2.0",
-      url = "https://github.com/square/leakcanary",
-    ),
-    OpenSourceLibrary(
       name = "Python",
       artifact = "libpython / python313.zip",
       descriptionRes = R.string.oss_python_description,
@@ -1131,4 +1118,10 @@ internal val OPEN_SOURCE_LIBRARIES =
       license = "MIT",
       url = "https://github.com/natural-harmonia-gropius/hdr-toys",
     ),
-  ).sortedBy { library -> library.name.lowercase(Locale.ROOT) }
+  ).filter { library ->
+    when (library.name) {
+      "libtorrent4j" -> BuildConfig.ENABLE_TORRENT
+      "Python", "yt-dlp" -> BuildConfig.ENABLE_YTDLP
+      else -> true
+    }
+  }.sortedBy { library -> library.name.lowercase(Locale.ROOT) }

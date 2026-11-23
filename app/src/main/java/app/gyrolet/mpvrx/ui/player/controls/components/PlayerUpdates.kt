@@ -59,14 +59,12 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModelProvider
 import app.gyrolet.mpvrx.R
 import app.gyrolet.mpvrx.preferences.preference.collectAsState
-import app.gyrolet.mpvrx.ui.liquidglass.LiquidButton
 import app.gyrolet.mpvrx.ui.liquidglass.LocalKyantPlayerBackdrop
 import app.gyrolet.mpvrx.ui.liquidglass.drawCapsuleTint
 import app.gyrolet.mpvrx.ui.liquidglass.liquidGlassEffects
@@ -82,6 +80,7 @@ import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.Capsule
 import `is`.xyz.mpv.Utils
 import kotlin.math.roundToInt
+import java.util.Locale
 import app.gyrolet.mpvrx.ui.player.PlayerActivity
 import app.gyrolet.mpvrx.ui.player.PlayerViewModel
 
@@ -405,18 +404,12 @@ fun ResumedFromPlayerUpdate(
   }
 }
 
-@Composable
-@Preview
-private fun PreviewMultipleSpeedPlayerUpdate() {
-  MultipleSpeedPlayerUpdate(currentSpeed = 2f)
-}
-
 internal fun Float.formatSpeed(): String {
   val rounded = (this * 100f).roundToInt() / 100f
   return if (rounded % 1f == 0f) {
     rounded.toInt().toString()
   } else {
-    String.format("%.2f", rounded).trimEnd('0')
+    String.format(Locale.ROOT, "%.2f", rounded).trimEnd('0')
   }
 }
 

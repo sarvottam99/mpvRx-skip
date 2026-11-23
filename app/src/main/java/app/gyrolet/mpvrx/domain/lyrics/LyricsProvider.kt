@@ -7,10 +7,12 @@ package app.gyrolet.mpvrx.domain.lyrics
 /**
  * Online lyrics databases the repository can ask, in default priority order.
  *
- * Declaration order is the priority inside one quality tier. Every provider is
- * contacted together; actual word-timed lyrics beat line-timed lyrics, which
- * beat plain text. When two providers return the same timing quality, the one
- * declared first wins. The picker uses this order too.
+ * Declaration order is the priority inside one timing grade. Every provider is
+ * contacted together and graded on what it actually returned ([Lyrics.timing]):
+ * lyrics that move word by word on nearly every line beat partly word-timed
+ * lyrics, which beat line-timed lyrics, which beat plain text. When two
+ * providers earn the same grade, the one declared first wins. The picker uses
+ * this order too.
  *
  * [wordSynced] describes provider capability for UI and diagnostics. Automatic
  * selection inspects the returned lyrics because a capable provider can still
@@ -23,17 +25,17 @@ enum class LyricsProvider(
 ) {
   LRC_RED(
     label = "lrc.red",
-    detail = "Apple Music timings filed by recording, syllable by syllable",
+    detail = "Apple Music TTML matched by recording ID or title and artist",
     wordSynced = true,
   ),
   BINI_LYRICS(
     label = "BiniLyrics",
-    detail = "Apple Music timings, matched against the recording itself",
+    detail = "Apple Music TTML matched by metadata or ISRC",
     wordSynced = true,
   ),
   BETTER_LYRICS(
     label = "BetterLyrics",
-    detail = "Apple Music timings, word by word",
+    detail = "Cached Apple Music timings; uncached songs may require authorization",
     wordSynced = true,
   ),
   BETTER_LYRICS_PORTATO(
@@ -41,34 +43,19 @@ enum class LyricsProvider(
     detail = "QQ Music karaoke timings through BetterLyrics",
     wordSynced = true,
   ),
-  PAXSENIX(
-    label = "PaxSenix",
-    detail = "Apple Music timings through a keyless proxy",
-    wordSynced = true,
-  ),
-  PAXSENIX_SPOTIFY(
-    label = "PaxSenix: Spotify",
-    detail = "Spotify lyrics with a PaxSenix fallback; API key required",
-    wordSynced = false,
-  ),
-  PAXSENIX_MUSIXMATCH(
-    label = "PaxSenix: Musixmatch",
-    detail = "Musixmatch timings with a PaxSenix fallback; API key required",
-    wordSynced = true,
-  ),
   LYRICS_PLUS(
     label = "LyricsPlus",
-    detail = "Syllable by syllable, served from community mirrors",
+    detail = "Word, line or plain lyrics from community mirrors; availability varies",
     wordSynced = true,
   ),
   SIMP_MUSIC(
     label = "SimpMusic",
-    detail = "Matched on the playing video, so never the wrong edit",
+    detail = "Community lyrics linked to the playing YouTube video; availability varies by region",
     wordSynced = true,
   ),
   UNISON(
     label = "Unison",
-    detail = "Listener-contributed, so it carries what nobody licensed",
+    detail = "Community-submitted TTML, LRC and plain lyrics",
     wordSynced = true,
   ),
   YOUTUBE_TRANSCRIPT(
@@ -93,17 +80,17 @@ enum class LyricsProvider(
   ),
   LRCLIB(
     label = "LRCLIB",
-    detail = "Whole lines only, and usually up",
+    detail = "Public lyrics database with synced and plain-text results",
     wordSynced = false,
   ),
   MUSIXMATCH(
     label = "Musixmatch",
-    detail = "Word timing from the largest catalogue there is",
-    wordSynced = false,
+    detail = "Word timing with a line-synced fallback; web service availability varies",
+    wordSynced = true,
   ),
   GENIUS(
     label = "Genius",
-    detail = "Plain text last resort, huge web catalogue",
+    detail = "Plain-text lyrics from Genius pages when timed sources are unavailable",
     wordSynced = false,
   ),
   ;

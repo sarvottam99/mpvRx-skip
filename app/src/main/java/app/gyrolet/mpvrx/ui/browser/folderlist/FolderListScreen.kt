@@ -12,7 +12,7 @@ package app.gyrolet.mpvrx.ui.browser.folderlist
 import android.content.Context
 import android.content.Intent
 import android.util.Log
-import android.widget.Toast
+import app.gyrolet.mpvrx.ui.components.AppToast as Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -63,6 +63,7 @@ import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.animateFloatingActionButton
 import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -79,7 +80,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -122,6 +122,7 @@ import app.gyrolet.mpvrx.ui.browser.components.fastScrollGlyph
 import app.gyrolet.mpvrx.ui.browser.dialogs.DeleteConfirmationDialog
 import app.gyrolet.mpvrx.ui.browser.dialogs.FileOperationProgressDialog
 import app.gyrolet.mpvrx.ui.browser.dialogs.FolderPickerDialog
+import app.gyrolet.mpvrx.ui.browser.dialogs.FolderTransfer
 import app.gyrolet.mpvrx.ui.browser.dialogs.FolderSortDialog
 import app.gyrolet.mpvrx.ui.browser.dialogs.BrowserSortDialogScope
 import app.gyrolet.mpvrx.ui.browser.dialogs.rememberBrowserSortDialogOpen
@@ -211,19 +212,18 @@ object FolderListScreen : Screen {
     val browserPreferences = koinInject<BrowserPreferences>()
     val gesturePreferences = koinInject<GesturePreferences>()
     val foldersPreferences = koinInject<FoldersPreferences>()
-    val advancedPreferences = koinInject<app.gyrolet.mpvrx.preferences.AdvancedPreferences>()
     val appearancePreferences = koinInject<AppearancePreferences>()
     val showQuickPlayFab by appearancePreferences.showQuickPlayFab.collectAsState()
     val quickPlayFabDirect by appearancePreferences.quickPlayFabDirect.collectAsState()
 
     // State collection
-    val videoFolders by viewModel.videoFolders.collectAsState()
-    val foldersWithNewCount by viewModel.foldersWithNewCount.collectAsState()
-    val recentlyPlayedFilePath by viewModel.recentlyPlayedFilePath.collectAsState()
-    val isLoading by viewModel.isLoading.collectAsState()
-    val scanStatus by viewModel.scanStatus.collectAsState()
-    val hasCompletedInitialLoad by viewModel.hasCompletedInitialLoad.collectAsState()
-    val foldersWereDeleted by viewModel.foldersWereDeleted.collectAsState()
+    val videoFolders by viewModel.videoFolders.collectAsStateWithLifecycle()
+    val foldersWithNewCount by viewModel.foldersWithNewCount.collectAsStateWithLifecycle()
+    val recentlyPlayedFilePath by viewModel.recentlyPlayedFilePath.collectAsStateWithLifecycle()
+    val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+    val scanStatus by viewModel.scanStatus.collectAsStateWithLifecycle()
+    val hasCompletedInitialLoad by viewModel.hasCompletedInitialLoad.collectAsStateWithLifecycle()
+    val foldersWereDeleted by viewModel.foldersWereDeleted.collectAsStateWithLifecycle()
 
     // Preferences
     val mediaLayoutMode by browserPreferences.folderViewFolderLayoutMode.collectAsState()
@@ -231,7 +231,6 @@ object FolderListScreen : Screen {
     val folderSortType by browserPreferences.folderSortType.collectAsState()
     val folderSortOrder by browserPreferences.folderSortOrder.collectAsState()
     val tapThumbnailToSelect by gesturePreferences.tapThumbnailToSelect.collectAsState()
-    val enableRecentlyPlayed by advancedPreferences.enableRecentlyPlayed.collectAsState()
     val pinnedFolderPaths by foldersPreferences.pinnedFolders.collectAsState()
     val dualPaneForTablet by browserPreferences.dualPaneForTablet.collectAsState()
 
@@ -513,6 +512,7 @@ object FolderListScreen : Screen {
             .getVideosForBuckets(context, selectedIds, includeAudioOverride = if (audioOnly) true else null)
         if (allVideos.isNotEmpty()) {
           val result = secureFolderRepository.moveIn(context, allVideos)
+          moveToSecureProgressOpen.value = false
           result
             .onSuccess { batch ->
               val message =
@@ -522,12 +522,15 @@ object FolderListScreen : Screen {
                   context.getString(R.string.secure_folder_moved_partial, batch.succeededIds.size, batch.failedIds.size)
                 }
               Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-            }.onFailure {
-              Toast.makeText(context, context.getString(R.string.secure_folder_move_failed), Toast.LENGTH_SHORT).show()
+            }.onFailure { error ->
+              Toast.error(context, context.getString(
+                R.string.secure_folder_move_failed_details,
+                error.localizedMessage ?: context.getString(R.string.generic_unknown_error),
+              ))
             }
+          if (result.isSuccess) selectionManager.clear()
         }
         moveToSecureProgressOpen.value = false
-        selectionManager.clear()
         viewModel.refresh()
       }
     }
@@ -590,6 +593,13 @@ object FolderListScreen : Screen {
     app.gyrolet.mpvrx.ui.browser.NavigationBarSelectionEffect(selectionManager.isInSelectionMode)
 
     val isNavigationPageActive = app.gyrolet.mpvrx.ui.utils.LocalNavigationPageActive.current
+    // Measure a usable library (including empty/error/permission screens), not just first compose.
+    // An offscreen pager page must not delay another destination's fully-drawn report.
+    androidx.activity.compose.ReportDrawnWhen {
+      !isNavigationPageActive || !isPermissionSetupCompleted ||
+        (permissionState.status != PermissionStatus.Granted && !canBrowseSelectedFolders) ||
+        hasCompletedInitialLoad
+    }
     // The Folder tab owns its hidden-folder refresh; visiting Library must never be required
     // to notice a .nomedia marker added or removed by an external file manager.
     androidx.lifecycle.compose.LifecycleResumeEffect(viewModel, isNavigationPageActive) {
@@ -725,7 +735,12 @@ object FolderListScreen : Screen {
               },
               onTitleDoubleTap = { backstack.navigateTo(SecureFolderGateScreen) },
               onTitleLongPress = { backstack.navigateTo(SecureFolderGateScreen) },
-              showBetaBadge = BuildConfig.IS_PREVIEW_BUILD,
+              titleBadge =
+                when {
+                  BuildConfig.IS_PREVIEW_BUILD -> stringResource(R.string.ui_beta_badge_suffix)
+                  BuildConfig.IS_PLAY_STORE_BUILD -> stringResource(R.string.ui_tester_badge_suffix)
+                  else -> null
+                },
               onRenameClick = null,
               isSingleSelection = selectionManager.isSingleSelection,
               onInfoClick = showSelectionInfo,
@@ -764,11 +779,11 @@ object FolderListScreen : Screen {
                   foldersPreferences.addBlacklistedFolders(paths, scope)
                   selectionManager.clear()
                   viewModel.refresh()
-                  android.widget.Toast
+                  app.gyrolet.mpvrx.ui.components.AppToast
                     .makeText(
                       context,
                       foldersBlacklistedMessage,
-                      android.widget.Toast.LENGTH_SHORT,
+                      app.gyrolet.mpvrx.ui.components.AppToast.LENGTH_SHORT,
                     ).show()
                 }
               },
@@ -883,8 +898,7 @@ object FolderListScreen : Screen {
                 onClick = {
                   isFabExpanded.value = false
                   coroutineScope.launch {
-                    val recentlyPlayedVideos = RecentlyPlayedOps.getRecentlyPlayed(limit = 1)
-                    val lastPlayed = recentlyPlayedVideos.firstOrNull()
+                    val lastPlayed = RecentlyPlayedOps.getLastPlayedEntity()
                     if (lastPlayed != null) {
                       MediaUtils.playFile(lastPlayed.filePath, context, "recently_played_button")
                     }
@@ -1188,6 +1202,16 @@ object FolderListScreen : Screen {
       isOpen = folderPickerOpen.value,
       currentPath = "",
       onDismiss = { folderPickerOpen.value = false },
+      transfer =
+        operationType.value?.let { type ->
+          FolderTransfer(type) {
+            app.gyrolet.mpvrx.repository.MediaFileRepository.getVideosForBuckets(
+              context,
+              selectionManager.getSelectedItems().map { it.bucketId }.toSet(),
+              includeAudioOverride = if (audioOnly) true else null,
+            )
+          }
+        },
       onFolderSelected = { destinationPath ->
         folderPickerOpen.value = false
         val op = operationType.value
@@ -1289,11 +1313,11 @@ object FolderListScreen : Screen {
             coroutineScope.launch {
               val ok = viewModel.renameFolder(folder, newName)
               if (!ok) {
-                android.widget.Toast
+                app.gyrolet.mpvrx.ui.components.AppToast
                   .makeText(
                     context,
                     context.getString(app.gyrolet.mpvrx.R.string.ui_rename_failed),
-                    android.widget.Toast.LENGTH_SHORT,
+                    app.gyrolet.mpvrx.ui.components.AppToast.LENGTH_SHORT,
                   ).show()
               }
               selectionManager.clear()
@@ -1334,18 +1358,18 @@ object FolderListScreen : Screen {
                 restoreSelectedFolderAfterFailure(selectedFolder)
               }
               if (result.deleted > 0) {
-                android.widget.Toast
+                app.gyrolet.mpvrx.ui.components.AppToast
                   .makeText(
                     context,
                     context.getString(app.gyrolet.mpvrx.R.string.ui_deleted_successfully),
-                    android.widget.Toast.LENGTH_SHORT,
+                    app.gyrolet.mpvrx.ui.components.AppToast.LENGTH_SHORT,
                   ).show()
               } else if (result.failed > 0) {
-                android.widget.Toast
+                app.gyrolet.mpvrx.ui.components.AppToast
                   .makeText(
                     context,
                     context.getString(app.gyrolet.mpvrx.R.string.ui_failed_to_delete),
-                    android.widget.Toast.LENGTH_SHORT,
+                    app.gyrolet.mpvrx.ui.components.AppToast.LENGTH_SHORT,
                   ).show()
               }
             } catch (cancellation: CancellationException) {
@@ -1355,14 +1379,14 @@ object FolderListScreen : Screen {
             } catch (error: Exception) {
               viewModel.finishFolderDeletion(foldersToDelete, foldersToDelete)
               restoreSelectedFolderAfterFailure(selectedFolder)
-              android.widget.Toast
+              app.gyrolet.mpvrx.ui.components.AppToast
                 .makeText(
                   context,
                   context.getString(
                     R.string.toast_failed_to_delete_reason,
                     error.message ?: context.getString(R.string.generic_unknown_error),
                   ),
-                  android.widget.Toast.LENGTH_SHORT,
+                  app.gyrolet.mpvrx.ui.components.AppToast.LENGTH_SHORT,
                 ).show()
             } finally {
               viewModel.refresh()
@@ -1512,7 +1536,13 @@ private fun GridContent(
     remember(foldersWithNewCount) {
       foldersWithNewCount.associate { it.folder.bucketId to it.newVideoCount }
     }
-  val recentlyPlayedParent = remember(recentlyPlayedFilePath) { recentlyPlayedFilePath?.let(::File)?.parent }
+  val recentlyPlayedPath =
+    remember(recentlyPlayedFilePath) {
+      recentlyPlayedFilePath?.let {
+        app.gyrolet.mpvrx.utils.media.ScopedHiddenFolderScanner.localPathOf(android.net.Uri.parse(it)) ?: it
+      }
+    }
+  val recentlyPlayedParent = remember(recentlyPlayedPath) { recentlyPlayedPath?.let(::File)?.parent }
 
   BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
     val browserPreferences = org.koin.compose.koinInject<app.gyrolet.mpvrx.preferences.BrowserPreferences>()
@@ -1554,7 +1584,10 @@ private fun GridContent(
       ) { index ->
         val folder = folders[index]
         val archiveFolder = ZipArchiveMedia.isBrowserPath(folder.path)
-        val isRecentlyPlayed = recentlyPlayedParent == folder.path
+        val folderPath =
+          app.gyrolet.mpvrx.utils.media.ScopedHiddenFolderScanner.localPathOf(android.net.Uri.parse(folder.path))
+            ?: folder.path
+        val isRecentlyPlayed = recentlyPlayedParent == folderPath
         val newCount = newCountByBucketId[folder.bucketId] ?: 0
 
         val isActive = isDualPaneActive && folder.bucketId == selectedFolderBucketId
@@ -1651,7 +1684,13 @@ private fun ListContent(
     remember(foldersWithNewCount) {
       foldersWithNewCount.associate { it.folder.bucketId to it.newVideoCount }
     }
-  val recentlyPlayedParent = remember(recentlyPlayedFilePath) { recentlyPlayedFilePath?.let(::File)?.parent }
+  val recentlyPlayedPath =
+    remember(recentlyPlayedFilePath) {
+      recentlyPlayedFilePath?.let {
+        app.gyrolet.mpvrx.utils.media.ScopedHiddenFolderScanner.localPathOf(android.net.Uri.parse(it)) ?: it
+      }
+    }
+  val recentlyPlayedParent = remember(recentlyPlayedPath) { recentlyPlayedPath?.let(::File)?.parent }
 
   Box(modifier = Modifier.fillMaxSize()) {
     LazyColumn(
@@ -1673,7 +1712,10 @@ private fun ListContent(
       ) { index ->
         val folder = folders[index]
         val archiveFolder = ZipArchiveMedia.isBrowserPath(folder.path)
-        val isRecentlyPlayed = recentlyPlayedParent == folder.path
+        val folderPath =
+          app.gyrolet.mpvrx.utils.media.ScopedHiddenFolderScanner.localPathOf(android.net.Uri.parse(folder.path))
+            ?: folder.path
+        val isRecentlyPlayed = recentlyPlayedParent == folderPath
         val newCount = newCountByBucketId[folder.bucketId] ?: 0
 
         val isActive = isDualPaneActive && folder.bucketId == selectedFolderBucketId
@@ -1787,6 +1829,7 @@ private fun SearchResultsContent(
   val showResolutionChip by browserPreferences.showResolutionChip.collectAsState()
   val showFramerateInResolution by browserPreferences.showFramerateInResolution.collectAsState()
   val showProgressBar by browserPreferences.showProgressBar.collectAsState()
+  val grayscaleWatchedThumbnails by browserPreferences.grayscaleWatchedThumbnails.collectAsState()
   val showDateChip by browserPreferences.showDateChip.collectAsState()
   val showCodecSupportIndicator by browserPreferences.showCodecSupportIndicator.collectAsState()
   val showSubtitleIndicator by browserPreferences.showSubtitleIndicator.collectAsState()
@@ -1809,6 +1852,7 @@ private fun SearchResultsContent(
       showFramerateInResolution,
       showCodecSupportIndicator,
       showProgressBar,
+      grayscaleWatchedThumbnails,
       showDateChip,
       showUnplayedOldVideoLabel,
       unplayedOldVideoDays,
@@ -1828,6 +1872,7 @@ private fun SearchResultsContent(
         showFramerateInResolution = showFramerateInResolution,
         showCodecSupportIndicator = showCodecSupportIndicator,
         showProgressBar = showProgressBar,
+        grayscaleWatchedThumbnails = grayscaleWatchedThumbnails,
         showDateChip = showDateChip,
         showUnplayedOldVideoLabel = showUnplayedOldVideoLabel,
         unplayedOldVideoDays = unplayedOldVideoDays,
@@ -1895,7 +1940,6 @@ private fun SearchResultsContent(
             span = { GridItemSpan(spansInfo.videoSpan) },
           ) { index ->
             val video = videos[index]
-            val archiveEntry = ZipArchiveMedia.isPlaybackUri(video.uri.toString())
             VideoCard(
               video = video,
               isWatched = swipePlaybackInfo[video.path]?.isWatched == true,
@@ -1906,8 +1950,6 @@ private fun SearchResultsContent(
               onThumbClick = { onVideoClick(video) },
               isGridMode = true,
               showSubtitleIndicator = showSubtitleIndicator,
-              allowThumbnailGeneration = !archiveEntry,
-              allowThumbnailLoading = !archiveEntry,
               uiConfig = videoCardUiConfig,
             )
           }
@@ -1965,8 +2007,6 @@ private fun SearchResultsContent(
             isWatched = swipePlaybackInfo[video.path]?.isWatched == true,
             isOldAndUnplayed = swipePlaybackInfo[video.path]?.isOldAndUnplayed == true,
             showSubtitleIndicator = showSubtitleIndicator,
-            allowThumbnailGeneration = !archiveEntry,
-            allowThumbnailLoading = !archiveEntry,
             uiConfig = videoCardUiConfig,
             thumbnailWidthPx = if (video.isAudio) audioCoverArtSizePx else null,
             thumbnailHeightPx = if (video.isAudio) audioCoverArtSizePx else null,

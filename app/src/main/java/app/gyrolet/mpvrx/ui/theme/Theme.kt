@@ -280,6 +280,7 @@ fun MpvrxTheme(
   // The isolated :crash process registers only PreferencesModule, not domainModule.
   // It must not try to resolve GoogleFontsRepository while drawing the recovery UI.
   loadDownloadedFonts: Boolean = true,
+  hostToasts: Boolean = true,
   content: @Composable () -> Unit,
 ) {
   val preferences = koinInject<AppearancePreferences>()
@@ -388,7 +389,9 @@ fun MpvrxTheme(
         motionScheme = MotionScheme.expressive(),
         content = {
           ProvideTvFocusRipple {
-            app.gyrolet.mpvrx.ui.utils.ProvideAppHaptics(content)
+            app.gyrolet.mpvrx.ui.utils.ProvideAppHaptics {
+              if (hostToasts) app.gyrolet.mpvrx.ui.components.AppToastHost(content) else content()
+            }
           }
         },
       )
@@ -404,7 +407,7 @@ internal fun resolveAppColorScheme(
   amoledMode: Boolean,
 ): ColorScheme =
   customTheme?.let { definition ->
-    if (useDarkTheme) definition.darkColorScheme() else definition.lightColorScheme()
+    if (useDarkTheme) definition.darkColorScheme(amoledMode) else definition.lightColorScheme()
   } ?: when {
     appTheme.isDynamic && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
       when {

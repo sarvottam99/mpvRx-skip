@@ -25,7 +25,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -33,7 +32,6 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import app.gyrolet.mpvrx.presentation.components.PlayerSheet
@@ -55,6 +53,7 @@ import app.gyrolet.mpvrx.domain.lyrics.LyricsSourceType
 import app.gyrolet.mpvrx.ui.icons.Icon
 import app.gyrolet.mpvrx.ui.icons.Icons
 import app.gyrolet.mpvrx.ui.player.PlayerViewModel
+import app.gyrolet.mpvrx.ui.player.Sheets
 import app.gyrolet.mpvrx.ui.player.controls.components.LyricsProviderPicker
 import app.gyrolet.mpvrx.ui.theme.fontFamilyForText
 
@@ -129,6 +128,7 @@ fun LyricsSheet(
           }
         }
 
+        LyricsEditAction(viewModel, origin = Sheets.Lyrics)
         IconButton(onClick = onDismiss) {
           Icon(
             imageVector = Icons.RoundedFilled.Close,
@@ -153,7 +153,15 @@ fun LyricsSheet(
           selected = state.selectedSource == LyricsSourceType.EMBEDDED || state.selectedSource == LyricsSourceType.LOCAL,
           onClick = { viewModel.switchLyricsSource(LyricsSourceType.EMBEDDED) },
           label = {
-            Text(if (state.embeddedLyrics?.sourceType == LyricsSourceType.LOCAL) "Local (.lrc)" else "Embedded")
+            Text(
+              stringResource(
+                when {
+                  state.hasSavedEdits -> R.string.lyrics_source_edited
+                  state.embeddedLyrics?.sourceType == LyricsSourceType.LOCAL -> R.string.lyrics_source_local
+                  else -> R.string.lyrics_source_embedded
+                },
+              ),
+            )
           },
           enabled = hasEmbedded || state.selectedSource == LyricsSourceType.EMBEDDED,
           colors = FilterChipDefaults.filterChipColors(

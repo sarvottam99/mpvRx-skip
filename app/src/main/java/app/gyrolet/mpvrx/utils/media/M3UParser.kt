@@ -63,9 +63,9 @@ sealed class M3UParseResult {
 
 /** Resource limits shared by every M3U entry point. */
 data class M3ULimits(
-  val maxBytes: Long = 32L * 1024 * 1024,
-  val maxLines: Int = 300_000,
-  val maxEntries: Int = 100_000,
+  val maxBytes: Long = 256L * 1024 * 1024,
+  val maxLines: Int = 2_000_000,
+  val maxEntries: Int = 500_000,
 ) {
   init {
     require(maxBytes > 0) { "maxBytes must be positive" }
@@ -162,7 +162,7 @@ object M3UParser {
     withContext(Dispatchers.IO) {
       try {
         val sourceUrl =
-          if (uri.authority == "com.android.externalstorage.documents" && DocumentsContract.isTreeUri(uri)) {
+          if (isPathBasedDocumentAuthority(uri.authority) && DocumentsContract.isTreeUri(uri)) {
             uri.toString()
           } else {
             uri.resolveLocalPath(context) ?: uri.toString()
@@ -413,7 +413,7 @@ object M3UParser {
     }
 
     if (File(resource).isAbsolute) return normalizeLocalMediaReference(resource + optionSuffix)
-    if (parsedSource?.scheme == "content" && parsedSource.authority == "com.android.externalstorage.documents") {
+    if (parsedSource?.scheme == "content" && isPathBasedDocumentAuthority(parsedSource.authority)) {
       val sourceUri = Uri.parse(source)
       if (DocumentsContract.isTreeUri(sourceUri)) {
         val documentId = DocumentsContract.getDocumentId(sourceUri)

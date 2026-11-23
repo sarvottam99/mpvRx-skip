@@ -2,9 +2,12 @@
 package app.gyrolet.mpvrx.presentation.components
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.draw.clip
 import androidx.compose.material3.DropdownMenuItem
@@ -15,6 +18,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -24,6 +29,8 @@ import androidx.compose.ui.unit.dp
 import app.gyrolet.mpvrx.ui.theme.AppConnectedControlShapeTokens
 import app.gyrolet.mpvrx.ui.theme.ConnectedLayout
 import app.gyrolet.mpvrx.ui.theme.rememberConnectedShape
+import app.gyrolet.mpvrx.ui.theme.animatedConnectedContainerColor
+import app.gyrolet.mpvrx.ui.theme.appPressFeedback
 import androidx.compose.ui.window.PopupProperties
 
 @Composable
@@ -34,7 +41,7 @@ fun AppDropdownMenu(
   offset: DpOffset = DpOffset(0.dp, 0.dp),
   scrollState: ScrollState = rememberScrollState(),
   properties: PopupProperties = PopupProperties(focusable = true),
-  shape: Shape = RoundedCornerShape(24.dp),
+  shape: Shape = AppComboBoxDefaults.MenuShape,
   containerColor: Color = MaterialTheme.colorScheme.surfaceContainerHigh,
   tonalElevation: Dp = MenuDefaults.TonalElevation,
   shadowElevation: Dp = MenuDefaults.ShadowElevation,
@@ -42,7 +49,8 @@ fun AppDropdownMenu(
   content: @Composable ColumnScope.() -> Unit,
 ) {
   androidx.compose.material3.DropdownMenu(
-    expanded = expanded, onDismissRequest = onDismissRequest, modifier = modifier.widthIn(min = 200.dp, max = 320.dp),
+    expanded = expanded, onDismissRequest = onDismissRequest,
+    modifier = modifier.heightIn(max = AppComboBoxDefaults.MenuMaxHeight).widthIn(min = 200.dp, max = 320.dp),
     offset = offset, scrollState = scrollState, properties = properties, shape = shape,
     containerColor = containerColor, tonalElevation = tonalElevation, shadowElevation = shadowElevation,
     border = border, content = content,
@@ -65,16 +73,24 @@ fun AppDropdownMenuItem(
   leadingIcon: (@Composable () -> Unit)? = null,
   trailingIcon: (@Composable () -> Unit)? = null,
 ) {
+  val interactionSource = remember { MutableInteractionSource() }
+  val pressed by interactionSource.collectIsPressedAsState()
   // A popup has one rounded outer shell. Its inner rows use small shared corners;
   // when the item positions are known the exposed group corners stay expressive.
   val rowShape = if (index != null && itemCount != null && itemCount > 0 && index in 0 until itemCount) {
-    rememberConnectedShape(index, itemCount, ConnectedLayout.Vertical, tokens = AppConnectedControlShapeTokens)
+    rememberConnectedShape(
+      index, itemCount, ConnectedLayout.Vertical, tokens = AppConnectedControlShapeTokens,
+      pressed = pressed && enabled, selected = selected,
+    )
   } else {
     RoundedCornerShape(6.dp)
   }
-  val rowColor =
-    if (selected) MaterialTheme.colorScheme.secondaryContainer
-    else MaterialTheme.colorScheme.surfaceContainerHighest
+  val rowColor = animatedConnectedContainerColor(
+    selected = selected,
+    pressed = pressed,
+    enabled = enabled,
+    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+  )
   val contentColor =
     if (selected) MaterialTheme.colorScheme.onSecondaryContainer
     else MaterialTheme.colorScheme.onSurface
@@ -85,9 +101,11 @@ fun AppDropdownMenuItem(
     modifier =
       modifier
         .padding(horizontal = 6.dp, vertical = 2.dp)
+        .appPressFeedback(interactionSource, enabled = enabled, pressedScale = 0.985f)
         .clip(rowShape)
         .background(rowColor),
     enabled = enabled,
+    interactionSource = interactionSource,
     leadingIcon = leadingIcon,
     trailingIcon = trailingIcon,
     contentPadding = PaddingValues(horizontal = 14.dp),

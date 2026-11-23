@@ -19,6 +19,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -52,14 +53,13 @@ import androidx.compose.material3.CardDefaults
 import app.gyrolet.mpvrx.presentation.components.AppComboBoxChip
 import app.gyrolet.mpvrx.presentation.components.AppDropdownMenu as DropdownMenu
 import app.gyrolet.mpvrx.presentation.components.AppDialogTextButton as TextButton
-import androidx.compose.material3.DropdownMenuItem
+import app.gyrolet.mpvrx.presentation.components.AppDropdownMenuItem as DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
@@ -96,6 +96,7 @@ import app.gyrolet.mpvrx.domain.jellyfin.JellyfinItem
 import app.gyrolet.mpvrx.domain.jellyfin.JellyfinPerson
 import app.gyrolet.mpvrx.domain.jellyfin.JellyfinServer
 import app.gyrolet.mpvrx.presentation.components.RemoteImage
+import app.gyrolet.mpvrx.presentation.components.ResponsiveBottomSheet
 import app.gyrolet.mpvrx.ui.icons.Icon
 import app.gyrolet.mpvrx.ui.icons.Icons
 import java.util.Locale
@@ -107,7 +108,7 @@ import app.gyrolet.mpvrx.ui.browser.music.SharedMusicTrackListItem
 import app.gyrolet.mpvrx.ui.player.PlaybackSession
 import app.gyrolet.mpvrx.ui.player.controls.components.tvFocusHighlight
 import android.content.ActivityNotFoundException
-import android.widget.Toast
+import app.gyrolet.mpvrx.ui.components.AppToast as Toast
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -151,7 +152,7 @@ fun JellyfinDetailSheet(
     val queueState by PlaybackSession.queue.collectAsStateWithLifecycle()
     val currentSessionItem = queueState.currentItem
 
-    ModalBottomSheet(
+    ResponsiveBottomSheet(
       onDismissRequest = onDismiss,
       sheetState = sheetState,
       containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -281,12 +282,12 @@ fun JellyfinDetailSheet(
   var canExpandOverview by remember(item.id) { mutableStateOf(false) }
   val context = LocalContext.current
 
-  ModalBottomSheet(
+  ResponsiveBottomSheet(
     onDismissRequest = onDismiss,
     sheetState = sheetState,
     containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
     contentColor = MaterialTheme.colorScheme.onSurface,
-    dragHandle = null,
+    showDragHandle = false,
     shape = RoundedCornerShape(topStart = 36.dp, topEnd = 36.dp),
   ) {
     Column(
@@ -442,8 +443,8 @@ fun JellyfinDetailSheet(
         modifier =
           Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
+            .padding(horizontal = 16.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
       ) {
         // Tagline
         if (item.taglines.isNotEmpty()) {
@@ -808,6 +809,8 @@ fun JellyfinDetailSheet(
                 DropdownMenuItem(
                   modifier = Modifier.tvFocusHighlight(MaterialTheme.shapes.medium, clipToShape = false),
                   text = { Text(stringResource(R.string.downloads_download_season)) },
+                  index = 0,
+                  itemCount = 2,
                   onClick = {
                     isDownloadMenuOpen = false
                     onDownloadSeason?.invoke()
@@ -816,6 +819,8 @@ fun JellyfinDetailSheet(
                 DropdownMenuItem(
                   modifier = Modifier.tvFocusHighlight(MaterialTheme.shapes.medium, clipToShape = false),
                   text = { Text(stringResource(R.string.downloads_download_series)) },
+                  index = 1,
+                  itemCount = 2,
                   onClick = {
                     isDownloadMenuOpen = false
                     onDownloadSeries?.invoke()
@@ -945,6 +950,187 @@ fun JellyfinDetailSheet(
           }
         }
 
+        // TV Shows: Seasons and Episodes Browser (surfaced right below Storyline)
+        if (item.isSeries && seasons.isNotEmpty()) {
+          val sortedSeasons = remember(seasons) {
+            seasons.sortedWith(
+              compareBy<JellyfinItem> { it.indexNumber ?: Int.MAX_VALUE }
+                .thenBy { it.name },
+            )
+          }
+          val selectedSeason = remember(sortedSeasons, selectedSeasonId) {
+            sortedSeasons.find { it.id == selectedSeasonId } ?: sortedSeasons.firstOrNull()
+          }
+          val watchedEpisodesCount = remember(episodes) { episodes.count { it.isPlayed } }
+
+          Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+          ) {
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+              Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.weight(1f),
+              ) {
+                Text(
+                  text = "Episodes",
+                  style = MaterialTheme.typography.titleMedium,
+                  fontWeight = FontWeight.Bold,
+                  color = MaterialTheme.colorScheme.onSurface,
+                  modifier = Modifier.semantics { heading() },
+                )
+                if (!isEpisodesLoading && episodes.isNotEmpty()) {
+                  Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                  ) {
+                    Text(
+                      text =
+                        if (watchedEpisodesCount > 0) {
+                          "$watchedEpisodesCount/${episodes.size} watched"
+                        } else {
+                          "${episodes.size}"
+                        },
+                      style = MaterialTheme.typography.labelSmall,
+                      fontWeight = FontWeight.Bold,
+                      color = MaterialTheme.colorScheme.primary,
+                      modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                    )
+                  }
+                }
+              }
+
+              if (sortedSeasons.size == 1 && selectedSeason != null) {
+                Surface(
+                  shape = CircleShape,
+                  color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                ) {
+                  Text(
+                    text = selectedSeason.name,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                  )
+                }
+              } else if (sortedSeasons.size > 4) {
+                AppComboBoxChip(
+                  options = sortedSeasons,
+                  selected = selectedSeason,
+                  onSelect = { season -> onSelectSeason(season.id) },
+                  optionLabel = { it.name },
+                  valueText = selectedSeason?.name ?: "Select Season",
+                  contentDescription = "Select Season",
+                  optionSupportingText = { season ->
+                    season.childCount?.takeIf { it > 0 }?.let { "$it ep" }
+                  },
+                )
+              }
+            }
+
+            if (sortedSeasons.size > 1) {
+              LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                modifier = Modifier.bleedHorizontally(16.dp).tvFocusGroup().fillMaxWidth(),
+              ) {
+                items(sortedSeasons, key = { it.id }) { season ->
+                  val isSelectedSeason = season.id == selectedSeason?.id
+                  val epCountSuffix = season.childCount?.takeIf { it > 0 }?.let { " · $it" }.orEmpty()
+                  Surface(
+                    onClick = { onSelectSeason(season.id) },
+                    shape = CircleShape,
+                    color =
+                      if (isSelectedSeason) {
+                        MaterialTheme.colorScheme.primaryContainer
+                      } else {
+                        MaterialTheme.colorScheme.surfaceContainerHigh
+                      },
+                    contentColor =
+                      if (isSelectedSeason) {
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                      } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                      },
+                    border =
+                      BorderStroke(
+                        width = 1.dp,
+                        color =
+                          if (isSelectedSeason) {
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                          } else {
+                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+                          },
+                      ),
+                    modifier = Modifier.height(34.dp).tvFocusHighlight(CircleShape),
+                  ) {
+                    Row(
+                      modifier = Modifier.padding(horizontal = 12.dp),
+                      verticalAlignment = Alignment.CenterVertically,
+                      horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    ) {
+                      if (season.isPlayed) {
+                        Icon(
+                          imageVector = Icons.RoundedFilled.Check,
+                          contentDescription = null,
+                          modifier = Modifier.size(14.dp),
+                          tint =
+                            if (isSelectedSeason) {
+                              MaterialTheme.colorScheme.onPrimaryContainer
+                            } else {
+                              MaterialTheme.colorScheme.primary
+                            },
+                        )
+                      }
+                      Text(
+                        text = "${season.name}$epCountSuffix",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = if (isSelectedSeason) FontWeight.Bold else FontWeight.SemiBold,
+                        maxLines = 1,
+                      )
+                    }
+                  }
+                }
+              }
+            }
+
+            // Connected Episode List
+            if (isEpisodesLoading) {
+              GhostEpisodeRows()
+            } else {
+              Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+              ) {
+                episodes.forEachIndexed { index, episode ->
+                  JellyfinEpisodeCard(
+                    item = episode,
+                    server = server,
+                    index = index,
+                    itemCount = episodes.size,
+                    onPlay = { onPlay(episode, false) },
+                    downloadState =
+                      when {
+                        onDownload == null -> null
+                        episode.id in downloadedItemIds -> EpisodeDownloadState.DOWNLOADED
+                        episode.id in activeDownloadItemIds -> EpisodeDownloadState.ACTIVE
+                        else -> EpisodeDownloadState.NOT_DOWNLOADED
+                      },
+                    downloadProgress = downloadProgressMap[episode.id],
+                    onDownload = { onDownload?.invoke(episode) },
+                    onCancelDownload = { onCancelDownload?.invoke(episode) },
+                  )
+                }
+              }
+            }
+          }
+        }
+
         // Directors, Writers, Producers
         val directors = remember(item.people) { item.directors }
         val writers = remember(item.people) { item.writers }
@@ -1045,8 +1231,8 @@ fun JellyfinDetailSheet(
 
             LazyRow(
               horizontalArrangement = Arrangement.spacedBy(14.dp),
-              contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
-              modifier = Modifier.bleedHorizontally(20.dp).tvFocusGroup().fillMaxWidth(),
+              contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+              modifier = Modifier.bleedHorizontally(16.dp).tvFocusGroup().fillMaxWidth(),
             ) {
               items(cast, key = { "${it.id}|${it.role ?: ""}" }) { person ->
                 Column(
@@ -1071,6 +1257,7 @@ fun JellyfinDetailSheet(
 
                   if (!person.primaryImageTag.isNullOrBlank()) {
                     RemoteImage(
+                      maxDimensionPx = 512,
                       url = personImageUrl,
                       contentDescription = person.name,
                       contentScale = ContentScale.Crop,
@@ -1115,72 +1302,6 @@ fun JellyfinDetailSheet(
                       textAlign = TextAlign.Center,
                     )
                   }
-                }
-              }
-            }
-          }
-        }
-
-        // TV Shows: Seasons and Episodes Browser
-        if (item.isSeries && seasons.isNotEmpty()) {
-          Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-          ) {
-            Text(
-              text = "Episodes",
-              style = MaterialTheme.typography.titleMedium,
-              fontWeight = FontWeight.Bold,
-              color = MaterialTheme.colorScheme.onSurface,
-            )
-
-            // Seasons Dropdown Menu
-            val sortedSeasons = remember(seasons) {
-              seasons.sortedWith(
-                compareBy<JellyfinItem> { it.indexNumber ?: Int.MAX_VALUE }
-                  .thenBy { it.name }
-              )
-            }
-            val selectedSeason = remember(sortedSeasons, selectedSeasonId) {
-              sortedSeasons.find { it.id == selectedSeasonId } ?: sortedSeasons.firstOrNull()
-            }
-
-            AppComboBoxChip(
-              options = sortedSeasons,
-              selected = selectedSeason,
-              onSelect = { season -> onSelectSeason(season.id) },
-              optionLabel = { it.name },
-              valueText = selectedSeason?.name ?: "Select Season",
-              contentDescription = "Select Season",
-              optionSupportingText = { season ->
-                season.childCount?.takeIf { it > 0 }?.let { "$it ep" }
-              },
-            )
-
-            // Episode List
-            if (isEpisodesLoading) {
-              GhostEpisodeRows()
-            } else {
-              Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-              ) {
-                episodes.forEach { episode ->
-                  JellyfinEpisodeCard(
-                    item = episode,
-                    server = server,
-                    onPlay = { onPlay(episode, false) },
-                    downloadState =
-                      when {
-                        onDownload == null -> null
-                        episode.id in downloadedItemIds -> EpisodeDownloadState.DOWNLOADED
-                        episode.id in activeDownloadItemIds -> EpisodeDownloadState.ACTIVE
-                        else -> EpisodeDownloadState.NOT_DOWNLOADED
-                      },
-                    downloadProgress = downloadProgressMap[episode.id],
-                    onDownload = { onDownload?.invoke(episode) },
-                    onCancelDownload = { onCancelDownload?.invoke(episode) },
-                  )
                 }
               }
             }
@@ -1252,9 +1373,9 @@ fun JellyfinDetailSheet(
             )
 
             LazyRow(
-              modifier = Modifier.bleedHorizontally(20.dp).tvFocusGroup(),
+              modifier = Modifier.bleedHorizontally(16.dp).tvFocusGroup(),
               horizontalArrangement = Arrangement.spacedBy(JellyfinSpacing.RowItemGap),
-              contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 8.dp),
+              contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 8.dp),
             ) {
               items(similarItems, key = { it.id }) { similarItem ->
                 JellyfinPosterCard(
@@ -1302,21 +1423,27 @@ private fun GhostBlock(modifier: Modifier = Modifier) {
 private fun GhostEpisodeRows(count: Int = 4) {
   Column(
     modifier = Modifier.fillMaxWidth(),
-    verticalArrangement = Arrangement.spacedBy(10.dp),
+    verticalArrangement = Arrangement.spacedBy(4.dp),
   ) {
     repeat(count) {
-      Row(
+      Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
       ) {
-        GhostBlock(Modifier.width(128.dp).height(72.dp))
-        Column(
-          modifier = Modifier.weight(1f),
-          verticalArrangement = Arrangement.spacedBy(8.dp),
+        Row(
+          modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 9.dp),
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-          GhostBlock(Modifier.fillMaxWidth(0.72f).height(14.dp))
-          GhostBlock(Modifier.fillMaxWidth(0.45f).height(12.dp))
+          GhostBlock(Modifier.width(112.dp).height(63.dp))
+          Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+          ) {
+            GhostBlock(Modifier.fillMaxWidth(0.68f).height(14.dp))
+            GhostBlock(Modifier.fillMaxWidth(0.42f).height(11.dp))
+          }
         }
       }
     }

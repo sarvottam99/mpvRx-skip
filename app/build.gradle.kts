@@ -37,7 +37,6 @@ val localProperties =
 
 val targetAbiProp = project.findProperty("targetAbi")?.toString() ?: localProperties.getProperty("targetAbi")
 val enableX86 = project.findProperty("enableX86") != "false"
-val isExperimentalBuild = project.findProperty("experimentalBuild")?.toString()?.toBoolean() == true
 val x86Abis = if (enableX86) listOf("x86", "x86_64") else emptyList()
 val activeAbis =
   if (!targetAbiProp.isNullOrBlank()) {
@@ -52,7 +51,7 @@ val sideloadDistributions = setOf("standard", "noVulkan", "fongmi")
 // AGP cannot build an app bundle while ABI splits produce multiple APKs (issuetracker 402800800).
 val isBundleBuild =
   gradle.startParameter.taskNames.any { it.substringAfterLast(':').startsWith("bundle") }
-val releaseVersionCode = 302
+val releaseVersionCode = 305
 val versionCodeBandSize = 10_000
 val stableVersionCode = releaseVersionCode * versionCodeBandSize + (versionCodeBandSize - 1)
 val previewVersionCode =
@@ -79,7 +78,11 @@ androidComponents {
 
 android {
   namespace = "app.gyrolet.mpvrx"
-  compileSdk = 37
+  compileSdk {
+    version = release(37) {
+      minorApiLevel = 2
+    }
+  }
   ndkVersion = "27.3.13750724"
 
   defaultConfig {
@@ -89,7 +92,7 @@ android {
     // Stable occupies the top of its version band. Preview uses the next band's commit-count
     // offset, so Stable -> Preview -> newer Preview -> next Stable is always an Android upgrade.
     versionCode = stableVersionCode
-    versionName = "3.0.2"
+    versionName = "3.1.1"
 
     vectorDrawables {
       useSupportLibrary = true
@@ -123,16 +126,36 @@ android {
       buildConfigField("boolean", "SCOPED_STORAGE_ONLY", "false")
       buildConfigField("boolean", "MPV_SUPPORTS_VULKAN", "true")
       buildConfigField("boolean", "MPV_SUPPORTS_MEDIACODEC_VULKAN", "false")
+      // FongMi's mpv ships the GPU motion interpolation core.
+      buildConfigField("boolean", "MPV_SUPPORTS_MOTION_INTERPOLATION", "false")
+      // FongMi's mpv can send Dolby Vision straight to MediaCodec with a separate subtitle Surface.
+      buildConfigField("boolean", "MPV_SUPPORTS_DOLBY_VISION_DIRECT", "false")
+      // FongMi's mpv swaps the Android Surface inside the running video output.
+      buildConfigField("boolean", "MPV_SUPPORTS_IN_PLACE_SURFACE", "false")
+      // FongMi's mpv adds subtitle offset, image subtitle, live, passthrough, disc image,
+      // renderer switch and Android Surface layout options, properties and commands.
+      buildConfigField("boolean", "MPV_SUPPORTS_FONGMI_EXTENSIONS", "false")
     }
 
     create("playstore") {
       dimension = "distribution"
+      // Google Play listing package; sideload builds keep app.gyrolet.mpvrx.
+      applicationId = "com.gyrolet.mpvrx"
       buildConfigField("boolean", "IS_PLAY_STORE_BUILD", "true")
       buildConfigField("boolean", "ENABLE_UPDATE_FEATURE", "false")
       buildConfigField("String", "UPDATE_APK_VARIANT", "\"standard\"")
       buildConfigField("boolean", "SCOPED_STORAGE_ONLY", "true")
       buildConfigField("boolean", "MPV_SUPPORTS_VULKAN", "true")
       buildConfigField("boolean", "MPV_SUPPORTS_MEDIACODEC_VULKAN", "false")
+      // FongMi's mpv ships the GPU motion interpolation core.
+      buildConfigField("boolean", "MPV_SUPPORTS_MOTION_INTERPOLATION", "false")
+      // FongMi's mpv can send Dolby Vision straight to MediaCodec with a separate subtitle Surface.
+      buildConfigField("boolean", "MPV_SUPPORTS_DOLBY_VISION_DIRECT", "false")
+      // FongMi's mpv swaps the Android Surface inside the running video output.
+      buildConfigField("boolean", "MPV_SUPPORTS_IN_PLACE_SURFACE", "false")
+      // FongMi's mpv adds subtitle offset, image subtitle, live, passthrough, disc image,
+      // renderer switch and Android Surface layout options, properties and commands.
+      buildConfigField("boolean", "MPV_SUPPORTS_FONGMI_EXTENSIONS", "false")
     }
 
     create("noVulkan") {
@@ -143,6 +166,15 @@ android {
       buildConfigField("boolean", "SCOPED_STORAGE_ONLY", "false")
       buildConfigField("boolean", "MPV_SUPPORTS_VULKAN", "false")
       buildConfigField("boolean", "MPV_SUPPORTS_MEDIACODEC_VULKAN", "false")
+      // FongMi's mpv ships the GPU motion interpolation core.
+      buildConfigField("boolean", "MPV_SUPPORTS_MOTION_INTERPOLATION", "false")
+      // FongMi's mpv can send Dolby Vision straight to MediaCodec with a separate subtitle Surface.
+      buildConfigField("boolean", "MPV_SUPPORTS_DOLBY_VISION_DIRECT", "false")
+      // FongMi's mpv swaps the Android Surface inside the running video output.
+      buildConfigField("boolean", "MPV_SUPPORTS_IN_PLACE_SURFACE", "false")
+      // FongMi's mpv adds subtitle offset, image subtitle, live, passthrough, disc image,
+      // renderer switch and Android Surface layout options, properties and commands.
+      buildConfigField("boolean", "MPV_SUPPORTS_FONGMI_EXTENSIONS", "false")
     }
 
     create("fongmi") {
@@ -153,11 +185,22 @@ android {
       buildConfigField("boolean", "SCOPED_STORAGE_ONLY", "false")
       buildConfigField("boolean", "MPV_SUPPORTS_VULKAN", "true")
       buildConfigField("boolean", "MPV_SUPPORTS_MEDIACODEC_VULKAN", "true")
+      // FongMi's mpv ships the GPU motion interpolation core.
+      buildConfigField("boolean", "MPV_SUPPORTS_MOTION_INTERPOLATION", "true")
+      // FongMi's mpv can send Dolby Vision straight to MediaCodec with a separate subtitle Surface.
+      buildConfigField("boolean", "MPV_SUPPORTS_DOLBY_VISION_DIRECT", "true")
+      // FongMi's mpv swaps the Android Surface inside the running video output.
+      buildConfigField("boolean", "MPV_SUPPORTS_IN_PLACE_SURFACE", "true")
+      // FongMi's mpv adds subtitle offset, image subtitle, live, passthrough, disc image,
+      // renderer switch and Android Surface layout options, properties and commands.
+      buildConfigField("boolean", "MPV_SUPPORTS_FONGMI_EXTENSIONS", "true")
     }
 
     configureEach {
       val enableYtdlp = name in sideloadDistributions
       buildConfigField("boolean", "ENABLE_YTDLP", enableYtdlp.toString())
+      buildConfigField("boolean", "ENABLE_TORRENT", enableYtdlp.toString())
+      if (enableYtdlp) proguardFile("src/sideload/proguard-rules.pro")
       externalNativeBuild {
         cmake {
           arguments += "-DMPVRX_ENABLE_YTDLP=${if (enableYtdlp) "ON" else "OFF"}"
@@ -169,6 +212,9 @@ android {
   sourceSets {
     sideloadDistributions.forEach { flavor ->
       getByName(flavor).apply {
+        // AGP's built-in Kotlin requires custom Kotlin directories on this source set.
+        kotlin.directories.add("src/sideload/java")
+        manifest.srcFile("src/sideload/AndroidManifest.xml")
         assets.directories.add("src/ytdlp/assets")
         jniLibs.directories.add("src/ytdlp/jniLibs")
       }
@@ -192,8 +238,6 @@ android {
   buildTypes {
     named("release") {
       buildConfigField("boolean", "IS_PREVIEW_BUILD", "false")
-      buildConfigField("boolean", "IS_EXPERIMENTAL_BUILD", isExperimentalBuild.toString())
-      if (isExperimentalBuild) versionNameSuffix = "-exp.r${getCommitCount()}"
       isMinifyEnabled = true
       isShrinkResources = true
       proguardFiles(
@@ -201,7 +245,9 @@ android {
         "proguard-rules.pro",
       )
       ndk {
-        debugSymbolLevel = "none"
+        // Include native symbol tables in Play Store app bundles for crash/ANR diagnosis.
+        // Keep the smaller symbol-table level instead of bundling full DWARF info.
+        debugSymbolLevel = "SYMBOL_TABLE"
       }
     }
 
@@ -209,13 +255,11 @@ android {
       initWith(getByName("release"))
       signingConfig = signingConfigs.getByName("debug")
       buildConfigField("boolean", "IS_PREVIEW_BUILD", "true")
-      buildConfigField("boolean", "IS_EXPERIMENTAL_BUILD", "false")
       versionNameSuffix = "-beta.r${getCommitCount()}"
     }
 
     named("debug") {
       buildConfigField("boolean", "IS_PREVIEW_BUILD", "false")
-      buildConfigField("boolean", "IS_EXPERIMENTAL_BUILD", "false")
       applicationIdSuffix = ".debug"
       versionNameSuffix = "-${getCommitCount()}"
       resValue("string", "app_name", "mpvRx-Debug")
@@ -278,6 +322,14 @@ androidComponents {
         dimension == "distribution" && flavor in universalOnlyDistributions
       }
 
+    // Play Console requires a fresh code for each uploaded commit. Both the APK and AAB
+    // use the same history-derived code; rebuilding a commit keeps its identity stable.
+    val isPlayStoreRelease =
+      variant.buildType == "release" &&
+        variant.productFlavors.any { (dimension, flavor) ->
+          dimension == "distribution" && flavor == "playstore"
+        }
+
     variant.outputs.forEach { output ->
       val abi =
         output.filters
@@ -289,12 +341,29 @@ androidComponents {
       }
 
       val channelVersionCode =
-        if (variant.buildType == "preview" || (variant.buildType == "release" && isExperimentalBuild)) {
+        if (variant.buildType == "preview") {
           previewVersionCode
         } else {
           output.versionCode.orNull ?: stableVersionCode
         }
-      output.versionCode.set(channelVersionCode * 10 + (abiCodes[abi] ?: 0))
+      if (isPlayStoreRelease) {
+        output.versionCode.set(providers.provider {
+          check(runCommand("git rev-parse --is-shallow-repository") == "false") {
+            "Play Store release builds require full Git history (fetch-depth: 0)."
+          }
+          val commitCount = getCommitCount().toIntOrNull()
+          check(commitCount != null && commitCount > 0) {
+            "Cannot determine the Play Store version code without a Git commit count."
+          }
+          val playStoreVersionCode = stableVersionCode.toLong() * 10 + commitCount
+          check(playStoreVersionCode <= 2_100_000_000L) {
+            "Play Store version code exceeds Google Play's limit."
+          }
+          playStoreVersionCode.toInt()
+        })
+      } else {
+        output.versionCode.set(channelVersionCode * 10 + (abiCodes[abi] ?: 0))
+      }
     }
   }
 }
@@ -318,16 +387,25 @@ room {
   schemaDirectory("$projectDir/schemas")
 }
 
+// Ship no ART profiles: AGP otherwise compiles the AndroidX libraries' own profiles into each release.
+tasks.configureEach {
+  if (name.startsWith("compile") && name.endsWith("ArtProfile")) enabled = false
+}
+
+configurations.configureEach {
+  // AndroidX pulls ProfileInstaller in only to install those profiles.
+  exclude(group = "androidx.profileinstaller", module = "profileinstaller")
+}
+
 dependencies {
   implementation(libs.androidx.activity.compose)
   implementation(platform(libs.androidx.compose.bom))
   implementation(libs.androidx.ui)
   implementation(libs.androidx.ui.graphics)
+  implementation(libs.androidsvg)
   implementation(libs.androidx.material3.android)
   implementation(libs.google.material)
-  implementation(libs.androidx.ui.tooling.preview)
   debugImplementation(libs.androidx.ui.tooling)
-  debugImplementation(libs.leakcanary.android)
   implementation(libs.bundles.compose.navigation3)
   implementation(libs.androidx.appcompat)
   implementation(libs.androidx.core.ktx)
@@ -353,7 +431,6 @@ dependencies {
 
   implementation(libs.room.runtime)
   ksp(libs.room.compiler)
-  implementation(libs.room.ktx)
 
   implementation(libs.kotlinx.immutable.collections)
   implementation(libs.kotlinx.serialization.json)
@@ -364,6 +441,7 @@ dependencies {
   implementation(libs.androidx.media3.exoplayer.hls)
   implementation(libs.androidx.media3.effect)
   implementation(libs.androidx.media3.transformer)
+  implementation(libs.androidx.media3.ui)
   implementation(platform(libs.sora.editor.bom))
   implementation(libs.sora.editor)
   implementation(libs.sora.language.textmate)
@@ -406,10 +484,9 @@ dependencies {
   implementation(libs.kyant.backdrop)
   implementation(libs.kyant.shapes)
 
-  // libtorrent4j's Java API compiles everywhere; its native library for every enabled APK ABI
-  // ships only where torrent streaming exists.
-  implementation(libs.libtorrent4j)
+  // Keep both the Java API and native payloads out of the Play Store compilation classpath.
   sideloadDistributions.forEach { flavor ->
+    "${flavor}Implementation"(libs.libtorrent4j)
     "${flavor}Implementation"(libs.libtorrent4j.android.arm64)
     "${flavor}Implementation"(libs.libtorrent4j.android.arm)
     if (enableX86) {

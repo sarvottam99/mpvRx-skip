@@ -11,7 +11,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
-import android.widget.Toast
+import app.gyrolet.mpvrx.ui.components.AppToast as Toast
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -19,7 +19,7 @@ import androidx.activity.compose.BackHandler
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -27,6 +27,7 @@ import app.gyrolet.mpvrx.presentation.components.AppAlertDialog as AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -41,10 +42,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.gyrolet.mpvrx.R
+import app.gyrolet.mpvrx.ui.icons.Icon
+import app.gyrolet.mpvrx.ui.icons.Icons
 import app.gyrolet.mpvrx.preferences.AdvancedPreferences
 import app.gyrolet.mpvrx.ui.player.MpvConfigCache
 import app.gyrolet.mpvrx.ui.theme.MpvrxTheme
+import app.gyrolet.mpvrx.ui.tv.startForResultOrToast
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -57,6 +64,10 @@ import java.util.Locale
  * never replaces the active app configuration.
  */
 class ExternalTextEditorActivity : AppCompatActivity() {
+  @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION")
+  override fun startActivityForResult(intent: Intent, requestCode: Int, options: Bundle?) =
+    startForResultOrToast(intent, requestCode) { target -> super.startActivityForResult(target, requestCode, options) }
+
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     val sourceIntent = intent ?: run { finish(); return }
@@ -180,10 +191,10 @@ private fun ExternalTextEditorScreen(
             ?: error("The document provider does not permit writing")
         }
         if (text == savedText) dirty = false
-        Toast.makeText(context, "Saved $fileName", Toast.LENGTH_SHORT).show()
+        Toast.success(context, "Saved $fileName")
         if (closeOnSuccess && !dirty) onClose()
       } catch (e: Exception) {
-        Toast.makeText(context, "Save failed: ${e.message}", Toast.LENGTH_LONG).show()
+        Toast.error(context, "Save failed: ${e.message}")
       } finally {
         busy = false
       }
@@ -191,7 +202,8 @@ private fun ExternalTextEditorScreen(
   }
 
   val createCopy = rememberLauncherForActivityResult(
-    ActivityResultContracts.CreateDocument("text/plain"),
+    // Let the original filename determine its type; text/plain makes providers append .txt.
+    ActivityResultContracts.CreateDocument("application/octet-stream"),
   ) { destination ->
     if (destination != null) writeDocument(destination, closeOnSuccess = false)
   }
@@ -229,10 +241,10 @@ private fun ExternalTextEditorScreen(
                   java.io.File(context.filesDir, "input.conf").writeText(importedText)
                 }
               }
-              Toast.makeText(context, "Imported $fileName", Toast.LENGTH_SHORT).show()
+              Toast.success(context, "Imported $fileName")
               onClose()
             } catch (e: Exception) {
-              Toast.makeText(context, "Import failed: ${e.message}", Toast.LENGTH_LONG).show()
+              Toast.error(context, "Import failed: ${e.message}")
             }
           }
         }) { Text("Import") }
@@ -244,8 +256,12 @@ private fun ExternalTextEditorScreen(
   Scaffold(
     topBar = {
       TopAppBar(
-        title = { Text(fileName, maxLines = 1) },
-        navigationIcon = { TextButton(onClick = ::requestClose) { Text("Back") } },
+        title = { Text(fileName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        navigationIcon = {
+          IconButton(onClick = ::requestClose) {
+            Icon(Icons.RoundedFilled.ArrowBack, contentDescription = stringResource(R.string.back))
+          }
+        },
       )
     },
   ) { padding ->
@@ -258,20 +274,21 @@ private fun ExternalTextEditorScreen(
         )
         !loaded -> CircularProgressIndicator(Modifier.padding(20.dp))
         else -> {
-          Row(
+          FlowRow(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
           ) {
             Button(
               enabled = dirty && canWriteOriginal && !busy,
               onClick = { writeDocument(uri, closeOnSuccess = false) },
-            ) { Text("Save") }
+            ) { Text(stringResource(R.string.ui_save)) }
             OutlinedButton(enabled = !busy, onClick = { createCopy.launch(fileName) }) {
               Text("Save as…")
             }
             if (isMpvConfig || isInputConfig) {
               OutlinedButton(enabled = !busy, onClick = { showImport = true }) {
-                Text("Import to mpvRx")
+                Text(stringResource(R.string.ui_import))
               }
             }
           }
