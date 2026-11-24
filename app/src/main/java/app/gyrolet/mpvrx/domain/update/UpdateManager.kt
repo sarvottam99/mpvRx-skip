@@ -81,11 +81,12 @@ class UpdateManager(
 
     val isNewer =
       when (channel) {
-        AppUpdateChannel.STABLE, AppUpdateChannel.MPVRX_SKIP -> {
-          val currentVersion = if (channel == AppUpdateChannel.MPVRX_SKIP) MPVRX_SKIP_VERSION else BuildConfig.VERSION_NAME.substringBefore('-')
+        AppUpdateChannel.STABLE -> {
+          val currentVersion = BuildConfig.VERSION_NAME.substringBefore('-')
           isNewerVersion(release.tagName.removePrefix("v"), currentVersion)
         }
-        AppUpdateChannel.PREVIEW -> isNewerPreviewBuild(release)
+        AppUpdateChannel.PREVIEW, AppUpdateChannel.EXPERIMENTAL -> isNewerCiBuild(release, channel)
+        AppUpdateChannel.MPVRX_SKIP -> isNewerVersion(release.tagName.removePrefix("v"), MPVRX_SKIP_VERSION)
       }
 
     return if (isNewer) {
@@ -96,15 +97,22 @@ class UpdateManager(
   }
 
   /**
-   * Preview feeds publish the newest CI build of master. Commit counts order
+   * Preview and experimental feeds publish the newest CI build of master. Commit counts order
    * builds, but an amended or force-pushed master publishes a different commit at the same count,
    * which must still reach users who already run that count.
    */
-  private fun isNewerPreviewBuild(release: Release): Boolean {
-    val remoteBuild = release.previewBuildNumber ?: return false
+  private fun isNewerCiBuild(
+    release: Release,
+    channel: AppUpdateChannel,
+  ): Boolean {
+    val isPreview = channel == AppUpdateChannel.PREVIEW
+    val remoteBuild =
+      (if (isPreview) release.previewBuildNumber else release.experimentalBuildNumber) ?: return false
     if (remoteBuild != BuildConfig.GIT_COUNT) return remoteBuild > BuildConfig.GIT_COUNT
 
-    return !BuildConfig.IS_PREVIEW_BUILD || isDifferentCommit(release.commitSha)
+    val alreadyOnChannel =
+      if (isPreview) BuildConfig.IS_PREVIEW_BUILD else BuildConfig.IS_EXPERIMENTAL_BUILD
+    return !alreadyOnChannel || isDifferentCommit(release.commitSha)
   }
 
   private fun isDifferentCommit(remoteSha: String?): Boolean {
@@ -116,9 +124,11 @@ class UpdateManager(
 
   internal fun isInstalledRelease(release: Release): Boolean =
     when {
+      release.isExperimental -> BuildConfig.IS_EXPERIMENTAL_BUILD &&
+        release.experimentalBuildNumber == BuildConfig.GIT_COUNT && !isDifferentCommit(release.commitSha)
       release.isPreview -> BuildConfig.IS_PREVIEW_BUILD &&
         release.previewBuildNumber == BuildConfig.GIT_COUNT && !isDifferentCommit(release.commitSha)
-      else -> !BuildConfig.IS_PREVIEW_BUILD &&
+      else -> !BuildConfig.IS_EXPERIMENTAL_BUILD && !BuildConfig.IS_PREVIEW_BUILD &&
         release.tagName.removePrefix("v") == BuildConfig.VERSION_NAME.substringBefore('-')
     }
 

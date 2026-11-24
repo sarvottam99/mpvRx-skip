@@ -403,6 +403,7 @@ object PreferencesScreen : ScrollableSettingsScreen {
       SettingsSection(
         title = stringResource(R.string.pref_section_utilities),
         tint = colorScheme.onSurfaceVariant,
+        iconContainerColor = colorScheme.surfaceContainerHighest,
         items =
           listOf(
             SettingsDestination(

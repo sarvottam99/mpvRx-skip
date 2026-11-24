@@ -47,27 +47,51 @@ data class Release(
         null
       }
 
-  // Preview feeds are rolling, and an amended or force-pushed master republishes the same commit count,
+  val isExperimental: Boolean
+    get() = channel.equals("experimental", ignoreCase = true) || tagName.equals("experimental", ignoreCase = true)
+
+  val experimentalBuildNumber: Int?
+    get() =
+      if (isExperimental) {
+        commitCount ?: BUILD_NUMBER_REGEX.find(name)?.groupValues?.getOrNull(1)?.toIntOrNull()
+      } else {
+        null
+      }
+
+  /** Preview and experimental feeds both describe one CI build of master; stable releases do not. */
+  private val ciChannelName: String?
+    get() =
+      when {
+        isExperimental -> "experimental"
+        isPreview -> "preview"
+        else -> null
+      }
+
+  private val ciBuildNumber: Int?
+    get() = experimentalBuildNumber ?: previewBuildNumber
+
+  // CI feeds are rolling, and an amended or force-pushed master republishes the same commit count,
   // so the key carries the commit: ignoring one build must not ignore a different build at that count.
   val updateKey: String
     get() {
-      if (!isPreview) return tagName
-      val buildNumber = previewBuildNumber ?: return tagName
+      val channelName = ciChannelName ?: return tagName
+      val buildNumber = ciBuildNumber ?: return tagName
       val commit = commitSha?.trim()?.take(SHORT_SHA_LENGTH)?.takeIf { it.isNotEmpty() }
-      return listOfNotNull("preview-r$buildNumber", commit).joinToString("-")
+      return listOfNotNull("$channelName-r$buildNumber", commit).joinToString("-")
     }
 
   // Old assets stay available during publication. Never select one from a different build.
   val updateAssets: List<Asset>
     get() {
-      if (!isPreview) return assets
-      val buildNumber = previewBuildNumber ?: return emptyList()
-      return assets.filter { it.name.startsWith("mpvRx-preview-r$buildNumber-", ignoreCase = true) }
+      val channelName = ciChannelName ?: return assets
+      val buildNumber = ciBuildNumber ?: return emptyList()
+      return assets.filter { it.name.startsWith("mpvRx-$channelName-r$buildNumber-", ignoreCase = true) }
     }
 
   companion object {
     private const val SHORT_SHA_LENGTH = 7
     private val PREVIEW_TAG_REGEX = Regex("""(?:preview-)?r(\d+)""", RegexOption.IGNORE_CASE)
+    private val BUILD_NUMBER_REGEX = Regex("""\br(\d+)\b""", RegexOption.IGNORE_CASE)
   }
 }
 

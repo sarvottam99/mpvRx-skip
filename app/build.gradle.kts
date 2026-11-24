@@ -37,6 +37,7 @@ val localProperties =
 
 val targetAbiProp = project.findProperty("targetAbi")?.toString() ?: localProperties.getProperty("targetAbi")
 val enableX86 = project.findProperty("enableX86") != "false"
+val isExperimentalBuild = project.findProperty("experimentalBuild")?.toString()?.toBoolean() == true
 val x86Abis = if (enableX86) listOf("x86", "x86_64") else emptyList()
 val activeAbis =
   if (!targetAbiProp.isNullOrBlank()) {
@@ -238,6 +239,8 @@ android {
   buildTypes {
     named("release") {
       buildConfigField("boolean", "IS_PREVIEW_BUILD", "false")
+      buildConfigField("boolean", "IS_EXPERIMENTAL_BUILD", isExperimentalBuild.toString())
+      if (isExperimentalBuild) versionNameSuffix = "-exp.r${getCommitCount()}"
       isMinifyEnabled = true
       isShrinkResources = true
       proguardFiles(
@@ -255,11 +258,13 @@ android {
       initWith(getByName("release"))
       signingConfig = signingConfigs.getByName("debug")
       buildConfigField("boolean", "IS_PREVIEW_BUILD", "true")
+      buildConfigField("boolean", "IS_EXPERIMENTAL_BUILD", "false")
       versionNameSuffix = "-beta.r${getCommitCount()}"
     }
 
     named("debug") {
       buildConfigField("boolean", "IS_PREVIEW_BUILD", "false")
+      buildConfigField("boolean", "IS_EXPERIMENTAL_BUILD", "false")
       applicationIdSuffix = ".debug"
       versionNameSuffix = "-${getCommitCount()}"
       resValue("string", "app_name", "mpvRx-Debug")
