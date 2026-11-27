@@ -256,7 +256,14 @@ class TrackSelector(
     for (preference in preferred) {
       val match = subTracks.mapNotNull { track -> matchRank(track, preference)?.let { track to it } }
         .minWithOrNull(
-          compareBy<Pair<Track, Int>> { if (isCleanSubtitle(it.first)) 0 else 1 }
+          compareBy<Pair<Track, Int>> {
+            when {
+              isSdhPreference(preference) && isSdhTrack(it.first) -> 0
+              isSdhPreference(preference) -> 1
+              isCleanSubtitle(it.first) -> 0
+              else -> 1
+            }
+          }
             .thenBy { it.second }
             .thenBy { if (it.first.external) 0 else 1 }
             .thenBy {
@@ -313,7 +320,25 @@ class TrackSelector(
       tracks.any { it.type == "audio" && languageTag(it.lang)?.substringBefore('-') == "ja" }
   }
 
+  private fun isSdhPreference(preference: String): Boolean {
+    val normalized = preference.trim().lowercase(Locale.ROOT).replace('_', '-')
+    return normalized == "sdh" || normalized.endsWith("-sdh")
+  }
+
+  private fun isSdhTrack(track: Track): Boolean =
+    track.hearing ||
+      SubtitleTitleMatcher.findBestMatchIndex(listOf(track.title), listOf("sdh")) != null
+
   private fun matchRank(track: Track, preference: String): Int? {
+    val normalized = preference.trim().lowercase(Locale.ROOT).replace('_', '-')
+
+    if (normalized == "sdh") return 0.takeIf { isSdhTrack(track) }
+
+    if (normalized.endsWith("-sdh")) {
+      if (!isSdhTrack(track)) return null
+      return matchRank(track, normalized.removeSuffix("-sdh"))
+    }
+
     if (preference == "*") return 2
     val preferredTag = languageTag(preference)
     if (preferredTag == null) {
